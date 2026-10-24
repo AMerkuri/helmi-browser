@@ -53,13 +53,16 @@
     // Reply to hello: rules for this URL plus cached verdicts for the site.
     init(msg) {
       Object.assign(config, msg.config || {});
-      if (!config.observeOnly) {
-        addCss(msg.css || '');
-        if (msg.script) runScript(msg.script);
-        state.procedural = msg.procedural || [];
-      }
       state.siteRules = msg.siteRules || [];
-      start();
+      try {
+        if (!config.observeOnly) {
+          addCss(msg.css || '');
+          if (msg.script) runScript(msg.script);
+          state.procedural = msg.procedural || [];
+        }
+      } finally {
+        start(); // whatever happens to the rules, the detector must still run
+      }
     },
     generic(msg) {
       if (!config.observeOnly) addCss(msg.css || '');
@@ -77,12 +80,28 @@
 
   function addCss(css) {
     if (!css) return;
-    if (!state.styleEl || !state.styleEl.isConnected) {
+    if (!state.styleEl) {
       state.styleEl = document.createElement('style');
       state.styleEl.setAttribute(ATTR, 'rules');
-      (document.head || document.documentElement).appendChild(state.styleEl);
     }
     state.styleEl.textContent += css + '\n';
+    if (!state.styleEl.isConnected) attachStyle();
+  }
+
+  // The host's reply can arrive before the parser has created <html> (slow first bytes), so
+  // wait for a parent instead of throwing; a throw here used to stop the detector starting.
+  function attachStyle() {
+    const parent = document.head || document.documentElement;
+    if (parent) { parent.appendChild(state.styleEl); return; }
+    if (state.styleWait) return;
+    state.styleWait = new MutationObserver(() => {
+      const p = document.head || document.documentElement;
+      if (!p) return;
+      state.styleWait.disconnect();
+      state.styleWait = null;
+      p.appendChild(state.styleEl);
+    });
+    state.styleWait.observe(document, { childList: true, subtree: true });
   }
 
   function runScript(code) {
@@ -242,16 +261,23 @@
       if (!f) continue;
       state.seen.add(root);
       const id = state.nextId++;
-      state.candidates.set(id, { el: root, buttons: f._buttons, sig: f.sig, iframes: f._iframes });
+      state.candidates.set(id, { el: root, buttons: f._buttons, sig: f.sig, iframes: f._iframes, backdrop: f.isBackdrop, modalish: !f.isBackdrop && !f.looksLikeLayout && f.edge !== 'top' && f.coverage > 0.05, seenAt: performance.now() });
       delete f._buttons; delete f._iframes;
       out.push({ id, ...f });
       handleCandidate(id, f);
     }
     // A locked page with nothing visible on top is what filter-list hides and cached hides
     // leave behind (the banner is gone, its scroll lock is not).
-    const blocking = [...roots].some((r) => !r.hasAttribute(ATTR) && visible(r) && coverage(r.getBoundingClientRect()) > 0.3)
+    const backdrops = [...state.candidates.values()].filter((c) => c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
+    const blocking = [...roots].some((r) => !r.hasAttribute(ATTR) && visible(r) && !backdrops.some((b) => b.el === r) && coverage(r.getBoundingClientRect()) > 0.3)
       || [...state.candidates.values()].some((c) => c.quarantined);
-    if (!config.observeOnly && !blocking && scrollLocked() && performance.now() - state.lastInput > config.userGestureMs) fixScroll();
+    const idle = performance.now() - state.lastInput > config.userGestureMs;
+    // An empty full-screen layer with no modal on it (the lists or a hide took the modal) only
+    // dims the page and swallows taps. Give a modal 2 s to show up on it first.
+    const modalUp = [...state.candidates.values()].some((c) => c.modalish && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
+    const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000);
+    if (!config.observeOnly && !blocking && idle && stray.length) { for (const b of stray) hideEl(b.el, 'backdrop'); fixScroll(); }
+    else if (!config.observeOnly && !blocking && idle && scrollLocked()) fixScroll();
     else if (state.scrollFixed) restorePage();
     return out;
   }
@@ -413,8 +439,8 @@
     chat_widget: /chat with us|need help\?|how can we help|live chat|ask us/i,
   };
   const CMP_HOSTS = /cookielaw|onetrust|cookiebot|usercentrics|didomi|sourcepoint|privacy-mgmt|consensu|trustarc|quantcast|cmp|consentmanager|iubenda|termly|cookieyes|osano|sp-prod/i;
-  const REJECT = /reject|decline|refuse|deny|disagree|necessary only|only necessary|essential only|only essential|continue without|ablehnen|nur (notwendige|erforderliche)|ohne zustimmung|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|nein,? danke|no,? thanks|not now|maybe later|later|no thanks|close|dismiss|^×$|^✕$|^✖$|^x$/i;
-  const ACCEPT = /accept|agree|allow( all)?$|got it|^ok(ay)?$|i understand|consent|akzeptieren|zustimmen|einverstanden|accepter|j'accepte|aceptar|accetta|aceitar|akkoord|zgadzam|souhlasím|elfogad/i;
+  const REJECT = /reject|decline|refuse|deny|disagree|necessary only|only necessary|essential only|only essential|continue without|ablehnen|nur (notwendige|erforderliche)|ohne zustimmung|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|nein,? danke|no,? thanks|not now|maybe later|later|no thanks|close|dismiss|^×$|^✕$|^✖$|^x$|schließen|später|nicht jetzt|fermer|plus tard|non merci|cerrar|ahora no|chiudi|non ora|fechar|agora não|sluiten|weigeren|zamknij|nie teraz|zavřít|avvisa|stäng|afvis|avvis|\bluk\b|hylkää|sulje|reddet|kapat|отклонить|отказаться|закрыть|не сейчас|拒否|同意しない|閉じる|後で|今はしない|拒绝|拒絕|关闭|關閉|不同意|稍后|거부|거절|동의하지 않|닫기|나중에/i;
+  const ACCEPT = /accept|agree|allow( all)?$|got it|^ok(ay)?$|i understand|consent|subscribe|abbona|abonn|suscri|subskry|assinar|akzeptieren|zustimmen|einverstanden|accepter|j'accepte|aceptar|accetta|aceitar|akkoord|zgadzam|souhlasím|elfogad|godkänn|acceptera|hyväksy|kabul|принять|согласен|разрешить|(?<!不)同意(?!しない)|許可|承認|受け入れ|接受|允许|允許|동의(?!하지)|수락|허용/i;
 
   function heuristics(f) {
     const hay = `${f.text} ${f.buttons.join(' ')} ${f.tokens} ${f.ariaLabel}`;
@@ -440,7 +466,7 @@
     let against = 0;
     if (f.looksLikeLayout) against += 0.5;
     if (f.hasVideo) against += 0.3;
-    if (f.edge === 'top' && /^(header|nav)$/.test(f.tag)) against += 0.4;
+    if (f.edge === 'top' && f.coverage < 0.15 && (/^(header|nav)$/.test(f.tag) || /banner|navigation|menubar/.test(f.role) || /header|nav|masthead|top-?bar|toolbar|menu/i.test(f.tokens))) against += 0.4;
     if (f.hasPassword && label !== 'login_wall') against += 0.2;
     if (f.buttons.length > 6 && best < 0.6) against += 0.2; // menus and toolbars
     const score = best > 0 ? Math.max(0, Math.min(1, best + structure - against)) : Math.max(0, structure - against - 0.2);
@@ -465,7 +491,9 @@
     const s = frameSummary();
     if (!s) return;
     frameReported = true;
-    send('frameSummary', { origin: location.origin, text: s.text, buttons: s.buttons });
+    // Keyword heuristics on the frame's own text, so the host can decide without the model.
+    const heuristic = heuristics({ text: s.text, buttons: s.buttons, tokens: '', ariaLabel: '', tag: 'body', role: '', iframeOrigins: [location.origin], hasEmail: false, hasPassword: false, hasVideo: false, coverage: 1, edge: 'full', zIndex: 0, scrollLocked: false, ariaModal: false, looksLikeLayout: false });
+    send('frameSummary', { origin: location.origin, text: s.text, buttons: s.buttons, heuristic });
   }
 
   // ---------------------------------------------------------------- actions
@@ -515,6 +543,9 @@
     c.el.style.removeProperty('visibility');
     hideEl(c.el, 'hidden');
     hideBackdrops(c.el);
+    // Backdrops that are not siblings of the modal (pinterest nests them apart) were seen as
+    // their own candidates; with the modal gone they only lock the page.
+    for (const b of state.candidates.values()) if (b.backdrop && b.el.isConnected && !b.el.hasAttribute(ATTR)) hideEl(b.el, 'backdrop');
     restorePage();
   }
 
@@ -536,7 +567,7 @@
 
   // Undo scroll locks and blur that modals leave behind, unless another modal is still up.
   function restorePage() {
-    const otherModal = [...state.candidates.values()].some((c) => c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el) && coverage(c.el.getBoundingClientRect()) > 0.5);
+    const otherModal = [...state.candidates.values()].some((c) => !c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el) && coverage(c.el.getBoundingClientRect()) > 0.5);
     if (otherModal) return;
     state.scrollFixed = true;
     fixScroll();
