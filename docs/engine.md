@@ -156,6 +156,8 @@ The crawl needs normal web access and huggingface.co, so it needs a full-network
 
 ## Porting to Android (step 3)
 
+Done in [android/](../android); its README maps each piece below to the Kotlin file that replaced it.
+
 | Prototype | App |
 |---|---|
 | `page.addInitScript(serene.js)` | `WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))` |
