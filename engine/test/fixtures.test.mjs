@@ -12,6 +12,7 @@ import { SereneEngine } from '../src/host/engine.mjs';
 import { RulesEngine } from '../src/host/rules.mjs';
 import { loadLists } from '../src/host/lists.mjs';
 import { VerdictCache } from '../src/host/cache.mjs';
+import { AutoconsentRules } from '../src/host/autoconsent.mjs';
 
 const DIR = new URL('./fixtures/', import.meta.url).pathname;
 const expectOf = (file) => JSON.parse(/<script type="application\/json" id="expect">(.*?)<\/script>/s.exec(fs.readFileSync(path.join(DIR, file), 'utf8'))[1]);
@@ -19,6 +20,7 @@ const expectOf = (file) => JSON.parse(/<script type="application\/json" id="expe
 const FIXTURES = fs.readdirSync(DIR).filter((f) => f.endsWith('.html') && !expectOf(f).frameOnly).sort();
 
 let server, base, browser, rules;
+const autoconsent = new AutoconsentRules();
 
 before(async () => {
   server = http.createServer((req, res) => {
@@ -45,15 +47,15 @@ function stubClassifier(calls) {
     async classify(f) {
       const exp = expectOf(path.basename(new URL(f.url).pathname));
       calls.push(f);
-      return { ...(exp.llm ?? { label: 'content', target: -1 }), ms: 0 };
+      return { ...(exp.llm ?? { label: 'content' }), ms: 0 };
     },
   };
 }
 
-async function runFixture(file, { cache = new VerdictCache(), query = '' } = {}) {
+async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true } = {}) {
   const exp = expectOf(file);
   const events = [], llmCalls = [];
-  const engine = new SereneEngine({ rules, classifier: stubClassifier(llmCalls), cache });
+  const engine = new SereneEngine({ rules, classifier: stubClassifier(llmCalls), cache, autoconsent: withAutoconsent ? autoconsent : null });
   const context = await newContext(browser, { engine, onEvent: (e) => events.push(e) });
   const page = await context.newPage();
   await page.goto(base + file + query);
@@ -89,6 +91,8 @@ for (const file of FIXTURES) {
     const acted = events.filter((e) => e.type === 'candidate' && e.verdict && e.verdict.action !== 'ignore');
     if (exp.via === 'rules') assert.equal(acted.length, 0, 'rules should handle it before the detector');
     if (exp.via === 'heuristic') assert.ok(acted.some((e) => e.verdict.source === 'heuristic'), `heuristics should act: ${JSON.stringify(events.filter((e) => e.type === 'candidate').map((e) => [e.features.sig, e.features.heuristic, e.verdict]))}`);
+    const optedOut = events.some((e) => e.type === 'autoconsent' && e.event === 'optOutResult' && e.result);
+    if (exp.via === 'autoconsent') assert.ok(optedOut && acted.length === 0, `autoconsent should answer it: ${JSON.stringify(events.filter((e) => e.type === 'autoconsent'))}`);
     if (exp.via === 'llm') assert.ok(llmCalls.length > 0 && acted.some((e) => e.verdict.source === 'llm'), 'model should be asked');
     if (!exp.gone) assert.equal(acted.length, 0, `nothing should be acted on: ${JSON.stringify(acted.map((e) => [e.features.sig, e.verdict]))}`);
   });
@@ -98,6 +102,13 @@ test('slow first bytes: the host replies before <html> exists, the detector stil
   const { state, events } = await runFixture('cookie-custom.html', { query: '?slow=1200' });
   assert.ok(state.gone, 'banner should be gone');
   assert.ok(events.some((e) => e.type === 'candidate' && e.verdict?.source === 'heuristic'), 'detector should have run');
+});
+
+test('without autoconsent a list-known banner in another language is only hidden', async () => {
+  const { state, events } = await runFixture('cookie-onetrust-greek.html', { withAutoconsent: false });
+  assert.ok(state.gone, 'banner should be hidden by the lists');
+  assert.deepEqual(state.clicked, [], 'nothing pressed: the decline list has no Greek');
+  assert.ok(!events.some((e) => e.type === 'autoconsent'));
 });
 
 test('second visit uses the site cache, not the model', async () => {

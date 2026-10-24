@@ -10,6 +10,7 @@
 //
 //   node harness/run.mjs --model models/Qwen3-0.6B-Q8_0.gguf [--sites harness/sites.json]
 //        [--only bbc,spiegel] [--modes baseline,rules,serene] [--wait 10000] [--headed]
+//        [--no-autoconsent]
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -19,6 +20,7 @@ import { RulesEngine } from '../src/host/rules.mjs';
 import { loadLists } from '../src/host/lists.mjs';
 import { VerdictCache } from '../src/host/cache.mjs';
 import { LlamaClassifier } from '../src/host/classifier.mjs';
+import { AutoconsentRules } from '../src/host/autoconsent.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const { values: args } = parseArgs({
@@ -31,6 +33,7 @@ const { values: args } = parseArgs({
     locale: { type: 'string', default: 'en-GB' },
     out: { type: 'string' },
     headed: { type: 'boolean', default: false },
+    'no-autoconsent': { type: 'boolean', default: false },
   },
 });
 
@@ -47,6 +50,7 @@ fs.mkdirSync(path.join(outDir, 'shots'), { recursive: true });
 
 const lists = await loadLists(path.join(ROOT, '.cache/lists'));
 const rules = new RulesEngine(lists);
+const autoconsent = args['no-autoconsent'] ? null : new AutoconsentRules();
 const classifier = args.model ? new LlamaClassifier({ modelPath: args.model }) : null;
 if (classifier) { const t0 = Date.now(); await classifier.classify(warmupFeatures()); console.log(`model loaded + warm-up in ${Date.now() - t0} ms`); }
 
@@ -78,7 +82,7 @@ async function visit(site, mode) {
   const events = [];
   const engine = mode === 'baseline'
     ? new SereneEngine({ cache: new VerdictCache(), contentConfig: { observeOnly: true } })
-    : new SereneEngine({ rules, classifier: mode === 'serene' ? classifier : null, cache: new VerdictCache() });
+    : new SereneEngine({ rules, classifier: mode === 'serene' ? classifier : null, cache: new VerdictCache(), autoconsent });
   const context = await newContext(browser, { engine, onEvent: (e) => events.push({ ...e, at: Date.now() }), locale: args.locale });
   const page = await context.newPage();
   const t0 = Date.now();
@@ -119,6 +123,10 @@ async function snapshot(page, site, mode, visitName, events, t0) {
       verdict: c.verdict ? { label: c.verdict.label, action: c.verdict.action, source: c.verdict.source, buttonLabel: c.verdict.buttonLabel } : null,
       decidedMs: c.decidedMs,
     })),
+    // Autoconsent: which consent tool it found and whether its opt-out (a real "reject") worked.
+    consent: events.filter((e) => e.type === 'autoconsent').map((e) => ({ event: e.event, cmp: e.cmp, result: e.result, isCosmetic: e.isCosmetic, isTop: e.isTop, origin: e.origin })),
+    consentRejected: [...new Set(events.filter((e) => e.type === 'autoconsent' && e.event === 'optOutResult' && e.result).map((e) => e.cmp))]
+      .filter((cmp) => !events.some((e) => e.type === 'autoconsent' && e.event === 'autoconsentDone' && e.cmp === cmp && e.isCosmetic)),
     actions: events.filter((e) => e.type === 'applied').map((e) => ({ action: e.action, ok: e.ok, fallback: e.fallback, source: e.source, sig: e.sig })),
     msToFirstAction: firstAction ? firstAction.at - t0 : null,
     llmCalls: llm.length,
@@ -139,17 +147,17 @@ async function snapshot(page, site, mode, visitName, events, t0) {
 function summary(m) {
   const acted = m.candidates.filter((c) => c.verdict && c.verdict.source !== 'cache' && c.verdict.action !== 'ignore');
   const s = `${m.engineStarted === false ? 'NOT STARTED ' : ''}cand=${m.candidates.length} acted=${acted.map((c) => `${c.verdict.label}:${c.verdict.action}/${c.verdict.source}`).join(',') || '-'} ` +
-    `residual=${m.residualAnnoyances}/${m.residualBlocking} locked=${m.scrollLocked} llm=${m.llmCalls}${m.llmMs.length ? ` (${m.llmMs.join('/')} ms)` : ''}`;
+    `residual=${m.residualAnnoyances}/${m.residualBlocking} locked=${m.scrollLocked} rejected=${m.consentRejected.join(',') || '-'} llm=${m.llmCalls}${m.llmMs.length ? ` (${m.llmMs.join('/')} ms)` : ''}`;
   return m.second ? `${s} | 2nd: residual=${m.second.residualAnnoyances} llm=${m.second.llmCalls}` : s;
 }
 
 function report(rows) {
   const L = [];
   L.push(`# Serene engine crawl, ${new Date().toISOString().slice(0, 16)}Z`, '');
-  L.push(`Viewport: Pixel 7 emulation, locale ${args.locale}, wait ${WAIT} ms. Modes: ${modes.join(', ')}. Model: ${args.model ? path.basename(args.model) : 'none'}.`, '');
+  L.push(`Viewport: Pixel 7 emulation, locale ${args.locale}, wait ${WAIT} ms. Modes: ${modes.join(', ')}. Model: ${args.model ? path.basename(args.model) : 'none'}. Autoconsent: ${autoconsent ? 'on' : 'off'}.`, '');
   L.push('After each run: "annoyances" counts overlays still on screen that the detector\'s heuristics read as annoyances (score ≥ 0.5); "blocking" counts any overlay still covering ≥ 30% of the screen; "locked" is page scrolling. Check the screenshots: heuristics are not ground truth.', '');
-  L.push('| Site | Baseline overlays | Rules: annoyances / blocking / locked | Serene: annoyances / blocking / locked | Model calls (ms) | 2nd visit residual / model calls |');
-  L.push('|---|---|---|---|---|---|');
+  L.push('| Site | Baseline overlays | Rules: annoyances / blocking / locked | Serene: annoyances / blocking / locked | Consent rejected (autoconsent) | Model calls (ms) | 2nd visit residual / model calls |');
+  L.push('|---|---|---|---|---|---|---|');
   for (const r of rows) {
     const b = r.modes.baseline, ru = r.modes.rules, se = r.modes.serene;
     const cell = (m) => (!m ? '–' : m.error ? `error` : `${m.residualAnnoyances} / ${m.residualBlocking} / ${m.scrollLocked ? 'yes' : 'no'}`);
@@ -157,7 +165,8 @@ function report(rows) {
     const llm = se && !se.error ? `${se.llmCalls}${se.llmMs.length ? ` (${se.llmMs.join(', ')})` : ''}` : '–';
     const last = se ?? ru;
     const second = last && !last.error && last.second ? `${last.second.residualAnnoyances} / ${last.second.llmCalls}` : '–';
-    L.push(`| ${r.site} | ${base} | ${cell(ru)} | ${cell(se)} | ${llm} | ${second} |`);
+    const rejected = last && !last.error ? last.consentRejected.join(', ') || '–' : '–';
+    L.push(`| ${r.site} | ${base} | ${cell(ru)} | ${cell(se)} | ${rejected} | ${llm} | ${second} |`);
   }
   L.push('', '## Decisions per site', '');
   for (const r of rows) {
@@ -169,6 +178,7 @@ function report(rows) {
         const v = c.verdict?.source === 'cache' ? 'cached site rule, applied in the page' : c.verdict ? `${c.verdict.label} → ${c.verdict.action}${c.verdict.buttonLabel ? ` "${c.verdict.buttonLabel}"` : ''} (${c.verdict.source}${c.decidedMs != null ? `, ${c.decidedMs} ms` : ''})` : 'observed';
         L.push(`  - \`${c.sig}\` ${c.edge} ${Math.round(c.coverage * 100)}%, h=${c.heuristic.label}:${c.heuristic.score}: ${v} · "${c.text}"`);
       }
+      for (const e of m.consent.filter((e) => e.event !== 'popupFound')) L.push(`  - autoconsent ${e.isTop ? 'top' : `frame ${e.origin}`}: ${e.event} ${e.cmp ?? ''}${e.result != null ? ` → ${e.result}` : ''}${e.isCosmetic ? ' (cosmetic only)' : ''}`);
       for (const o of m.residual.filter((o) => o.label !== 'content')) L.push(`  - still visible: \`${o.sig}\` ${o.label}:${o.score} "${o.text}"`);
     }
     L.push('');
