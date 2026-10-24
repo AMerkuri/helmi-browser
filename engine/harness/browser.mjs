@@ -33,7 +33,7 @@ export async function newContext(browser, { engine = null, onEvent = () => {}, l
   const frameCtx = (frame) => ({
     url: frame.url(),
     isTop: frame === frame.page().mainFrame(),
-    send: (obj) => frame.evaluate((s) => window.__sereneDeliver && window.__sereneDeliver(s), JSON.stringify(obj)).catch(() => {}),
+    send: (obj) => frame.evaluate((s) => !!(window.__sereneDeliver && (window.__sereneDeliver(s), 1)), JSON.stringify(obj)).then((ok) => { if (process.env.SERENE_DEBUG) console.log('send', obj.type, frame.url().slice(0, 60), ok); }).catch((e) => { if (process.env.SERENE_DEBUG) console.log('send FAIL', obj.type, frame.url().slice(0, 60), e.message.split('\n')[0]); }),
   });
 
   await context.exposeBinding('__sereneHost', async (source, json) => {
@@ -82,6 +82,6 @@ export async function residualOverlays(page) {
     }
     const h = getComputedStyle(document.documentElement), b = getComputedStyle(document.body);
     const locked = h.overflow === 'hidden' || h.overflowY === 'hidden' || b.overflow === 'hidden' || b.overflowY === 'hidden' || b.position === 'fixed';
-    return { overlays: out, scrollLocked: locked, scanMs: s.state.scanMs };
+    return { overlays: out, scrollLocked: locked, scanMs: s.state.scanMs, started: s.state.started, href: location.href };
   });
 }

@@ -22,10 +22,14 @@ let server, base, browser, rules;
 
 before(async () => {
   server = http.createServer((req, res) => {
-    const file = path.join(DIR, path.basename(new URL(req.url, 'http://x').pathname));
+    const url = new URL(req.url, 'http://x');
+    const file = path.join(DIR, path.basename(url.pathname));
     if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    fs.createReadStream(file).pipe(res);
+    // ?slow=ms: headers first, body later, like a slow news site.
+    const slow = Number(url.searchParams.get('slow')) || 0;
+    if (slow) res.flushHeaders();
+    setTimeout(() => fs.createReadStream(file).pipe(res), slow);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}/`;
@@ -46,13 +50,13 @@ function stubClassifier(calls) {
   };
 }
 
-async function runFixture(file, { cache = new VerdictCache() } = {}) {
+async function runFixture(file, { cache = new VerdictCache(), query = '' } = {}) {
   const exp = expectOf(file);
   const events = [], llmCalls = [];
   const engine = new SereneEngine({ rules, classifier: stubClassifier(llmCalls), cache });
   const context = await newContext(browser, { engine, onEvent: (e) => events.push(e) });
   const page = await context.newPage();
-  await page.goto(base + file);
+  await page.goto(base + file + query);
   if (exp.tapFirst) { await page.waitForTimeout(300); await page.tap(exp.tapFirst); }
   await page.waitForTimeout(exp.waitMs ?? 2500);
   const state = await page.evaluate((exp) => {
@@ -89,6 +93,12 @@ for (const file of FIXTURES) {
     if (!exp.gone) assert.equal(acted.length, 0, `nothing should be acted on: ${JSON.stringify(acted.map((e) => [e.features.sig, e.verdict]))}`);
   });
 }
+
+test('slow first bytes: the host replies before <html> exists, the detector still starts', async () => {
+  const { state, events } = await runFixture('cookie-custom.html', { query: '?slow=1200' });
+  assert.ok(state.gone, 'banner should be gone');
+  assert.ok(events.some((e) => e.type === 'candidate' && e.verdict?.source === 'heuristic'), 'detector should have run');
+});
 
 test('second visit uses the site cache, not the model', async () => {
   const cache = new VerdictCache();

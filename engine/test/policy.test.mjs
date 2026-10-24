@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { actionFor, isSafeTarget, preDecide } from '../src/host/policy.mjs';
+import { actionFor, isSafeTarget, preDecide, looksLikeChrome } from '../src/host/policy.mjs';
 import { buildPrompt, parseReply } from '../src/host/classifier.mjs';
 import { VerdictCache, siteOf } from '../src/host/cache.mjs';
 
@@ -9,6 +9,9 @@ const base = { sig: 'div.x', tag: 'div', role: '', ariaModal: false, tokens: '',
 test('only decline/close buttons count as safe click targets', () => {
   for (const s of ['Reject all', 'Nur notwendige Cookies', 'Continuer sans accepter', 'No thanks', '×', 'Not now', 'Rifiuta']) assert.ok(isSafeTarget(s), s);
   for (const s of ['Accept all', 'Allow', 'Subscribe', 'Open in app', 'Sign in', 'Got it', 'Alle akzeptieren', 'Yes, notify me', undefined]) assert.ok(!isSafeTarget(s), s);
+  // Beyond Latin script: decline words count, agree words never do.
+  for (const s of ['拒否する', '同意しない', '閉じる', '拒绝', '不同意', '거부', '동의하지 않음', 'Отклонить', 'Не сейчас', 'Reddet', 'Stäng']) assert.ok(isSafeTarget(s), s);
+  for (const s of ['同意する', '同意して閉じる', '接受', '동의', 'Принять', 'Kabul et', 'Godkänn alla']) assert.ok(!isSafeTarget(s), s);
 });
 
 test('a model that picks "Accept" is overruled', () => {
@@ -17,6 +20,26 @@ test('a model that picks "Accept" is overruled', () => {
   assert.equal(v.buttonLabel, 'Reject all');
   const noDecline = actionFor('cookie_consent', 0, { ...base, buttons: ['Accept all', 'Settings'] });
   assert.equal(noDecline.action, 'hide');
+});
+
+test('pay-or-consent walls: "reject and subscribe" is not a decline', () => {
+  // corriere.it, 2026-10-24 crawl: the heuristics used to click "Rifiuta e abbonati".
+  for (const s of ['Rifiuta e abbonati', 'Ablehnen und abonnieren', 'Refuser et s\'abonner', 'Rechazar y suscribirse']) assert.ok(!isSafeTarget(s), s);
+  assert.equal(actionFor('cookie_consent', 2, { ...base, buttons: ['ACCETTA E CONTINUA', 'PREFERENZE', 'Rifiuta e abbonati'] }).action, 'hide');
+});
+
+test('site headers never go to the model', () => {
+  const hdr = (o) => ({ ...base, edge: 'top', coverage: 0.07, textLen: 35, heuristic: { label: 'newsletter', score: 0.3, structure: 0, rejectIdx: -1 }, ...o });
+  // stackoverflow and spiegel headers, healthline's sticky nav (all hidden by mistake on the first crawl)
+  for (const f of [hdr({ tag: 'header', text: 'Skip to main content Log in Sign up' }), hdr({ tag: 'header', text: 'Anmelden Menü öffnen' }), hdr({ tokens: 'sticky-nav', text: 'Subscribe', heuristic: { label: 'newsletter', score: 0.9, structure: 0, rejectIdx: -1 } })]) {
+    assert.ok(looksLikeChrome(f));
+    const v = preDecide(f, { llmAvailable: true });
+    assert.ok(!v.needsLlm && v.action === 'ignore', JSON.stringify(f.text));
+  }
+  // a thin cookie bar at the top is still handled
+  const bar = hdr({ text: 'We use cookies. OK Reject', heuristic: { label: 'cookie_consent', score: 0.7, structure: 0, rejectIdx: 1 } });
+  assert.equal(preDecide(bar, { llmAvailable: true }).action, 'click');
+  assert.ok(!looksLikeChrome({ ...bar, edge: 'bottom' }));
 });
 
 test('paywall and login overlays are hidden, never clicked', () => {

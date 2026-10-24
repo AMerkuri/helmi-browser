@@ -8,11 +8,20 @@ export const DEFAULT_POLICY = {
 };
 
 // We only ever click buttons that decline or close. Never "Accept", "Subscribe", "Allow".
-const AGREE = /accept|agree|allow|got it|^ok(ay)?$|i understand|subscribe|sign ?up|continue with|log ?in|sign in|register|install|open( in)? app|enable|turn on|yes|akzeptieren|zustimmen|einverstanden|accepter|aceptar|accetta|aceitar|akkoord|zgadzam|souhlasím|elfogad/i;
-const DECLINE = /reject|decline|refuse|deny|disagree|necessary|essential|continue without|without (accepting|agreeing)|no,? thanks|not now|maybe later|later|close|dismiss|skip|^×$|^✕$|^✖$|^x$|ablehnen|nur notwendige|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|nein/i;
+const AGREE = /accept|agree|allow|got it|^ok(ay)?$|i understand|subscribe|abbona|abonn|suscri|subskry|assinar|pay |zahlen|payer|pagar|pagare|sign ?up|continue with|log ?in|sign in|register|install|open( in)? app|enable|turn on|yes|akzeptieren|zustimmen|einverstanden|accepter|aceptar|accetta|aceitar|akkoord|zgadzam|souhlasím|elfogad|godkänn|acceptera|hyväksy|kabul|принять|согласен|разрешить|同意|許可|承認|受け入れ|接受|允许|允許|동의|수락|허용/i;
+const DECLINE = /reject|decline|refuse|deny|disagree|necessary|essential|continue without|without (accepting|agreeing)|no,? thanks|not now|maybe later|later|close|dismiss|skip|^×$|^✕$|^✖$|^x$|ablehnen|nur notwendige|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|nein|schließen|später|nicht jetzt|fermer|plus tard|non merci|cerrar|ahora no|chiudi|non ora|fechar|agora não|sluiten|weigeren|zamknij|nie teraz|zavřít|avvisa|stäng|afvis|avvis|\bluk\b|hylkää|sulje|reddet|kapat|отклонить|отказаться|закрыть|не сейчас|拒否|同意しない|閉じる|後で|今はしない|拒绝|拒絕|关闭|關閉|不同意|稍后|거부|거절|동의하지 않|닫기|나중에/i;
 
 // "Continue without accepting", "Continuer sans accepter": the agree word is negated.
-const NEGATED = /without|sans |ohne |senza |sin |sem |bez |zonder /i;
+const NEGATED = /without|sans |ohne |senza |sin |sem |bez |zonder |しない|不同意|않|^не /i;
+
+// Thin bars at the top: site headers and nav ("Log in", "Subscribe", "Anmelden" are links in
+// them, not prompts). On the 2026-10-24 crawl the model hid three of these as login walls or
+// newsletters, so they never go to the model and only a strong heuristic can act on them.
+const CHROME_TOKENS = /header|nav|masthead|top-?bar|toolbar|menu/i;
+export function looksLikeChrome(f) {
+  if (f.edge !== 'top' || f.coverage >= 0.15) return false;
+  return /^(header|nav)$/.test(f.tag) || /banner|navigation|menubar/.test(f.role || '') || CHROME_TOKENS.test(f.tokens || '') || (f.textLen ?? 0) < 60;
+}
 
 export function isSafeTarget(label) {
   return !!label && DECLINE.test(label) && (NEGATED.test(label) || !AGREE.test(label));
@@ -53,6 +62,12 @@ export function preDecide(f, { llmAvailable, policy = DEFAULT_POLICY }) {
   if (f.userInitiated) return verdict('content', -1, f, 'user-gesture');
   if (f.isBackdrop) return verdict('content', -1, f, 'backdrop'); // handled with its modal
   const h = f.heuristic;
+  if (looksLikeChrome(f)) {
+    const navLike = /^(header|nav)$/.test(f.tag) || /banner|navigation|menubar/.test(f.role || '') || CHROME_TOKENS.test(f.tokens || '');
+    // A thin top bar with cookie wording is still a cookie bar.
+    const strong = !navLike && h.label !== 'content' && (h.score >= policy.actScore || (h.label === 'cookie_consent' && h.score >= policy.noLlmActScore));
+    return strong ? verdict(h.label, h.rejectIdx, f, 'heuristic') : verdict('content', -1, f, 'chrome');
+  }
   // No keyword hit but shaped like a blocking modal: the long tail the model is for
   // (unfamiliar wording, other languages).
   if (h.label === 'content') {

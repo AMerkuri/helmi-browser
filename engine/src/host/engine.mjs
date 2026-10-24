@@ -43,7 +43,7 @@ class PageSession {
       case 'candidate': return this.candidate(msg, frame);
       case 'frameSummary':
         this.frames.set(msg.origin, frame);
-        this.frameSummaries.set(msg.origin, { text: msg.text, buttons: msg.buttons });
+        this.frameSummaries.set(msg.origin, { text: msg.text, buttons: msg.buttons, heuristic: msg.heuristic });
         return;
       case 'frameClick': {
         const f = this.frames.get(msg.origin);
@@ -97,10 +97,9 @@ class PageSession {
       const origin = await this.waitForFrame(f.iframeOrigins, 1500);
       if (origin) {
         const s = this.frameSummaries.get(origin);
-        feats = { ...f, text: s.text, buttons: s.buttons };
+        // The top frame saw an empty box; judge the frame's own text and buttons instead.
+        feats = { ...f, text: s.text, buttons: s.buttons, heuristic: s.heuristic ?? f.heuristic };
         rec.inFrame = origin;
-        // The detector's heuristics saw no text, so only the model can judge this one.
-        if (this.e.classifier) v = { needsLlm: true };
       }
     }
 
