@@ -1,14 +1,16 @@
 # Serene: hybrid engine prototype
 
-Status: prototype · 2026-10-24 · Step 2 of 4. Code in [`engine/`](../engine). Builds on [decisions.md](decisions.md).
+Status: prototype, tested on real sites · 2026-10-24 · Step 2 of 4. Code in [`engine/`](../engine). Builds on [decisions.md](decisions.md).
 
 ## Summary
 
 - The engine runs in four layers: network rules, then cosmetic rules, then an overlay detector with heuristics, then the LLM for the uncertain cases. Every decision is cached per site.
 - The DOM side is one content script, [`engine/src/content/serene.js`](../engine/src/content/serene.js). It is written against the same `SereneBridge` object that `addWebMessageListener` gives us, so it goes into the app unchanged.
 - The host side (rules, policy, cache, prompt) is plain JS in [`engine/src/host/`](../engine/src/host). It has no DOM code, so it ports straight to Kotlin in step 3.
-- **Tested:** 15 end-to-end fixture tests in Chromium with a Pixel 7 viewport, plus 6 unit tests, all passing. The rules engine builds in about 60 ms, and lookups cost about 0.2 ms per page and about 2 µs per request.
-- **Not tested yet:** real sites and the real model. This cloud sandbox blocks ordinary websites and huggingface.co. The crawl and model eval are written and run end to end on local pages. They need one run on a network-enabled environment (see [Running](#running)).
+- **Tested:** 16 end-to-end fixture tests in Chromium with a Pixel 7 viewport, plus 8 unit tests, all passing. The rules engine builds in about 60 ms, and lookups cost about 0.2 ms per page and about 2 µs per request.
+- **Real sites (29 reachable of 30):** 13 sites had something on screen in a plain browser (a consent wall, a login wall, a locked page). The full engine cleared 11 of them, broke none, and hid nothing on the 3 control sites. Filter lists and heuristics did almost all of it: the model was asked 4 times in 58 page loads. See [Real sites](#real-sites-2026-10-24).
+- **Real model:** Qwen3-0.6B labels 48 of 57 overlays correctly (84%), or 54 of 57 (95%) once site headers are kept away from it, as the engine now does. About 650 ms per call on 4 x86 cores without a GPU.
+- The first real-site run found five bugs that the fixtures missed, all fixed here (see [What the first crawl found](#what-the-first-crawl-found)).
 
 ## Flow
 
@@ -25,6 +27,7 @@ navigation
         cached verdict for its signature? → act locally, no round trip
         features + heuristic score ──candidate──► host policy:
             user tapped < 1.5 s ago            → ignore (user-opened menu or dialog)
+            thin bar at the top (header/nav)   → ignore, unless cookie wording or a strong score
             heuristic ≥ 0.85                   → act on the heuristic label
             heuristic < 0.25 / page chrome     → ignore
             in between, or modal-shaped with no keyword hit → LLM
@@ -36,7 +39,7 @@ navigation
 
 **Rules.** The lists are Fanboy's Annoyance List (which already includes the EasyList Cookie List), uBO Cookie Notices and uBO Other Annoyances: about 65k lines, 3.1 MB serialized. Brave's `adblock-rs` binds the same adblock-rust crate we will ship over JNI. The content script applies hide CSS, uBO scriptlets, and a subset of procedural filters (`has-text`, `upward`, `min-text-length`, `matches-css`, plus `remove`/`style` actions). The first detector scan waits for the generic class/id rules. Without that wait, the detector raced the lists for banners the lists already cover (the `cookie-onetrust` fixture caught this).
 
-**Detector.** It does not walk the whole DOM. It samples 18 viewport points with `elementsFromPoint` and climbs to the outermost `position: fixed|sticky` ancestor, plus `dialog[open]` and `[aria-modal]`. Anything that covers the reader's view shows up at one of those points. On the fixtures a scan costs under 5 ms; real-page cost is a step 4 measurement. The detector reads open shadow roots, and it reads cross-origin CMP iframes through that frame's own copy of the script (`frameSummary`), which can then click inside the frame.
+**Detector.** It does not walk the whole DOM. It samples 18 viewport points with `elementsFromPoint` and climbs to the outermost `position: fixed|sticky` ancestor, plus `dialog[open]` and `[aria-modal]`. Anything that covers the reader's view shows up at one of those points. On the fixtures a scan costs under 5 ms; real-page cost is a step 4 measurement. The detector reads open shadow roots, and it reads cross-origin CMP iframes through that frame's own copy of the script (`frameSummary`), which can then click inside the frame. The frame also runs the keyword heuristics on its own text, so a consent dialog in an iframe no longer needs the model.
 
 **Features** sent to the host: about 300 characters of text, up to 8 button labels in order, role/aria, id/class tokens, iframe origins, coverage, screen edge, z-index, scroll lock, email/password/video inputs, a "looks like page layout" flag, and whether the user just tapped. The prompt is under 600 characters, about 100–200 tokens plus the cached system prompt.
 
@@ -48,6 +51,8 @@ navigation
 - We only ever click a button that declines or closes. If the model picks "Accept", "Allow", "Subscribe", "Sign in" or "Open in app", the policy looks for a decline button itself and hides the overlay if there is none. "Continue without accepting" counts as a decline.
 - Paywall teasers and login walls are always hidden, never clicked. Only the overlay goes; inline paywalls are not touched.
 - Overlays that appear within 1.5 s of a user tap are left alone, and that decision is not cached.
+- Thin bars at the top edge are page chrome: under 15% of the screen, plus a `<header>`/`<nav>` tag, a header/nav class, or under 60 characters of text. They never go to the model. On one that is not tagged as a header, only cookie wording or a very strong heuristic score leads to an action.
+- "Reject and subscribe" buttons on pay-or-consent walls are not declines.
 - After a click, if the overlay is still there 900 ms later, it is hidden instead, and the cache is updated to `hide`.
 - After hiding, the engine removes the backdrop (an empty full-screen fixed sibling), unlocks `overflow`/`position: fixed` scroll locks (restoring the scroll offset), and removes `filter: blur`. A page that is still scroll-locked with nothing visible on top is unlocked too. That case is what list-hidden banners usually leave behind.
 
@@ -64,9 +69,10 @@ Hand-written pages that imitate common patterns. They are not copies of real sit
 | OneTrust-style bottom banner | rules (generic `#onetrust-banner-sdk`) | hidden before the detector sees it |
 | custom cookie bar (unknown class) | heuristics | clicked "Reject all" |
 | German consent modal + backdrop + scroll lock | heuristics | clicked "Nur notwendige Cookies", backdrop gone, scrolling restored |
-| consent in a cross-origin iframe | model (via frame summary) | clicked "Reject" inside the iframe |
+| consent in a cross-origin iframe | heuristics (on the frame's own text) | clicked "Reject" inside the iframe |
 | consent banner in shadow DOM | heuristics | clicked "Reject all" |
 | Japanese cookie modal (no keyword hit) | model | hidden, scroll restored; second visit from cache, no model call |
+| cookie bar on a slow page (host reply arrives before `<html>` exists) | heuristics | clicked "Reject all" (regression test for a real-site bug) |
 | newsletter modal after 1.5 s, scroll lock | heuristics | clicked "No thanks" |
 | newsletter modal locking `body` with `position: fixed` | heuristics | hidden, scrolling restored |
 | notification soft prompt | heuristics | clicked "Not now" |
@@ -76,11 +82,62 @@ Hand-written pages that imitate common patterns. They are not copies of real sit
 | full-screen menu opened by a tap | none (user gesture) | left alone |
 | article about cookies + mini video player | none | left alone |
 
-With the model off (rules + heuristics only), the iframe and Japanese cases stay on screen. Those are exactly the cases the model is for.
+With the model off (rules + heuristics only), the Japanese case stays on screen. That is exactly the case the model is for.
 
-### Real sites and the real model: pending
+### Real sites (2026-10-24)
 
-[`harness/sites.json`](../engine/harness/sites.json) lists 30 sites. There are 27 with known overlays: EU and US news, shops with newsletter modals, Reddit/Medium/Quora/Pinterest walls, IMDb and others. There are also 3 controls (Wikipedia, GitHub, DuckDuckGo). The crawl loads each one three ways: a plain browser, rules-only, and the full engine. It then reloads each site to check the second visit. It writes a report, screenshots, and a `candidates.jsonl` of every overlay it saw, with features and verdicts, for labelling. [`test/llm-eval.mjs`](../engine/test/llm-eval.mjs) scores the model on a labelled set. The seed set has 30 records: 12 from the fixtures and 18 hand-written ones in 7 languages, including 5 "content" negatives (cart drawer, audio player, nav drawer, filter sheet, sticky header). It reports accuracy, a confusion table, latency and prompt tokens.
+**Setup.** A cloud container in Columbus, Ohio (US IP address), headless Chromium 1243 with Pixel 7 emulation, locale `en-GB`, a 10 s wait per page, and Qwen3-0.6B Q8_0 on llama.cpp with 4 x86 cores and no GPU. Each site loads three ways (plain browser, rules + heuristics, full engine) and then reloads once. Even from a US address, the EU sites showed their consent walls (Spiegel, Le Monde, El País, Corriere, Onet, iDNES), and US sites showed US privacy notices (CNN, the Guardian). Full reports: [before the fixes](results/2026-10-24/crawl-1-before-fixes.md), [after the fixes](results/2026-10-24/crawl-2-after-fixes.md). Screenshots, plain browser on top and Serene below: [before-after.jpg](results/2026-10-24/before-after.jpg).
+
+**After the fixes** (second crawl). The Washington Post refused connections from the container, which leaves 29 sites. Of those, 13 had something on screen in the plain browser: an annoyance, an overlay covering 30% or more of the screen, or a locked page.
+
+| Site | Plain browser | Serene (first visit) | Handled by |
+|---|---|---|---|
+| The Guardian | US privacy notice | closed with "×" | heuristics |
+| Spiegel | pay-or-consent wall in an iframe, page locked | wall hidden, scrolling restored, header kept | heuristics on the iframe's text |
+| Le Monde | cookie wall, page locked | gone | filter lists |
+| Corriere | pay-or-consent wall ("Rifiuta e abbonati"), locked | hidden, nothing clicked | heuristics |
+| Onet | consent popup, locked | gone | filter lists |
+| CNN | "Legal Terms and Privacy" modal, locked | hidden | heuristics |
+| Stack Overflow | OneTrust banner | gone | filter lists |
+| Pinterest | sign-up wall, locked | hidden, scrolling restored | heuristics |
+| nu.nl, Reddit, Allbirds | page locked, or a consent banner | unlocked, banner gone | filter lists |
+| Gymshark | OneTrust banner, plus a "15% off" bar at the top | banner gone; the top bar stays (the model calls it content) | lists, model |
+| DuckDuckGo (control) | box promoting its own browser | left alone | none |
+
+- Nothing was hidden by mistake. All three control sites and every site header were left alone. BBC also got a survey popup in one load, and the engine closed it.
+- Second visits: no annoyances on any site. The model ran twice, both times for overlays that showed up only on the second load.
+- The model was asked 4 times in 58 page loads. Each call took 1.8–14 s (1.8, 4.2, 5.1 and 13.9 s) while the browser was loading pages on the same 4 cores. On an idle CPU the same calls take about 0.65 s (see below), so this is contention, but it shows the model has to stay off the critical path. The four calls were Onet's bottom nav bar (content), Gymshark's promo bar (content), the iDNES "close ad" sticky ad (labelled cookie consent by mistake, but the click on "Zavřít reklamu" is harmless) and weather.com's "Get the App" pill (app install, clicked "Dismiss").
+- The first action came 1.6–4.6 s after navigation, so a banner can show for a moment before it goes. Lists hide theirs before first paint. That gap is a step 4 item.
+
+### What the first crawl found
+
+The first crawl ran the PR #2 code unchanged. It found five bugs, all fixed in this change:
+
+1. **The engine sometimes never started on a page** (7 of 58 loads with rules on: Guardian, BBC, Corriere twice, CNN, Reddit, Gymshark). If the page's first bytes are slow, the host's reply arrives before `<html>` exists. Inserting the rules CSS then threw, and the detector never started. The CSS now waits for the document, and the detector starts regardless. This is covered by a new fixture with a slow server.
+2. **The model hid site headers.** It labelled the Stack Overflow header ("Log in Sign up") and the Spiegel header ("Anmelden") as login walls and hid them. The heuristics hid Healthline's sticky nav ("Subscribe") as a newsletter. Thin bars at the top now count as page chrome (see the policy above).
+3. **The engine clicked "Rifiuta e abbonati" on Corriere**, which means reject *and subscribe*. Subscription and payment words in seven languages now make a button unsafe to click. Pay-or-consent walls are hidden instead.
+4. **Pinterest stayed scroll-locked** after its wall was hidden. Its backdrop is not a sibling of the modal, so it survived and kept the page "blocked". Backdrops that the detector saw as their own candidates are now hidden with their modal. An empty full-screen layer with no modal on it is hidden too, once the page is locked or after 2 s.
+5. **Consent dialogs inside iframes needed the model** (Spiegel's Sourcepoint wall), so rules-only mode left them up. The iframe now runs the keyword heuristics on its own text.
+
+The eval set also had the Japanese and German fixture texts double-encoded (UTF-8 read as Windows-1252). The Japanese "unknown language" case was unreadable to the model, and is now fixed.
+
+### Model accuracy
+
+[`test/llm-eval.mjs`](../engine/test/llm-eval.mjs) on 57 labelled records: the 30-record seed set plus 27 overlays from the crawl, labelled by hand. Log: [llm-eval.txt](results/2026-10-24/llm-eval.txt).
+
+| | PR #2 prompt | Tuned prompt |
+|---|---|---|
+| Label accuracy | 81% (46/57) | **84% (48/57)** |
+| Counting the header guard (what the engine does) | n/a | **95% (54/57)** |
+| Annoyances not mistaken for content (37 records) | 35 | 37 |
+| Invalid replies | 0 | 0 |
+| Median latency, 4 x86 cores, no GPU | 630 ms | 650 ms |
+| Prompt tokens (system + features) | 239 | 283 |
+
+- The tuned prompt fixes paywall-vs-newsletter mix-ups (both paywalls came back as newsletters before) and small app banners. Its remaining errors are almost all site headers. The model reads "Log in" or "Subscribe" in a nav bar as a wall, and the header guard keeps those away from it. Prompt variants that told it to prefer "content" when unsure made it miss real cookie walls (79%).
+- Errors left after the guard: an article with a video player (labelled app install, but the heuristics never send that to the model), a top "Open in app" bar (the guard ignores it), and the Pinterest wall (labelled cookie consent instead of login wall; it is hidden either way).
+- The model's `target` (which button to press) is close to useless. It picked an "accept" or "subscribe" button 16 times. The policy overrules those every time, and it only clicks buttons that match its own decline list. So in practice the button choice comes from the regex, not the model. Dropping `target` from the output, or asking the model only to rank decline candidates, is a step 4 option.
+- 650 ms on a desktop CPU means little for phones. LiteRT-LM on a phone NPU/GPU is the number that matters (step 4). Even on a desktop CPU, though, the call takes long enough that the overlay is visibly on screen meanwhile. Quarantining (hiding while deciding) already covers scores ≥ 0.6.
 
 ## Running
 
@@ -88,14 +145,14 @@ With the model off (rules + heuristics only), the iframe and Japanese cases stay
 cd engine
 npm install                 # builds adblock-rust (needs Rust); Node ≥ 22
 npx playwright install chromium
-npm test                    # fixtures + unit tests
+npm test                    # fixtures + unit tests (about 1 minute)
 npm run model               # Qwen3-0.6B Q8_0 GGUF, ~640 MB, from huggingface.co
 npm run llm-eval            # model accuracy + latency on test/data/labeled-features.jsonl
 npm run crawl               # 30 real sites → results/<time>/report.md + shots/
 npm run crawl -- --only bbc,spiegel --headed
 ```
 
-The crawl needs normal web access and huggingface.co, which this project's current cloud environment doesn't have. Run it from a session on a full-network environment, or locally. Which overlays appear depends on the visitor's country (GDPR banners show up for EU IPs), so record where the crawl ran.
+The crawl needs normal web access and huggingface.co, so it needs a full-network environment or a local machine. A run takes about 25 minutes. Set `SERENE_DEBUG=1` to log every host-to-page message. Which overlays appear depends on the visitor's country (GDPR banners show up for EU IPs), so record where the crawl ran.
 
 ## Porting to Android (step 3)
 
@@ -110,10 +167,13 @@ The crawl needs normal web access and huggingface.co, which this project's curre
 
 ## Known gaps
 
-- **Unmeasured:** the real-site hit rate, false positives, model accuracy and on-device latency. All of these need the crawl and llm-eval runs above, then step 4 on phones.
-- When the model labels a long-tail case it cannot click a decline button written in an unknown language (`isSafeTarget` only knows about 15 languages), so it hides the overlay instead. That is the safe fallback, but it leaves the consent undecided.
+- **Unmeasured:** on-device latency and battery (step 4 on phones), and the crawl from an EU address. The real-site numbers above come from 29 sites and one US location. That is enough to find bugs, but too few to tune thresholds on.
+- Decline buttons are matched by a word list in about 20 languages, now including Japanese, Chinese, Korean, Russian, Turkish and the Nordic languages. A decline button in any other language cannot be clicked, so the overlay is hidden instead. That is the safe fallback, but it leaves the consent undecided.
+- The model's button choice (`target`) is not used in practice (see [Model accuracy](#model-accuracy)).
+- An overlay can be on screen for 1.6–4.6 s before the engine acts on it, unless the lists cover it. Scanning sooner, or quarantining more eagerly, is a step 4 item.
+- The crawl's "annoyances" count comes from the detector's own heuristics. It over-counts headers that contain "Log in Sign up" (Pinterest), so check the screenshots.
 - Scriptlets are applied after the host replies (async), not strictly before page scripts. That matches what WebView allows without rewriting HTML responses. Some uBO scriptlets lose races because of it.
 - Unsupported procedural operators (`xpath`, `matches-path`, `matches-attr`, `:matches-css-before/after`) are skipped.
 - Closed shadow roots are opaque: the detector sees only the host element.
 - Inline paywalls and in-article newsletter boxes are out of scope on purpose. Only fixed or sticky overlays are handled, plus whatever the lists hide.
-- The heuristic thresholds (0.85 act, 0.25 ignore, 0.2 structure → model) are first guesses, to be tuned on the crawl data.
+- The heuristic thresholds (0.85 act, 0.25 ignore, 0.2 structure → model) held up on the crawl, but 29 sites is too few to tune them.

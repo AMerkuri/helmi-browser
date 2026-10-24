@@ -1,0 +1,79 @@
+load + first call: 3361 ms
+✓ fixture/app-install                expected=app_install          got=app_install          target=0 "Open in app" 508 ms
+✓ fixture/cookie-custom              expected=cookie_consent       got=cookie_consent       target=1 "Reject all" 759 ms
+✓ fixture/cookie-de-modal            expected=cookie_consent       got=cookie_consent       target=0 "Alle akzeptieren" 783 ms
+✓ fixture/cookie-onetrust            expected=cookie_consent       got=cookie_consent       target=0 "Accept All Cookies" 712 ms
+✓ fixture/cookie-shadow              expected=cookie_consent       got=cookie_consent       target=0 "Accept all" 725 ms
+✗ fixture/neg-article-mentions       expected=content              got=app_install          target=-1 682 ms
+✗ fixture/neg-sticky-header          expected=content              got=login_wall           target=0 "News" 910 ms
+✓ fixture/newsletter-body-lock       expected=newsletter           got=newsletter           target=0 "Sign up" 723 ms
+✓ fixture/newsletter-delayed         expected=newsletter           got=newsletter           target=1 "No thanks" 740 ms
+✓ fixture/notification-prompt        expected=notification_prompt  got=notification_prompt  target=1 "Allow" 716 ms
+✓ fixture/paywall-sheet              expected=paywall_teaser       got=paywall_teaser       target=1 "Sign in" 712 ms
+✓ fixture/unknown-language           expected=cookie_consent       got=cookie_consent       target=0 "同意する" 682 ms
+✓ synthetic/fr-cookie                expected=cookie_consent       got=cookie_consent       target=0 "Tout accepter" 648 ms
+✓ synthetic/it-cookie                expected=cookie_consent       got=cookie_consent       target=0 "Accetta" 642 ms
+✓ synthetic/pl-cookie                expected=cookie_consent       got=cookie_consent       target=1 "Odrzuć wszystko" 701 ms
+✓ synthetic/sourcepoint-iframe       expected=cookie_consent       got=cookie_consent       target=0 "Accept all" 615 ms
+✓ synthetic/discount-modal           expected=newsletter           got=newsletter           target=1 "No thanks, I prefer full price" 570 ms
+✓ synthetic/push-prompt              expected=notification_prompt  got=notification_prompt  target=1 "No thanks" 602 ms
+✓ synthetic/app-banner               expected=app_install          got=app_install          target=1 "×" 571 ms
+✓ synthetic/login-wall               expected=login_wall           got=login_wall           target=1 "Log in" 679 ms
+✓ synthetic/meter-paywall            expected=paywall_teaser       got=paywall_teaser       target=1 "Sign in" 682 ms
+✓ synthetic/survey                   expected=survey               got=survey               target=1 "Maybe later" 642 ms
+✓ synthetic/chat                     expected=chat_widget          got=chat_widget          target=1 "×" 640 ms
+✓ synthetic/cart-drawer              expected=content              got=content              target=1 "View bag" 769 ms
+✓ synthetic/audio-player             expected=content              got=content              target=3 "Close player" 712 ms
+✓ synthetic/site-menu                expected=content              got=content              target=0 "Home" 734 ms
+✓ synthetic/filter-sheet             expected=content              got=content              target=1 "Show 124 results" 637 ms
+✓ synthetic/es-newsletter            expected=newsletter           got=newsletter           target=1 "Ahora no" 700 ms
+✓ synthetic/ja-app                   expected=app_install          got=app_install          target=1 "ブラウザで続ける" 638 ms
+✓ synthetic/cmp-tcf-de               expected=cookie_consent       got=cookie_consent       target=1 "Einstellungen" 705 ms
+✓ crawl/bbc/header#bbc-header        expected=content              got=content              target=0 "Open menu" 620 ms
+✗ crawl/spiegel/header.-mt-8.pointer-eve expected=content              got=login_wall           target=1 "DER SPIEGEL" 637 ms
+✓ crawl/lemonde/div.gdpr-lmd-standard.gd expected=cookie_consent       got=cookie_consent       target=1 "Reject all cookies" 800 ms
+✓ crawl/elpais/div#pmConsentWall     expected=cookie_consent       got=cookie_consent       target=0 "ACCEPT AND CONTINUE" 858 ms
+✓ crawl/corriere/header.header       expected=content              got=content              target=0 "×" 636 ms
+✓ crawl/corriere/div.privacy-cp-wall expected=cookie_consent       got=cookie_consent       target=0 "ACCETTA E CONTINUA" 836 ms
+✗ crawl/onet/header.Header_headerWrap expected=content              got=app_install          target=2 "SUBSKRYBUJ" 776 ms
+✓ crawl/onet/div > nav               expected=content              got=content              target=3 "Poczta" 650 ms
+✓ crawl/onet/div.cmp-popup_popup.show expected=cookie_consent       got=cookie_consent       target=0 "USTAWIENIA ZAAWANSOWANE" 1007 ms
+✓ crawl/idnes/a.cookie-info          expected=cookie_consent       got=cookie_consent       target=-1 739 ms
+✓ crawl/yahoo/header#module-uh       expected=content              got=content              target=1 "Your Profile Menu" 805 ms
+✓ crawl/cnn/div > div[role="dialog"] expected=cookie_consent       got=cookie_consent       target=0 "Terms of Use" 789 ms
+✓ crawl/forbes/div.GuKkQ.header.univers expected=content              got=content              target=0 "Open Navigation Menu" 631 ms
+✓ crawl/forbes/div#ketch-banner      expected=cookie_consent       got=cookie_consent       target=1 "Reject Optional Technologies" 807 ms
+✗ crawl/medium/div.ac.aj.ak          expected=content              got=app_install          target=0 "Get started" 712 ms
+✗ crawl/reddit/reddit-header-small.end- expected=content              got=chat_widget          target=3 "Home" 825 ms
+✗ crawl/pinterest/div.box_k.elevation_k.fi expected=login_wall           got=cookie_consent       target=0 "Get Pinterest app" 871 ms
+✗ crawl/stackoverflow/header.js-top-bar.l0.ps- expected=content              got=login_wall           target=0 "Search" 733 ms
+✓ crawl/stackoverflow/div#onetrust-banner-sdk expected=cookie_consent       got=cookie_consent       target=3 "Cookie Policy" 824 ms
+✗ crawl/healthline/div#sticky-nav    expected=content              got=app_install          target=0 "Subscribe" 642 ms
+✓ crawl/gymshark/div#onetrust-banner-sdk expected=cookie_consent       got=cookie_consent       target=0 "Accept All Cookies" 852 ms
+✓ crawl/allbirds/section.shopify-section. expected=content              got=content              target=-1 698 ms
+✓ crawl/allbirds/section#shopify-pc__bann expected=cookie_consent       got=cookie_consent       target=1 "Accept" 728 ms
+✓ crawl/weather.com/nav.bg-white.bottom-0.fi expected=content              got=content              target=4 "Upgrade" 721 ms
+✓ crawl/weather.com/div.-translate-x-1\/2.fi expected=app_install          got=app_install          target=1 "Get the App" 633 ms
+✓ crawl/github/div.header-wrapper.js-he expected=content              got=content              target=0 "Close" 716 ms
+✓ crawl/duckduckgo/div > div         expected=app_install          got=app_install          target=1 "Get DuckDuckGo Browser" 735 ms
+records: 57
+label accuracy: 84%  with the header guard: 95%  annoyance-vs-content accuracy: 86%  invalid replies: 0
+model chose an "agree" button: 16 (the policy never clicks those; it hides instead)
+latency per call: median 712 ms, p95 871 ms
+prompt tokens (system + features): median 283
+confusion (expected → got):
+  app_install          app_install:5
+  cookie_consent       cookie_consent:20
+  content              app_install:4 login_wall:3 content:12 chat_widget:1
+  newsletter           newsletter:4
+  notification_prompt  notification_prompt:2
+  paywall_teaser       paywall_teaser:2
+  login_wall           login_wall:1 cookie_consent:1
+  survey               survey:1
+  chat_widget          chat_widget:1
+example prompt:
+Overlay: banner at the bottom, 14% of screen
+Element: <div> app-cta
+Text: "Reading is better in the app. Open in app for a faster experience. Open in app Not now"
+Buttons: [0] Open in app [1] Not now
+/no_think
