@@ -1,6 +1,6 @@
 # Serene: stack and model decisions
 
-Status: proposed · 2026-10-24 · Step 1 of 4 (research). Steps 2–4 (engine prototype, MVP shell, measure & tune) build on this.
+Status: accepted (model choice: Qwen3-0.6B) · 2026-10-24 · Step 1 of 4 (research). Steps 2–4 (engine prototype, MVP shell, measure & tune) build on this.
 
 ## Summary
 
@@ -11,11 +11,12 @@ Status: proposed · 2026-10-24 · Step 1 of 4 (research). Steps 2–4 (engine pr
 | JS ↔ native bridge | `WebViewCompat.addWebMessageListener`, not `addJavascriptInterface` |
 | Rules engine | Brave's `adblock-rust` (MPL-2.0) built for Android via `cargo-ndk`, called over JNI |
 | Filter lists | EasyList Cookie List, Fanboy's Annoyances, uBlock filters – Annoyances / Cookie Notices; downloaded and updated at runtime, not bundled |
-| Model (default) | **Gemma 3 270M IT**, int8 `.litertlm` (~0.3 GB), fine-tuned as an overlay classifier |
-| Model (baseline / high tier) | Qwen3-0.6B (~0.6 GB, Apache-2.0) or Gemma 3 1B (~1 GB) prompted zero-shot, used to label data and as an optional "quality" download |
+| Model (default) | **Qwen3-0.6B** (Apache-2.0), `.litertlm` (~0.6 GB), prompted zero-shot with thinking disabled; GPU backend preferred |
+| Model (fallback) | Qwen2.5-0.5B (~0.5 GB, Apache-2.0) on devices without a usable GPU backend; fine-tuning either model is an option in step 4, not a requirement |
 | Runtime | **LiteRT-LM** Kotlin API (stable; CPU, GPU, NPU on Android) |
 | Not chosen | MediaPipe LLM Inference (now maintenance-only, superseded by LiteRT-LM); llama.cpp kept as a fallback runtime only |
 | Model delivery | Downloaded on first run (or Play Asset Delivery), never inside the APK |
+| Rejected | Gemma 3 270M: fastest, but needs fine-tuning to classify well, and the Gemma terms carry a use policy |
 
 ## 1. App stack
 
@@ -86,32 +87,31 @@ Labels: `cookie_consent`, `newsletter`, `notification_prompt`, `paywall_teaser`,
 
 | Model | Download | CPU prefill / decode tok/s | GPU prefill / decode | Licence | Fit |
 |---|---|---|---|---|---|
-| Gemma 3 270M (FunctionGemma build) | ~0.29 GB | 2238 / 154 (S25 Ultra) | GPU support WIP | Gemma terms | **Default.** Fast enough for every device class; needs fine-tuning |
-| Qwen3-0.6B | ~0.59 GB | 165 / 9 (Vivo X300 Pro) | 580 / 21 | Apache-2.0 | Good zero-shot; slow on CPU |
-| Qwen2.5-0.5B | ~0.52 GB | 251 / 30 (S24 Ultra) | – | Apache-2.0 | Alternative baseline |
+| Qwen3-0.6B | ~0.59 GB | 165 / 9 (Vivo X300 Pro) | 580 / 21 | Apache-2.0 | **Chosen.** Good zero-shot, permissive licence; wants the GPU backend |
+| Qwen2.5-0.5B | ~0.52 GB | 251 / 30 (S24 Ultra) | – | Apache-2.0 | Fallback for CPU-only devices |
+| Gemma 3 270M (FunctionGemma build) | ~0.29 GB | 2238 / 154 (S25 Ultra) | GPU support WIP | Gemma terms | Fastest, but needs fine-tuning; rejected |
 | Gemma 3 1B | ~1.0 GB | 177 / 33 (S24 Ultra) | 1191 / 24 | Gemma terms | Best zero-shot of the small set; high-end only |
 | Gemma 3n E2B | ~3.0 GB | 111 / 16 | 816 / 16 | Gemma terms | Too big for a browser add-on |
 
-**Latency estimate** for one classification (300-token prompt, 10 output tokens):
-- Gemma 3 270M on CPU, flagship: ~0.15 s prefill + ~0.07 s decode ≈ **0.2–0.3 s**. Mid-range is probably 3–5× slower, ~1 s.
-- Qwen3-0.6B on CPU: ~2–3 s. On GPU: ~0.5–1 s.
-- Gemma 3 1B on GPU: ~0.3–0.7 s, but 1 GB download and much more RAM.
+**Latency estimate** for one classification (prompt trimmed to ~200 tokens, ~10 output tokens):
+- Qwen3-0.6B on GPU: ~0.35 s prefill + ~0.5 s decode ≈ **0.8–1 s** on a flagship. On CPU it is ~1.2 s prefill + ~1 s decode, about 2–3 s.
+- Qwen2.5-0.5B on CPU (fallback): ~0.8 s prefill + ~0.3 s decode ≈ 1–1.5 s.
 
-Because the work is classification with a short constrained output, prefill speed matters most, and that favours the smallest model. A 270M model won't classify well from a prompt alone, but Google positions it as a base for task fine-tuning, and this task is narrow.
+Because the output is short and constrained, prefill dominates. So we keep the feature payload tight (step 2 target: ≤200 tokens) and reuse a cached system-prompt prefix across calls if LiteRT-LM's session API allows it. Qwen3's thinking mode is disabled (`/no_think`) so it answers in a single short JSON object. One check per new site, with the candidate quarantined while it runs (section 3), makes a ~1 s delay acceptable.
 
-**Plan:** use Gemma 3 1B / Qwen3-0.6B zero-shot (on desktop) to pre-label a few thousand detector candidates crawled from popular and long-tail sites. Hand-check a sample, fine-tune Gemma 3 270M on it, and ship that. Offer the larger model as an optional "accuracy" download if the evaluation shows a real gap.
+**Why Qwen3-0.6B:** it is good enough to classify zero-shot, so step 2 doesn't depend on building a training set first. Its Apache-2.0 licence has no use policy. Model size and speed are the costs, and we mitigate them with the GPU backend, a short prompt and per-site caching. If step 4 shows accuracy or latency gaps, a LoRA fine-tune of the same model is the next lever.
 
 ## 5. Size, memory, battery
 
 - **APK:** expect roughly 15–30 MB: Compose UI, `adblock-rust` (a few MB per ABI), and LiteRT-LM native libraries. These are estimates, to be confirmed in step 3. Ship an App Bundle so each device gets one ABI.
-- **Model:** ~0.3 GB, downloaded after install (Wi-Fi by default) and stored in app-private storage. The browser works rules-only until the model arrives. Play's base-module limit (200 MB) makes bundling impractical anyway.
+- **Model:** ~0.6 GB, downloaded after install (Wi-Fi by default) and stored in app-private storage. The browser works rules-only until the model arrives. Play's base-module limit (200 MB) makes bundling impractical anyway.
 - **RAM:** load the model lazily on the first uncertain candidate and unload it after ~1–2 minutes idle. Never load it when the system reports low memory.
 - **Battery:** the model runs about once per new site and is cached afterwards, so the cost is small compared with page rendering. In battery-saver mode, skip the LLM and run rules plus heuristics only. Run inference on a background dispatcher and never on the UI thread.
 
 ## 6. Risks and open questions
 
 - **False positives** (hiding real content, clicking the wrong button). Mitigations: the `content` label, a conservative threshold for `click`, a per-site undo, and a cached allow rule after an undo.
-- **Gemma licence.** The Gemma terms include a prohibited-use policy and are not OSI-approved. If that's a problem, Qwen (Apache-2.0) is the swap, at a speed cost.
+- **Latency on mid-range phones.** A CPU-only device could take 2–3 s per check. Measure in step 4. If it's too slow, switch those devices to Qwen2.5-0.5B or skip the LLM on them and run rules plus heuristics only.
 - **WebView feature gaps.** Rare devices with very old WebView builds lack `DOCUMENT_START_SCRIPT`. The `onPageStarted` fallback is best-effort and may lose the race against page scripts.
 - **Cross-origin CMP iframes.** Document-start scripts reach them only if their origin matches the allowed rules. We use `"*"` and rely on our own script being inert outside its job.
 - **Evaluation data.** We need a labeled set and a repeatable crawl. Defining it is the first task of step 2.
@@ -120,6 +120,5 @@ Because the work is classification with a short constrained output, prefill spee
 
 - MediaPipe LLM Inference guide (maintenance-only notice, supported models): https://developers.google.com/edge/mediapipe/solutions/genai/llm_inference
 - LiteRT-LM overview (APIs, backends, model table): https://developers.google.com/edge/litert-lm/overview
-- Gemma 3 270M LiteRT-LM build: https://huggingface.co/litert-community/gemma-3-270m-it
 - androidx.webkit `WebViewCompat` reference: https://developer.android.com/reference/androidx/webkit/WebViewCompat
 - adblock-rust: https://lib.rs/crates/adblock
