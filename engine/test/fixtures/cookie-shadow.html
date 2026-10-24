@@ -1,0 +1,11 @@
+<!doctype html><title>Consent banner in shadow DOM</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px}</style><script>window.__clicked=[];function clk(n,el){__clicked.push(n);(el.closest("[data-box]")||el).remove();document.documentElement.style.overflow="";document.body.style.position=""}</script>
+<script type="application/json" id="expect">{"gone":"x-privacy","visible":["#article"],"clicked":["reject"],"notClicked":["accept"],"via":"heuristic"}</script>
+<article id="article"><h1>Local council approves new park</h1><p>The council voted on Tuesday to turn the old rail yard into a public park.</p><p style="height:1500px">Long content.</p></article>
+<x-privacy style="position:fixed;bottom:0;left:0;right:0;z-index:999;background:#ffd;display:block"></x-privacy>
+<script>
+const host = document.querySelector('x-privacy');
+const root = host.attachShadow({ mode: 'open' });
+root.innerHTML = '<div style="padding:16px"><p>We use cookies to measure traffic and show personalised ads.</p><button id=a>Accept all</button> <button id=r>Reject all</button></div>';
+root.getElementById('a').onclick = () => { __clicked.push('accept'); host.remove(); };
+root.getElementById('r').onclick = () => { __clicked.push('reject'); host.remove(); };
+</script>

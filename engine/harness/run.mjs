@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+// Real-site crawl: loads each site on an emulated phone in three modes and compares.
+//
+//   baseline  plain browser; the detector only observes, to list what the user would see
+//   rules     filter lists + heuristics, no model
+//   serene    filter lists + heuristics + LLM (needs --model)
+//
+// Each site is then reloaded in the same context to check that the per-site cache handles the
+// second visit without the model.
+//
+//   node harness/run.mjs --model models/Qwen3-0.6B-Q8_0.gguf [--sites harness/sites.json]
+//        [--only bbc,spiegel] [--modes baseline,rules,serene] [--wait 10000] [--headed]
+import fs from 'node:fs';
+import path from 'node:path';
+import { parseArgs } from 'node:util';
+import { launch, newContext, residualOverlays } from './browser.mjs';
+import { SereneEngine } from '../src/host/engine.mjs';
+import { RulesEngine } from '../src/host/rules.mjs';
+import { loadLists } from '../src/host/lists.mjs';
+import { VerdictCache } from '../src/host/cache.mjs';
+import { LlamaClassifier } from '../src/host/classifier.mjs';
+
+const ROOT = new URL('..', import.meta.url).pathname;
+const { values: args } = parseArgs({
+  options: {
+    sites: { type: 'string', default: path.join(ROOT, 'harness/sites.json') },
+    only: { type: 'string' },
+    modes: { type: 'string', default: 'baseline,rules,serene' },
+    model: { type: 'string' },
+    wait: { type: 'string', default: '10000' },
+    locale: { type: 'string', default: 'en-GB' },
+    out: { type: 'string' },
+    headed: { type: 'boolean', default: false },
+  },
+});
+
+let sites = JSON.parse(fs.readFileSync(args.sites, 'utf8'));
+if (args.only) { const only = args.only.split(','); sites = sites.filter((s) => only.some((o) => s.name.includes(o))); }
+let modes = args.modes.split(',');
+if (modes.includes('serene') && !args.model) {
+  console.warn('no --model given: skipping the serene mode (rules + heuristics only)');
+  modes = modes.filter((m) => m !== 'serene');
+}
+const WAIT = Number(args.wait);
+const outDir = args.out ?? path.join(ROOT, 'results', new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19));
+fs.mkdirSync(path.join(outDir, 'shots'), { recursive: true });
+
+const lists = await loadLists(path.join(ROOT, '.cache/lists'));
+const rules = new RulesEngine(lists);
+const classifier = args.model ? new LlamaClassifier({ modelPath: args.model }) : null;
+if (classifier) { const t0 = Date.now(); await classifier.classify(warmupFeatures()); console.log(`model loaded + warm-up in ${Date.now() - t0} ms`); }
+
+const browser = await launch({ headless: !args.headed });
+const results = [];
+const candidatesOut = fs.createWriteStream(path.join(outDir, 'candidates.jsonl'));
+
+for (const site of sites) {
+  const row = { site: site.name, url: site.url, expect: site.expect, modes: {} };
+  for (const mode of modes) {
+    try {
+      row.modes[mode] = await visit(site, mode);
+    } catch (err) {
+      row.modes[mode] = { error: err.message.split('\n')[0] };
+    }
+    const m = row.modes[mode];
+    console.log(`${site.name.padEnd(22)} ${mode.padEnd(8)} ${m.error ? 'ERROR ' + m.error : summary(m)}`);
+  }
+  results.push(row);
+}
+await browser.close();
+candidatesOut.end();
+fs.writeFileSync(path.join(outDir, 'results.json'), JSON.stringify(results, null, 1));
+fs.writeFileSync(path.join(outDir, 'report.md'), report(results));
+console.log(`\nreport: ${path.join(outDir, 'report.md')}`);
+process.exit(0);
+
+async function visit(site, mode) {
+  const events = [];
+  const engine = mode === 'baseline'
+    ? new SereneEngine({ cache: new VerdictCache(), contentConfig: { observeOnly: true } })
+    : new SereneEngine({ rules, classifier: mode === 'serene' ? classifier : null, cache: new VerdictCache() });
+  const context = await newContext(browser, { engine, onEvent: (e) => events.push({ ...e, at: Date.now() }), locale: args.locale });
+  const page = await context.newPage();
+  const t0 = Date.now();
+  try {
+    await page.goto(site.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(WAIT);
+    const first = await snapshot(page, site, mode, 'first', events, t0);
+    let second = null;
+    if (mode !== 'baseline') {
+      // Second visit, same profile: cookies from a clicked "reject" and the verdict cache both apply.
+      const mark = events.length, t1 = Date.now();
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(Math.min(WAIT, 6000));
+      second = await snapshot(page, site, mode, 'second', events.slice(mark), t1);
+    }
+    return { ...first, second };
+  } finally {
+    await context.close();
+  }
+}
+
+async function snapshot(page, site, mode, visitName, events, t0) {
+  const slug = `${site.name.replace(/[^a-z0-9.]+/gi, '_')}-${mode}-${visitName}`;
+  await page.screenshot({ path: path.join(outDir, 'shots', slug + '.png') }).catch(() => {});
+  const residual = (await residualOverlays(page).catch(() => null)) ?? { overlays: [], scrollLocked: null };
+  const cands = events.filter((e) => e.type === 'candidate');
+  for (const c of cands) candidatesOut.write(JSON.stringify({ site: site.name, mode, visit: visitName, features: c.features, verdict: c.verdict, decidedMs: c.decidedMs, label: null }) + '\n');
+  const llm = cands.filter((c) => c.verdict?.llm).map((c) => c.verdict.llm);
+  const firstAction = events.find((e) => e.type === 'applied');
+  return {
+    shot: `shots/${slug}.png`,
+    blockedRequests: events.filter((e) => e.type === 'blocked').length,
+    cosmetic: events.find((e) => e.type === 'cosmetic' && e.url?.startsWith('http')) ?? null,
+    genericSelectors: events.filter((e) => e.type === 'generic').reduce((n, e) => n + e.selectors.length, 0),
+    candidates: cands.map((c) => ({
+      sig: c.features.sig, edge: c.features.edge, coverage: c.features.coverage,
+      text: c.features.text.slice(0, 90), heuristic: c.features.heuristic,
+      verdict: c.verdict ? { label: c.verdict.label, action: c.verdict.action, source: c.verdict.source, buttonLabel: c.verdict.buttonLabel } : null,
+      decidedMs: c.decidedMs,
+    })),
+    actions: events.filter((e) => e.type === 'applied').map((e) => ({ action: e.action, ok: e.ok, fallback: e.fallback, source: e.source, sig: e.sig })),
+    msToFirstAction: firstAction ? firstAction.at - t0 : null,
+    llmCalls: llm.length,
+    llmMs: llm.map((r) => r.ms),
+    llmPromptTokens: llm.map((r) => r.promptTokens),
+    // What is still on screen: annoyance-looking overlays by the detector's own heuristics.
+    residual: residual.overlays.map((o) => ({ sig: o.sig, edge: o.edge, coverage: o.coverage, label: o.heuristic.label, score: o.heuristic.score, text: o.text.slice(0, 90) })),
+    residualAnnoyances: residual.overlays.filter((o) => o.heuristic.label !== 'content' && o.heuristic.score >= 0.5).length,
+    // Anything large still covering the page, whatever the heuristics think it is.
+    residualBlocking: residual.overlays.filter((o) => o.coverage >= 0.3 && !o.looksLikeLayout && !o.isBackdrop).length,
+    scrollLocked: residual.scrollLocked,
+    detectorScans: residual.scanMs?.length ?? 0,
+    detectorScanMsMax: residual.scanMs?.length ? Math.max(...residual.scanMs) : null,
+  };
+}
+
+function summary(m) {
+  const acted = m.candidates.filter((c) => c.verdict && c.verdict.action !== 'ignore');
+  const s = `cand=${m.candidates.length} acted=${acted.map((c) => `${c.verdict.label}:${c.verdict.action}/${c.verdict.source}`).join(',') || '-'} ` +
+    `residual=${m.residualAnnoyances}/${m.residualBlocking} locked=${m.scrollLocked} llm=${m.llmCalls}${m.llmMs.length ? ` (${m.llmMs.join('/')} ms)` : ''}`;
+  return m.second ? `${s} | 2nd: residual=${m.second.residualAnnoyances} llm=${m.second.llmCalls}` : s;
+}
+
+function report(rows) {
+  const L = [];
+  L.push(`# Serene engine crawl, ${new Date().toISOString().slice(0, 16)}Z`, '');
+  L.push(`Viewport: Pixel 7 emulation, locale ${args.locale}, wait ${WAIT} ms. Modes: ${modes.join(', ')}. Model: ${args.model ? path.basename(args.model) : 'none'}.`, '');
+  L.push('After each run: "annoyances" counts overlays still on screen that the detector\'s heuristics read as annoyances (score ≥ 0.5); "blocking" counts any overlay still covering ≥ 30% of the screen; "locked" is page scrolling. Check the screenshots: heuristics are not ground truth.', '');
+  L.push('| Site | Baseline overlays | Rules: annoyances / blocking / locked | Serene: annoyances / blocking / locked | Model calls (ms) | 2nd visit residual / model calls |');
+  L.push('|---|---|---|---|---|---|');
+  for (const r of rows) {
+    const b = r.modes.baseline, ru = r.modes.rules, se = r.modes.serene;
+    const cell = (m) => (!m ? '–' : m.error ? `error` : `${m.residualAnnoyances} / ${m.residualBlocking} / ${m.scrollLocked ? 'yes' : 'no'}`);
+    const base = !b ? '–' : b.error ? 'error' : b.residual.filter((o) => o.label !== 'content' && o.score >= 0.5).map((o) => o.label).join(', ') || 'none';
+    const llm = se && !se.error ? `${se.llmCalls}${se.llmMs.length ? ` (${se.llmMs.join(', ')})` : ''}` : '–';
+    const last = se ?? ru;
+    const second = last && !last.error && last.second ? `${last.second.residualAnnoyances} / ${last.second.llmCalls}` : '–';
+    L.push(`| ${r.site} | ${base} | ${cell(ru)} | ${cell(se)} | ${llm} | ${second} |`);
+  }
+  L.push('', '## Decisions per site', '');
+  for (const r of rows) {
+    L.push(`### ${r.site}`, '');
+    for (const [mode, m] of Object.entries(r.modes)) {
+      if (m.error) { L.push(`- **${mode}**: error: ${m.error}`); continue; }
+      L.push(`- **${mode}**: ${m.blockedRequests} requests blocked, ${m.cosmetic?.hideSelectors ?? 0} site hide rules + ${m.genericSelectors} generic, ${m.candidates.length} candidates, ${m.detectorScans} detector scans (max ${m.detectorScanMsMax} ms), first action at ${m.msToFirstAction ?? '–'} ms, screenshot \`${m.shot}\``);
+      for (const c of m.candidates) {
+        const v = c.verdict ? `${c.verdict.label} → ${c.verdict.action}${c.verdict.buttonLabel ? ` "${c.verdict.buttonLabel}"` : ''} (${c.verdict.source}${c.decidedMs != null ? `, ${c.decidedMs} ms` : ''})` : 'observed';
+        L.push(`  - \`${c.sig}\` ${c.edge} ${Math.round(c.coverage * 100)}%, h=${c.heuristic.label}:${c.heuristic.score}: ${v} · "${c.text}"`);
+      }
+      for (const o of m.residual.filter((o) => o.label !== 'content')) L.push(`  - still visible: \`${o.sig}\` ${o.label}:${o.score} "${o.text}"`);
+    }
+    L.push('');
+  }
+  return L.join('\n');
+}
+
+function warmupFeatures() {
+  return { sig: 'div#x', tag: 'div', role: '', ariaModal: false, ariaLabel: '', tokens: '', text: 'We use cookies.', textLen: 15, buttons: ['Accept', 'Reject'], hasEmail: false, hasPassword: false, hasVideo: false, iframeOrigins: [], coverage: 0.2, edge: 'bottom', zIndex: 10, scrollLocked: false };
+}
