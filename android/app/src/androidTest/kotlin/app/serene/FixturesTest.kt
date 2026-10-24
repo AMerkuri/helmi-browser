@@ -136,8 +136,13 @@ class FixturesTest(private val file: String) {
         app.settings.savedTabs = emptyList() // start each fixture with only its own tab
         val url = "http://127.0.0.1:${server.localPort}/$file"
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { it.tabs.open(url) }
-            SystemClock.sleep((exp["waitMs"]?.jsonPrimitive?.intOrNull ?: 2500) + 2000L) // emulators are slower than desktop Chromium
+            var tab: app.serene.browser.Tab? = null
+            scenario.onActivity { tab = it.tabs.open(url) }
+            // Time the page from its first document, not from the tap: a cold WebView on an
+            // emulator takes seconds to start, which a phone's warm one does not.
+            val end = SystemClock.uptimeMillis() + 20_000
+            while (SystemClock.uptimeMillis() < end && tab?.session?.log()?.any { it.contains("hello from top") } != true) SystemClock.sleep(100)
+            SystemClock.sleep((exp["waitMs"]?.jsonPrimitive?.intOrNull ?: 2500) + 1500L) // emulators are slower than desktop Chromium
 
             val latch = CountDownLatch(1)
             var raw: String? = null
