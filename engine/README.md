@@ -1,0 +1,25 @@
+# Serene engine (prototype)
+
+The hybrid annoyance engine: filter lists → overlay detector + heuristics → on-device LLM, with per-site caching. Design notes and results: [docs/engine.md](../docs/engine.md).
+
+```
+src/content/serene.js   content script (document start, every frame): rules CSS, detector, features, actions
+src/host/rules.mjs      adblock-rust (Brave) network + cosmetic rules
+src/host/lists.mjs      filter list download/refresh
+src/host/policy.mjs     cache → heuristics → LLM routing, safe-click rules
+src/host/classifier.mjs prompt, output schema, llama.cpp backend for Qwen3-0.6B
+src/host/cache.mjs      per-site verdict cache (eTLD+1 + selector signature)
+src/host/engine.mjs     host session per page (what the app's native side will do)
+harness/browser.mjs     Playwright stand-in for the WebView hooks
+harness/run.mjs         real-site crawl: baseline vs rules vs full engine, report + screenshots
+test/                   fixture e2e tests, unit tests, model eval + labelled seed set
+```
+
+```sh
+npm install && npx playwright install chromium
+npm test
+npm run model && npm run llm-eval
+npm run crawl            # or: npm run crawl:no-model
+```
+
+Set `SERENE_CHROMIUM=/path/to/chromium` to use an existing Chromium build.

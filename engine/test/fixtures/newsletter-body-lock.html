@@ -1,0 +1,6 @@
+<!doctype html><title>Newsletter modal that locks body with position:fixed</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px}</style><script>window.__clicked=[];function clk(n,el){__clicked.push(n);(el.closest("[data-box]")||el).remove();document.documentElement.style.overflow="";document.body.style.position=""}</script>
+<script type="application/json" id="expect">{"gone":".signup-modal","visible":["#article"],"scroll":true,"notClicked":["subscribe"],"via":"heuristic"}</script>
+<article id="article"><h1>Local council approves new park</h1><p>The council voted on Tuesday to turn the old rail yard into a public park.</p><p style="height:1500px">Long content.</p></article>
+<div class="signup-modal" style="position:fixed;inset:10% 6%;background:#fff;box-shadow:0 0 0 100vmax #0009;z-index:70;padding:20px">
+<h2>Get 15% off your first order</h2><p>Sign up for our newsletter and get exclusive deals straight to your inbox.</p><input type="email" placeholder="Email"><button onclick="clk('subscribe',this)">Sign up</button></div>
+<script>document.body.style.position='fixed';document.body.style.top='0';document.body.style.width='100%'</script>
