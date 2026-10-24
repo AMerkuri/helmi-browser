@@ -85,6 +85,9 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
 
     fun log(): List<String> = logLines.toList()
 
+    /** A line from outside the engine, such as a page console error. */
+    fun note(s: String) = log(s)
+
     private fun log(s: String) {
         logLines += "${System.currentTimeMillis() - startedAt}ms $s"
         if (logLines.size > 200) logLines.removeAt(0)
@@ -179,8 +182,8 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     }
 
     private suspend fun candidate(msg: JsonObject, frame: FrameRef) {
-        val id = msg["id"]?.jsonPrimitive?.intOrNull ?: return
-        val fJson = msg["features"] ?: return
+        val id = msg["id"]?.jsonPrimitive?.intOrNull ?: return log("candidate without id")
+        val fJson = msg["features"] ?: return log("candidate #$id without features")
         val f = runCatching { EngineJson.decodeFromJsonElement(Features.serializer(), fJson) }
             .onFailure { log("candidate #$id unreadable: ${it.message}") }.getOrNull() ?: return
         val t0 = System.nanoTime()

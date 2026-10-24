@@ -119,6 +119,13 @@ class FixturesTest(private val file: String) {
         visible: (exp.visible || []).map((s) => [s, shown(s)]),
         clicked: window.__clicked || [],
         scrollable: h.overflow !== 'hidden' && b.overflow !== 'hidden' && b.position !== 'fixed',
+        // What the content script saw, for failure messages.
+        page: window.__serene ? {
+          candidates: [...window.__serene.state.candidates].map(([id, c]) => [id, c.sig, !!c.quarantined, c.el.getAttribute('data-serene')]),
+          scans: window.__serene.state.scanMs.length,
+          firstScanPending: !!window.__serene.state.firstScan,
+          goneStyle: exp.gone && document.querySelector(exp.gone) ? (() => { const el = document.querySelector(exp.gone), cs = getComputedStyle(el); return [cs.display, cs.visibility, el.getBoundingClientRect().height, el.getAttribute('data-serene')]; })() : null,
+        } : null,
       });
     })()"""
 

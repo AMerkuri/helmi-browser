@@ -11,6 +11,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
@@ -86,6 +87,13 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
             override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: "" }
+            // Page errors go in the page log ("What Serene did here", reports, e2e failures).
+            override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR || m.messageLevel() == ConsoleMessage.MessageLevel.WARNING) {
+                    current?.note("console ${m.messageLevel().name.lowercase()}: ${m.message().take(200)} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})")
+                }
+                return false
+            }
         }
         webView.setDownloadListener { dlUrl, userAgent, contentDisposition, mimeType, _ ->
             download(context, dlUrl, userAgent, contentDisposition, mimeType)
