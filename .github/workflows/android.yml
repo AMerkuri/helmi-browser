@@ -96,11 +96,18 @@ jobs:
           script: |
             adb install -r "$(find apks -name app-debug.apk)"
             adb install -r "$(find apks -name app-debug-androidTest.apk)"
+            adb logcat -c
             adb shell am instrument -w -r app.serene.browser.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt
+            adb logcat -d -v time > logcat.txt
+            adb logcat -d -b crash > crash.txt
+            cat crash.txt
             grep -q "^OK (" instrument.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: e2e-output
-          path: instrument.txt
+          path: |
+            instrument.txt
+            logcat.txt
+            crash.txt
           if-no-files-found: ignore

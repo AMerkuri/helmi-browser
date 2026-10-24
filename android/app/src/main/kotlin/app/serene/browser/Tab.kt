@@ -99,10 +99,17 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         }
         WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, _, isMainFrame, reply: JavaScriptReplyProxy ->
             val data = message.data ?: return@addWebMessageListener
+            if (destroyed) return@addWebMessageListener
             val frame = object : FrameRef {
                 override val isTop = isMainFrame
                 override fun send(json: String) {
-                    if (Looper.myLooper() == Looper.getMainLooper()) reply.postMessage(json) else main.post { reply.postMessage(json) }
+                    if (Looper.myLooper() == Looper.getMainLooper()) post(json) else main.post { post(json) }
+                }
+
+                // Verdicts can arrive after the tab (or its frame) is gone; a dead proxy throws.
+                private fun post(json: String) {
+                    if (destroyed) return
+                    try { reply.postMessage(json) } catch (e: Exception) { Log.w(TAG, "reply dropped: ${e.message}") }
                 }
             }
             // A new document in the main frame is a new navigation: fresh page session.
@@ -145,7 +152,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
     fun goBack() { if (webView.canGoBack()) webView.goBack() }
     fun goForward() { if (webView.canGoForward()) webView.goForward() }
 
+    @Volatile private var destroyed = false
+
     fun destroy() {
+        if (destroyed) return
+        destroyed = true
+        main.removeCallbacksAndMessages(null)
         webView.stopLoading()
         webView.destroy()
     }
