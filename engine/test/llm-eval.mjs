@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
 import { LlamaClassifier, LABELS, buildPrompt } from '../src/host/classifier.mjs';
-import { isSafeTarget } from '../src/host/policy.mjs';
+import { isSafeTarget, looksLikeChrome } from '../src/host/policy.mjs';
 
 const { values: args } = parseArgs({ options: {
   model: { type: 'string' },
@@ -23,7 +23,7 @@ const t0 = Date.now();
 await clf.classify(rows[0].features); // load + warm the system-prompt cache
 console.log(`load + first call: ${Date.now() - t0} ms\n`);
 
-let correct = 0, annoyVsContent = 0, agreeClicks = 0, invalid = 0;
+let correct = 0, guarded = 0, annoyVsContent = 0, agreeClicks = 0, invalid = 0;
 const ms = [], toks = [], confusion = {};
 for (const r of rows) {
   const out = await clf.classify(r.features);
@@ -31,6 +31,8 @@ for (const r of rows) {
   if (out.invalid) invalid++;
   const ok = out.label === r.expected;
   if (ok) correct++;
+  // What the engine does: site headers and nav bars never reach the model (policy.looksLikeChrome).
+  if ((looksLikeChrome(r.features) ? 'content' : out.label) === r.expected) guarded++;
   if ((out.label === 'content') === (r.expected === 'content')) annoyVsContent++;
   const btn = r.features.buttons[out.target];
   if (out.target >= 0 && !isSafeTarget(btn) && /accept|agree|allow|subscribe|sign|akzept|accetta|akcept|同意/i.test(btn || '')) agreeClicks++;
@@ -40,7 +42,7 @@ for (const r of rows) {
 const pct = (n) => `${((100 * n) / rows.length).toFixed(0)}%`;
 const sorted = [...ms].sort((a, b) => a - b);
 console.log(`\nrecords: ${rows.length}`);
-console.log(`label accuracy: ${pct(correct)}  annoyance-vs-content accuracy: ${pct(annoyVsContent)}  invalid replies: ${invalid}`);
+console.log(`label accuracy: ${pct(correct)}  with the header guard: ${pct(guarded)}  annoyance-vs-content accuracy: ${pct(annoyVsContent)}  invalid replies: ${invalid}`);
 console.log(`model chose an "agree" button: ${agreeClicks} (the policy never clicks those; it hides instead)`);
 console.log(`latency per call: median ${sorted[Math.floor(sorted.length / 2)]} ms, p95 ${sorted[Math.floor(sorted.length * 0.95)]} ms`);
 console.log(`prompt tokens (system + features): median ${toks.sort((a, b) => a - b)[Math.floor(toks.length / 2)]}`);

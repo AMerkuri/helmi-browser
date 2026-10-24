@@ -11,15 +11,15 @@ export const LABELS = [
 
 export const SYSTEM_PROMPT = `You label overlays that appear on web pages in a mobile browser.
 Labels:
-cookie_consent: cookie, privacy or consent banner
-newsletter: email signup, discount or "subscribe for updates" popup
+cookie_consent: cookie, privacy, tracking or consent notice, also "accept or pay" walls
+newsletter: offers emails, updates or a discount for signing up, often with an email field
 notification_prompt: asks to enable push notifications or alerts
-paywall_teaser: asks to subscribe or pay to keep reading
-app_install: asks to open or install the app
-login_wall: asks to sign in or register to continue
+paywall_teaser: says you reached a free article limit, or must subscribe or pay to keep reading
+app_install: asks to open or install an app: "open in app", "get the app", App Store, Google Play
+login_wall: blocks the page until you sign in or create an account
 chat_widget: support chat bubble
 survey: feedback or rating request
-content: anything the reader wants: menus, headers, video players, article text, cookie-free toolbars
+content: anything else the reader wants: site header, navigation, menus, players, carts, filters, article text
 target: index of the button that rejects, declines or closes WITHOUT agreeing or subscribing, else -1.
 Answer with JSON only: {"label": "...", "target": N}`;
 
