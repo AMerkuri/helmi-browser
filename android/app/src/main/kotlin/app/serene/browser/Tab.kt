@@ -11,6 +11,7 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.URLUtil
@@ -69,7 +70,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
     private val main = Handler(Looper.getMainLooper())
     private val changeQueued = AtomicBoolean(false)
 
-    val webView: WebView = WebView(context)
+    // MATCH_PARENT, not the default WRAP_CONTENT: with a wrap_content height the page's
+    // viewport is 0 px tall, so every vh-sized element (bottom sheets, consent boxes) collapses.
+    val webView: WebView = WebView(context).apply {
+        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+    }
 
     init {
         with(webView.settings) {
