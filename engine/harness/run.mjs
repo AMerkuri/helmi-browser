@@ -130,14 +130,15 @@ async function snapshot(page, site, mode, visitName, events, t0) {
     // Anything large still covering the page, whatever the heuristics think it is.
     residualBlocking: residual.overlays.filter((o) => o.coverage >= 0.3 && !o.looksLikeLayout && !o.isBackdrop).length,
     scrollLocked: residual.scrollLocked,
+    engineStarted: residual.started ?? null, // false: the content script never got its init reply
     detectorScans: residual.scanMs?.length ?? 0,
     detectorScanMsMax: residual.scanMs?.length ? Math.max(...residual.scanMs) : null,
   };
 }
 
 function summary(m) {
-  const acted = m.candidates.filter((c) => c.verdict && c.verdict.action !== 'ignore');
-  const s = `cand=${m.candidates.length} acted=${acted.map((c) => `${c.verdict.label}:${c.verdict.action}/${c.verdict.source}`).join(',') || '-'} ` +
+  const acted = m.candidates.filter((c) => c.verdict && c.verdict.source !== 'cache' && c.verdict.action !== 'ignore');
+  const s = `${m.engineStarted === false ? 'NOT STARTED ' : ''}cand=${m.candidates.length} acted=${acted.map((c) => `${c.verdict.label}:${c.verdict.action}/${c.verdict.source}`).join(',') || '-'} ` +
     `residual=${m.residualAnnoyances}/${m.residualBlocking} locked=${m.scrollLocked} llm=${m.llmCalls}${m.llmMs.length ? ` (${m.llmMs.join('/')} ms)` : ''}`;
   return m.second ? `${s} | 2nd: residual=${m.second.residualAnnoyances} llm=${m.second.llmCalls}` : s;
 }
@@ -165,7 +166,7 @@ function report(rows) {
       if (m.error) { L.push(`- **${mode}**: error: ${m.error}`); continue; }
       L.push(`- **${mode}**: ${m.blockedRequests} requests blocked, ${m.cosmetic?.hideSelectors ?? 0} site hide rules + ${m.genericSelectors} generic, ${m.candidates.length} candidates, ${m.detectorScans} detector scans (max ${m.detectorScanMsMax} ms), first action at ${m.msToFirstAction ?? '–'} ms, screenshot \`${m.shot}\``);
       for (const c of m.candidates) {
-        const v = c.verdict ? `${c.verdict.label} → ${c.verdict.action}${c.verdict.buttonLabel ? ` "${c.verdict.buttonLabel}"` : ''} (${c.verdict.source}${c.decidedMs != null ? `, ${c.decidedMs} ms` : ''})` : 'observed';
+        const v = c.verdict?.source === 'cache' ? 'cached site rule, applied in the page' : c.verdict ? `${c.verdict.label} → ${c.verdict.action}${c.verdict.buttonLabel ? ` "${c.verdict.buttonLabel}"` : ''} (${c.verdict.source}${c.decidedMs != null ? `, ${c.decidedMs} ms` : ''})` : 'observed';
         L.push(`  - \`${c.sig}\` ${c.edge} ${Math.round(c.coverage * 100)}%, h=${c.heuristic.label}:${c.heuristic.score}: ${v} · "${c.text}"`);
       }
       for (const o of m.residual.filter((o) => o.label !== 'content')) L.push(`  - still visible: \`${o.sig}\` ${o.label}:${o.score} "${o.text}"`);
