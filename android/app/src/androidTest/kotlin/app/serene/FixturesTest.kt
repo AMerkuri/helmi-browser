@@ -143,7 +143,8 @@ class FixturesTest(private val file: String) {
             assertTrue("page did not answer", latch.await(10, TimeUnit.SECONDS))
             val state = EngineJson.parseToJsonElement(EngineJson.decodeFromString<String>(raw!!)).jsonObject
             val s = session
-            val log = s?.log()?.joinToString("\n") ?: "(no session)"
+            val log = (s?.log()?.joinToString("\n") ?: "(no session)") + "\ncandidates: " +
+                s?.candidates()?.joinToString { "#${it.id} ${it.features.sig} ${it.label}/${it.action} via ${it.source} applied=${it.applied}" } + "\nstate: $state"
 
             assertEquals("content script should start\n$log", true, state["started"]?.jsonPrimitive?.booleanOrNull)
             if (exp["gone"] != null) assertEquals("${exp["gone"]} should be gone\n$log", true, state["gone"]?.jsonPrimitive?.booleanOrNull)

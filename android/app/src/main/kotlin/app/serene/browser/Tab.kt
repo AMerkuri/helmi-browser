@@ -27,8 +27,12 @@ import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import app.serene.SereneApp
+import app.serene.engine.EngineJson
 import app.serene.engine.FrameRef
 import app.serene.engine.PageSession
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
@@ -102,13 +106,18 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
                 }
             }
             // A new document in the main frame is a new navigation: fresh page session.
-            if (isMainFrame && data.startsWith("{\"type\":\"hello\"")) newSession()
+            if (isMainFrame && data.startsWith("{\"type\":\"hello\"") && isTopHello(data)) newSession()
             current?.onMessage(data, frame)
         }
         if (documentStartSupported) {
             WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
         }
     }
+
+    // The content script says whether it runs in the top window; only that starts a new page.
+    private fun isTopHello(data: String) = runCatching {
+        EngineJson.parseToJsonElement(data).jsonObject["top"]?.jsonPrimitive?.booleanOrNull == true
+    }.getOrDefault(false)
 
     private fun newSession() {
         val s = pending ?: app.engine.newPage(::onSessionChange)

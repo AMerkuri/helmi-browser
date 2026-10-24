@@ -109,11 +109,16 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         when (msg.str("type")) {
             "hello" -> hello(msg, frame)
             "classIds" -> classIds(msg, frame)
-            "candidate" -> e.scope.launch { candidate(msg, frame) }
+            "candidate" -> e.scope.launch {
+                try { candidate(msg, frame) } catch (t: Throwable) { log("candidate error: $t") }
+            }
             "frameSummary" -> {
                 val origin = msg.str("origin") ?: return
+                val summary = runCatching { EngineJson.decodeFromJsonElement(Features.serializer(), msg) }
+                    .onFailure { log("frameSummary from $origin unreadable: ${it.message}") }.getOrNull() ?: return
                 frames[origin] = frame
-                frameSummaries[origin] = EngineJson.decodeFromJsonElement(Features.serializer(), msg)
+                frameSummaries[origin] = summary
+                log("frame $origin: ${summary.buttons.size} buttons, heuristic ${summary.heuristic.label} ${summary.heuristic.score}")
             }
             "frameClick" -> {
                 val f = frames[msg.str("origin") ?: return] ?: return
@@ -130,6 +135,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
 
     private fun hello(msg: JsonObject, frame: FrameRef) {
         val url = msg.str("url") ?: return
+        log("hello from ${if (frame.isTop) "top" else "frame"} ${url.take(100)}")
         if (frame.isTop) {
             topUrl = url
             enabled = e.enabledFor(url)
@@ -175,7 +181,8 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     private suspend fun candidate(msg: JsonObject, frame: FrameRef) {
         val id = msg["id"]?.jsonPrimitive?.intOrNull ?: return
         val fJson = msg["features"] ?: return
-        val f = runCatching { EngineJson.decodeFromJsonElement(Features.serializer(), fJson) }.getOrNull() ?: return
+        val f = runCatching { EngineJson.decodeFromJsonElement(Features.serializer(), fJson) }
+            .onFailure { log("candidate #$id unreadable: ${it.message}") }.getOrNull() ?: return
         val t0 = System.nanoTime()
         val cached = msg["cached"]?.jsonPrimitive?.booleanOrNull == true
         if (cached) {
@@ -191,6 +198,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         var feats = f
         var inFrame: String? = null
         if (f.iframeOrigins.isNotEmpty() && f.textLen < 20 && !f.userInitiated) {
+            log("candidate #$id ${f.sig}: waiting for iframe ${f.iframeOrigins}")
             val origin = waitForFrame(f.iframeOrigins, 1500)
             if (origin != null) {
                 val s = frameSummaries.getValue(origin)
