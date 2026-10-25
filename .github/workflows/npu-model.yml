@@ -44,8 +44,18 @@ jobs:
             "litert-torch @ git+https://github.com/google-ai-edge/litert-torch.git@c677a8069d63fc86a6d14e11168dfc387fd9357c" \
             ai-edge-litert-sdk-qualcomm-nightly==2.4.0.dev20261024
           python -c "import ai_edge_litert_sdk_qualcomm as q; p = q.path_to_sdk_libs(); print(p); assert p and p.is_dir()"
+      # The first three stages take about 20 minutes and depend only on these inputs, so a
+      # change to the compile stage reuses the quantized model.
+      - uses: actions/cache@v4
+        id: quantized
+        with:
+          path: ${{ runner.temp }}/npu/quantized
+          key: npu-quantized-c677a80-512-${{ hashFiles('android/npu-model/calibration.jsonl', 'android/npu-model/constraints.txt') }}
       - name: Build
-        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu"
+        run: |
+          stages=export,calibrate,quantize,compile
+          if [ "${{ steps.quantized.outputs.cache-hit }}" = true ]; then stages=compile; fi
+          python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages "$stages"
       - name: Checksum
         run: |
           cd "$RUNNER_TEMP/npu/npu"

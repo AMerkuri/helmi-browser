@@ -22,6 +22,7 @@ Run by .github/workflows/npu-model.yml; locally: python build.py --work /tmp/npu
 import argparse
 import os
 import pathlib
+import re
 
 from litert_torch.generative.export_hf.experimental import npu_export
 from litert_torch.generative.export_hf.experimental.npu_export import stages
@@ -70,7 +71,14 @@ def main() -> None:
     stages.npu_quantize(cfg=cfg, input_litertlm=str(exported), output_litertlm=str(quantized), calibration_dir=str(calib_out))
   if "compile" in todo:
     compiled.parent.mkdir(parents=True, exist_ok=True)
-    stages.npu_compile(cfg=cfg, input_litertlm=str(quantized), output_litertlm=str(compiled))
+    try:
+      stages.npu_compile(cfg=cfg, input_litertlm=str(quantized), output_litertlm=str(compiled))
+    except ValueError as e:
+      # apply_plugin keeps the Qualcomm compiler's output in a file and names it in the message.
+      for log in re.findall(r"\S+\.error", str(e)):
+        if os.path.exists(log):
+          print(f"--- {log} ---\n" + pathlib.Path(log).read_text(errors="replace")[-20000:])
+      raise
     print(f"NPU model: {compiled} ({os.path.getsize(compiled) / 1e6:.0f} MB)")
 
 
