@@ -67,3 +67,10 @@ class IssueReportTest {
         assertTrue("$keys not in $ids", ids.containsAll(keys))
     }
 }
+
+class UniformTest {
+    @Test fun blankAndNot() {
+        assertTrue(Reporter.isUniform(IntArray(256) { -1 }))
+        assertFalse(Reporter.isUniform(IntArray(256) { if (it == 200) 0xFFCC0000.toInt() else -1 }))
+    }
+}

@@ -1,16 +1,23 @@
 package app.serene.report
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
+import android.view.PixelCopy
+import android.view.View
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.webkit.WebViewCompat
@@ -22,8 +29,8 @@ import app.serene.engine.EngineJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -69,7 +76,10 @@ object Reporter {
     fun capture(context: Context, app: SereneApp, tab: Tab, done: (File) -> Unit) {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val dir = File(context.cacheDir, "reports/$stamp").apply { mkdirs() }
-        val shot = screenshot(tab)
+        screenshot(tab) { shot, how -> collect(context, app, tab, dir, stamp, shot, how, done) }
+    }
+
+    private fun collect(context: Context, app: SereneApp, tab: Tab, dir: File, stamp: String, shot: Bitmap?, how: String, done: (File) -> Unit) {
         tab.webView.evaluateJavascript(SNAPSHOT_JS) { raw ->
             val snapshot: JsonElement = runCatching {
                 // evaluateJavascript hands back the returned string JSON-encoded.
@@ -91,6 +101,7 @@ object Reporter {
                 put("model", app.models.state.toString())
                 put("modelId", app.settings.modelId)
                 put("blockedRequests", session?.blockedRequests?.get() ?: 0)
+                put("screenshot", how)
                 put("consentRejected", JsonArray((session?.consentRejected() ?: emptyList()).map(::JsonPrimitive)))
                 put("snapshot", snapshot)
                 put("candidates", EngineJson.encodeToJsonElement(ListSerializer(CandidateRecord.serializer()), session?.candidates() ?: emptyList()))
@@ -102,11 +113,63 @@ object Reporter {
         }
     }
 
-    private fun screenshot(tab: Tab): Bitmap? = runCatching {
+    /**
+     * What is on screen under the WebView. View.draw() cannot render a hardware-accelerated
+     * WebView into a software Canvas (it comes out blank white), so read the composited window
+     * with PixelCopy, and fall back to draw() only where that is not possible. [done] gets the
+     * bitmap, or null when every way came out a single colour, and how it was taken.
+     */
+    private fun screenshot(tab: Tab, done: (Bitmap?, String) -> Unit) {
         val v = tab.webView
-        if (v.width == 0 || v.height == 0) return null
-        Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888).also { v.draw(Canvas(it)) }
-    }.getOrNull()
+        if (v.width == 0 || v.height == 0) return done(null, "none: no WebView on screen")
+        val window = activityOf(v.context)?.window ?: return drawn(v, "no activity window", done)
+        val xy = IntArray(2).also { v.getLocationInWindow(it) }
+        val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+        try {
+            PixelCopy.request(window, Rect(xy[0], xy[1], xy[0] + v.width, xy[1] + v.height), bmp, { result ->
+                when {
+                    result != PixelCopy.SUCCESS -> drawn(v, "pixelcopy failed ($result)", done)
+                    isUniform(bmp) -> drawn(v, "pixelcopy blank ${colour(bmp)}", done)
+                    else -> done(bmp, "pixelcopy")
+                }
+            }, Handler(Looper.getMainLooper()))
+        } catch (e: IllegalArgumentException) { // window not yet attached to a surface
+            drawn(v, "pixelcopy unavailable", done)
+        }
+    }
+
+    private fun drawn(v: View, why: String, done: (Bitmap?, String) -> Unit) {
+        val bmp = runCatching { Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888).also { v.draw(Canvas(it)) } }.getOrNull()
+        when {
+            bmp == null -> done(null, "none: $why, draw failed")
+            isUniform(bmp) -> done(null, "none: $why, draw blank ${colour(bmp)}")
+            else -> done(bmp, "draw ($why)")
+        }
+    }
+
+    private tailrec fun activityOf(c: Context?): Activity? = when (c) {
+        is Activity -> c
+        is ContextWrapper -> activityOf(c.baseContext)
+        else -> null
+    }
+
+    private fun colour(b: Bitmap) = "#%08x".format(b.getPixel(b.width / 2, b.height / 2))
+
+    /**
+     * A blank capture: every pixel has the same colour. All of them, row by row: a sparse grid
+     * can land only on the white of a text page and throw away a good screenshot.
+     */
+    fun isUniform(b: Bitmap): Boolean {
+        val row = IntArray(b.width)
+        val first = b.getPixel(0, 0)
+        for (y in 0 until b.height) {
+            b.getPixels(row, 0, b.width, 0, y, b.width, 1)
+            if (!isUniform(row, first)) return false
+        }
+        return true
+    }
+
+    fun isUniform(pixels: IntArray, colour: Int = pixels.firstOrNull() ?: 0): Boolean = pixels.all { it == colour }
 
     /**
      * The prefilled GitHub issue for this report (see [IssueReport]); [open] loads it in a tab.
