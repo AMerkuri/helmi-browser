@@ -2,6 +2,7 @@ package app.serene
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.WebChromeClient
@@ -88,6 +89,13 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         } ?: return
         tabs.open(url)
         screen = Screen.Browser
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // uiMode is handled in place (see the manifest), so the system bar icons picked in onCreate
+        // keep the old theme when the system switches to dark: dark icons on a dark bar. Pick again.
+        enableEdgeToEdge()
     }
 
     override fun onStop() {
