@@ -154,16 +154,16 @@ class DownloadTest {
                 tab = a.tabs.open("$base/page")
             }
             waitFor("the page to load") { tab!!.title == "Download page test" && tab!!.progress == 100 }
-            // A real tap: a script click on a target=_blank link counts as a popup and is blocked.
-            val xy = IntArray(2)
-            var size = Pair(0, 0)
-            scenario.onActivity { tab!!.webView.getLocationOnScreen(xy); size = Pair(tab!!.webView.width, tab!!.webView.height) }
-            val x = xy[0] + size.first / 2f
-            val y = xy[1] + size.second / 2f
-            val down = SystemClock.uptimeMillis()
-            val inst = InstrumentationRegistry.getInstrumentation()
-            inst.sendPointerSync(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
-            inst.sendPointerSync(MotionEvent.obtain(down, down + 50, MotionEvent.ACTION_UP, x, y, 0))
+            // A tap: a script click on a target=_blank link counts as a popup and is blocked.
+            // Sent to the WebView itself, so a system dialog over the emulator can't swallow it.
+            scenario.onActivity {
+                val v = tab!!.webView
+                val down = SystemClock.uptimeMillis()
+                val x = v.width / 2f
+                val y = v.height / 2f
+                v.dispatchTouchEvent(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
+                v.dispatchTouchEvent(MotionEvent.obtain(down, down + 50, MotionEvent.ACTION_UP, x, y, 0))
+            }
             var d: Download? = null
             waitFor("the download to start") { d = app.downloads.items.firstOrNull { it.tabId == tab!!.id }; d != null }
             started += d!!
