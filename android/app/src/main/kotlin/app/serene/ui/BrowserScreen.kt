@@ -2,6 +2,7 @@ package app.serene.ui
 
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,6 +34,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -40,6 +42,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -83,12 +86,14 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
         Reporter.capture(context, app, tab) { reportDir = it }
     }
 
-    // A Surface, not a background modifier: it also sets the content colour, without which icons
-    // default to black and vanish on the dark theme's bars.
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    // The content colour a Surface would set: without it icons default to black and vanish on the
+    // dark theme's bars. Not a Surface itself: wrapping the WebView in one turned the address bar
+    // and the bars around the page solid black.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
         Column(
             Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface)
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding(),
