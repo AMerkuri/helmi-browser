@@ -9,6 +9,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.PixelCopy
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -65,23 +68,27 @@ class DarkThemeTest {
         }
     }
 
-    private var rect: Rect? = null
+    private var rect = ""
 
     /**
-     * The right quarter of the bottom bar, where the ⋮ menu button is. The bar sits under the
-     * WebView. Null until the window is laid out and drawn.
+     * The right quarter of the bottom bar, where the ⋮ menu button is: the bar is the bottom 52 dp
+     * above the navigation bar. Null until the window is laid out and drawn.
      */
     private fun menuButton(scenario: ActivityScenario<MainActivity>): Bitmap? {
         var shot: Bitmap? = null
         val latch = CountDownLatch(1)
         scenario.onActivity { a ->
-            val v = a.tabs.current!!.webView
-            val width = a.window.decorView.width
-            if (v.height == 0 || width == 0) return@onActivity latch.countDown()
-            val xy = IntArray(2).also { v.getLocationInWindow(it) }
+            // The empty start tab focuses the address bar; keep the keyboard out of the way.
+            a.currentFocus?.clearFocus()
+            val decor = a.window.decorView
+            WindowCompat.getInsetsController(a.window, decor).hide(WindowInsetsCompat.Type.ime())
+            val insets = ViewCompat.getRootWindowInsets(decor)
+            if (decor.width == 0 || insets == null) return@onActivity latch.countDown()
+            val bottom = decor.height - insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.ime()).bottom
             val dp = a.resources.displayMetrics.density
-            val top = xy[1] + v.height + (4 * dp).toInt() // past the divider
-            val r = Rect(width * 3 / 4, top, width, top + (46 * dp).toInt()).also { rect = it }
+            val r = Rect(decor.width * 3 / 4, bottom - (50 * dp).toInt(), decor.width, bottom - (2 * dp).toInt())
+            val wv = a.tabs.current!!.webView.let { v -> IntArray(2).also { v.getLocationInWindow(it) }[1].let { "$it+${v.height}" } }
+            rect = "$r (window ${decor.width}x${decor.height}, WebView y $wv)"
             val bmp = Bitmap.createBitmap(r.width(), r.height(), Bitmap.Config.ARGB_8888)
             PixelCopy.request(a.window, r, bmp, { result ->
                 if (result == PixelCopy.SUCCESS) shot = bmp
