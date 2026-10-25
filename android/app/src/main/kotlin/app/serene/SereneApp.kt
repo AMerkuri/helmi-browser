@@ -47,7 +47,7 @@ object ModelCatalog {
     val SMALL = ModelSpec(
         id = "qwen3-0.6b-int4",
         name = "Qwen3-0.6B (INT4)",
-        note = "Smaller and faster, for phones with less memory. Accuracy not measured yet.",
+        note = "Smaller and about a third faster, but it hides real page content more often: 12 of 80 test items, against 5 for INT8.",
         file = "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
         url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
         sizeBytes = 344_671_744,

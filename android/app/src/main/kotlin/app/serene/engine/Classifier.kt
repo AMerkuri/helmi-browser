@@ -72,12 +72,12 @@ class LiteRtClassifier(
      * (prefillPrefaceOnInit), so that a call only prefills the overlay's own ~35 tokens. The
      * 0.18.1 API cannot copy or rewind a session's KV cache, so this is the way to stop paying
      * for the 204-token system prompt on every call: it is paid between calls instead. Free
-     * replies only. null (the default) prepares on the CPU only. On a Galaxy Z Fold 7 it took
-     * the CPU from 4106 to 2404 ms a call with the same answers, but on the GPU (1095 to 825 ms)
-     * three of the 57 answers changed, one of them to calling article content an app banner.
+     * replies only. On a Galaxy Z Fold 7 with 159 labelled overlays it took the GPU from 1099 to
+     * 964 ms a call and the CPU from about 4.1 to 2.5 s. On the GPU a few answers change (the
+     * prompt is prefilled in two parts at lower precision), but the same 5 of 80 content records
+     * were hidden either way.
      */
-    @Volatile var prepare: Boolean? = null
-    private val preparing: Boolean get() = prepare ?: (backendName == "CPU")
+    @Volatile var prepare = true
     private var ready: Conversation? = null
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -137,14 +137,14 @@ class LiteRtClassifier(
 
     /** Builds the next call's conversation in the background, unless one is ready. */
     private fun prepareNext() {
-        if (preparing) scope.launch { prepareNow() }
+        if (prepare) scope.launch { prepareNow() }
     }
 
     /** Builds the next call's conversation now; returns how long that took (0 if there was nothing to do). */
     suspend fun prepareNow(): Long = withContext(Dispatchers.Default) {
         mutex.withLock {
             val e = engine ?: return@withLock 0L
-            if (ready != null || !preparing) return@withLock 0L
+            if (ready != null || !prepare) return@withLock 0L
             val t0 = System.nanoTime()
             ready = runCatching { newConversation(e, Reply.FREE, prefill = true) }
                 .onFailure { Log.w(TAG, "could not prepare a conversation: ${it.message}") }
@@ -163,7 +163,7 @@ class LiteRtClassifier(
                 val prompt = Prompt.build(f)
                 val t0 = System.nanoTime()
                 // One conversation at a time: a prepared one this call cannot use is closed first.
-                val prepared = ready?.takeIf { mode == Reply.FREE && preparing }
+                val prepared = ready?.takeIf { mode == Reply.FREE && prepare }
                 if (prepared == null) ready?.let { runCatching { it.close() } }
                 ready = null
                 val conversation = prepared ?: newConversation(e, mode, prefill = false)
