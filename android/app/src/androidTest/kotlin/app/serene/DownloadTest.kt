@@ -3,6 +3,7 @@ package app.serene
 import android.Manifest
 import android.os.Build
 import android.os.SystemClock
+import android.view.MotionEvent
 import android.webkit.CookieManager
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -70,7 +71,7 @@ class DownloadTest {
         fun head(status: String, vararg h: String) = out.write(("HTTP/1.1 $status\r\n" + h.joinToString("") { "$it\r\n" } + "Connection: close\r\n\r\n").toByteArray())
         when {
             path.startsWith("/page") -> {
-                val html = "<!doctype html><title>Download page test</title><a id=a href='/file?slow=1' target=_blank>get</a>".toByteArray()
+                val html = "<!doctype html><meta name=viewport content='width=device-width'><title>Download page test</title><a id=a href='/file?slow=1' target=_blank style='position:fixed;inset:0;display:block;background:#08f'>get</a>".toByteArray()
                 head("200 OK", "Content-Type: text/html", "Content-Length: ${html.size}")
                 out.write(html)
             }
@@ -131,10 +132,14 @@ class DownloadTest {
             assertTrue(d!!.name, d!!.name.startsWith("serene-test"))
             assertEquals(file.size.toLong(), d!!.total)
             assertArrayEquals(file, bytesOf(app, d!!))
-            // The last request is Serene's own (the first was the WebView's, which became the download).
-            val fileRequest = requests.last { it["path"] == "/file" }
-            assertTrue("cookie after the redirect", fileRequest["cookie"]!!.contains("session=serene"))
-            assertTrue("two requests through the redirect", requests.count { it["path"] == "/redirect" } >= 2)
+
+            // WebView hands over the URL after its redirects, so follow one directly: /file answers
+            // 403 without the cookie, so finishing means the second hop carried it.
+            var viaRedirect: Download? = null
+            scenario.onActivity { viaRedirect = app.downloads.start("$base/redirect", "test", null, null, null, null) }
+            started += viaRedirect!!
+            waitFor("the redirected download, state ${viaRedirect!!.state} ${viaRedirect!!.error}") { viaRedirect!!.state == DownloadState.Done }
+            assertArrayEquals(file, bytesOf(app, viaRedirect!!))
         }
     }
 
@@ -149,7 +154,16 @@ class DownloadTest {
                 tab = a.tabs.open("$base/page")
             }
             waitFor("the page to load") { tab!!.title == "Download page test" && tab!!.progress == 100 }
-            scenario.onActivity { tab!!.webView.evaluateJavascript("document.getElementById('a').click()", null) }
+            // A real tap: a script click on a target=_blank link counts as a popup and is blocked.
+            val xy = IntArray(2)
+            var size = Pair(0, 0)
+            scenario.onActivity { tab!!.webView.getLocationOnScreen(xy); size = Pair(tab!!.webView.width, tab!!.webView.height) }
+            val x = xy[0] + size.first / 2f
+            val y = xy[1] + size.second / 2f
+            val down = SystemClock.uptimeMillis()
+            val inst = InstrumentationRegistry.getInstrumentation()
+            inst.sendPointerSync(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
+            inst.sendPointerSync(MotionEvent.obtain(down, down + 50, MotionEvent.ACTION_UP, x, y, 0))
             var d: Download? = null
             waitFor("the download to start") { d = app.downloads.items.firstOrNull { it.tabId == tab!!.id }; d != null }
             started += d!!
