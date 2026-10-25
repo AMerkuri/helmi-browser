@@ -1,0 +1,10 @@
+<!doctype html><title>Newsletter modal fading in on a busy page</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px} #signup-layer{transition:opacity .3s}</style><script>window.__clicked=[];function clk(n,el){__clicked.push(n);(el.closest("[data-box]")||el).remove();document.documentElement.style.overflow=""}</script>
+<script type="application/json" id="expect">{"gone":"#signup-layer","visible":["#article","#ticker"],"clicked":["dismiss"],"notClicked":["subscribe"],"scroll":true,"via":"heuristic","waitMs":2500,"maxVisibleMs":600}</script>
+<div id="ticker" style="padding:8px;background:#eee">Markets: <span id="tick">0</span></div>
+<article id="article"><h1>Harbour ferry timetable changes next month</h1><p>The ferry between the two harbours will run every twenty minutes at peak times from the first of the month, up from every half hour.</p><p>The operator says the change follows a rise in commuters since the new bridge closed for repairs.</p><p>Weekend sailings stay the same.</p><p style="height:1500px">Long content.</p></article>
+<script>
+// A live ticker that changes the DOM every 80 ms, like a page that keeps loading ads and widgets.
+let n=0;setInterval(()=>{document.getElementById('tick').textContent=String(++n)},80);
+// The signup layer fades in (no DOM change when the fade ends) after a second.
+setTimeout(()=>{document.body.insertAdjacentHTML('beforeend',`<div id="signup-layer" data-box style="position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:5000;opacity:0"><div style="background:#fff;padding:24px;width:80%"><h2>Before you go</h2><p>Get our morning briefing in your inbox. Join the newsletter.</p><input type="email" placeholder="Email address"><button onclick="clk('subscribe',this)">Sign up</button><p><button onclick="clk('dismiss',this)">No thanks</button></p></div></div>`);document.documentElement.style.overflow='hidden';requestAnimationFrame(()=>requestAnimationFrame(()=>{document.getElementById('signup-layer').style.opacity='1'}))},1000)
+</script>

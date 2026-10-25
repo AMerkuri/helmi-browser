@@ -22,6 +22,8 @@
     maxButtons: 8,
     consentParkMs: 10000, // longest a list-matched cookie banner waits for autoconsent
     consentHoldMs: 5000,  // longest the detector waits while autoconsent answers a popup
+    mutationScanMs: 100,  // a scan runs at most this long after the first DOM change (throttle, not debounce)
+    newTokensWaitMs: 300, // longest a scan after DOM changes waits for generic rules for new class/id tokens
   };
   const state = {
     started: false,
@@ -39,6 +41,7 @@
     consentParked: false,  // list-matched cookie banners: parked for autoconsent, or hidden
     consent: { lifecycle: null, busySince: 0 }, // this frame's autoconsent progress
     scrollFixed: false,
+    pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
     scanMs: [],
   };
   const api = (window.__serene = { state, config, scan: () => scan(), extract: (el) => extract(el) });
@@ -62,7 +65,8 @@
       Object.assign(config, msg.config || {});
       state.siteRules = msg.siteRules || [];
       try {
-        if (!config.observeOnly) {
+        if (config.observeOnly) window.__sereneAutoconsent?.release?.();
+        else {
           startAutoconsent(msg.autoconsent);
           addCss(msg.css || '');
           addConsentSelectors(msg.consentSelectors);
@@ -75,7 +79,7 @@
     },
     generic(msg) {
       if (!config.observeOnly) { addCss(msg.css || ''); addConsentSelectors(msg.consentSelectors); }
-      if (state.firstScan) { clearTimeout(state.firstScan); state.firstScan = 0; scan(); }
+      if (state.heldScan) { clearTimeout(state.heldScan); state.heldScan = 0; scan(); }
     },
     verdict(msg) { applyVerdict(msg); },
     // A parent frame wants us to click a button inside this (consent) iframe.
@@ -147,7 +151,8 @@
 
   function startAutoconsent(ac) {
     const lib = window.__sereneAutoconsent;
-    if (!ac || !lib) return;
+    if (!lib) return;
+    if (!ac) { lib.release?.(); return; } // no autoconsent here: drop its document-start prehide
     state.consentParked = true;
     state.parkTimer = setTimeout(releaseConsent, config.consentParkMs);
     try { lib.start(ac, onAutoconsent); } catch (e) { releaseConsent(); send('log', { msg: 'autoconsent error: ' + e.message }); }
@@ -189,16 +194,24 @@
       // First scan waits for the generic class/id rules so that list-covered banners are
       // already hidden and never reach the detector. A busy host (phone main thread during
       // page load) can take a second to answer; no scan runs before the answer or the timeout.
-      if (sendClassIds()) { state.firstScan = setTimeout(() => { state.firstScan = 0; scan(); }, config.genericWaitMs); } else scan();
+      if (sendClassIds()) holdScan(config.genericWaitMs); else scan();
       const mo = new MutationObserver(onMutations);
       mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'id', 'open', 'hidden'] });
-      for (const ms of [800, 2000, 4000, 7000, 11000]) setTimeout(scan, ms);
+      // Popups that fade or slide in change no DOM when they finish; neither do stylesheets
+      // that make a server-rendered banner fixed once they load.
+      for (const t of ['transitionend', 'animationend']) addEventListener(t, () => schedule(), true);
+      addEventListener('load', () => schedule(), { once: true });
+      for (const ms of [300, 800, 2000, 4000, 7000, 11000]) setTimeout(scan, ms);
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go, { once: true });
     else go();
   }
 
-  let scanTimer = 0, classTimer = 0;
+  // Scans after DOM changes are throttled, not debounced: a page that keeps mutating while it
+  // loads used to push the scan back for as long as it kept changing (the 2026-10-24 crawl saw
+  // overlays on screen for seconds). New class/id tokens go to the host first, and the scan
+  // waits briefly for its generic rules so that list-covered banners never reach the detector.
+  let scanTimer = 0;
   function onMutations(records) {
     let relevant = false;
     for (const r of records) {
@@ -206,11 +219,25 @@
       relevant = true;
       break;
     }
-    if (!relevant) return;
-    clearTimeout(scanTimer);
-    scanTimer = setTimeout(scan, 250);
-    clearTimeout(classTimer);
-    classTimer = setTimeout(sendClassIds, 400);
+    if (relevant) schedule();
+  }
+
+  // The gap grows with what a tick costs (at most ~10% of the main thread on a slow phone).
+  let tickMs = 0;
+  function schedule(ms = config.mutationScanMs) {
+    if (scanTimer) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = 0;
+      const t0 = performance.now();
+      if (sendClassIds()) holdScan(config.newTokensWaitMs); else scan();
+      tickMs = performance.now() - t0;
+    }, Math.max(ms, Math.round(tickMs * 10)));
+  }
+
+  // Hold scans until the host's generic reply (handlers.generic) or the timeout.
+  function holdScan(ms) {
+    if (state.heldScan) return;
+    state.heldScan = setTimeout(() => { state.heldScan = 0; scan(); }, ms);
   }
 
   // ---------------------------------------------------------------- rules: generic + procedural
@@ -308,7 +335,7 @@
   }
 
   function scan() {
-    if (state.firstScan) return [];
+    if (state.heldScan) return [];
     const t0 = performance.now();
     try { return scanInner(); } finally { state.scanMs.push(Math.round((performance.now() - t0) * 10) / 10); }
   }
@@ -331,8 +358,11 @@
     for (const el of document.querySelectorAll('dialog[open],[aria-modal="true"]')) if (visible(el)) roots.add(el);
 
     const out = [];
+    let pending = false;
     for (const root of roots) {
-      if (state.seen.has(root) || !visible(root)) continue;
+      if (state.seen.has(root)) continue;
+      // On top but not visible yet: fading in (opacity) or not laid out. Look again soon.
+      if (!visible(root)) { if (root.isConnected && !root.hasAttribute(ATTR)) pending = true; continue; }
       const f = extract(root);
       if (!f) continue;
       state.seen.add(root);
@@ -342,6 +372,7 @@
       out.push({ id, ...f });
       handleCandidate(id, f);
     }
+    if (pending && state.pendingRetries < 10) { state.pendingRetries++; schedule(200); }
     // A locked page with nothing visible on top is what filter-list hides and cached hides
     // leave behind (the banner is gone, its scroll lock is not).
     const backdrops = [...state.candidates.values()].filter((c) => c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));

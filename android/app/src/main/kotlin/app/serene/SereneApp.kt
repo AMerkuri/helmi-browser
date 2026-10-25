@@ -14,6 +14,7 @@ import app.serene.engine.FilterLists
 import app.serene.engine.LiteRtClassifier
 import app.serene.engine.SereneEngine
 import app.serene.engine.VerdictCache
+import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -120,11 +121,39 @@ class SereneApp : Application() {
         if (settings.skipModelOnBatterySaver && getSystemService(PowerManager::class.java).isPowerSaveMode) return null
         val mem = ActivityManager.MemoryInfo().also { getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
         if (mem.lowMemory) return null
+        return liteRtClassifier()
+    }
+
+    /** The downloaded model, whether or not browsing may use it right now (the benchmark uses it too). */
+    fun liteRtClassifier(): LiteRtClassifier? {
+        val file = models.readyFile() ?: return null
         synchronized(this) {
             val c = classifier
             if (c != null && c.modelFile == file) return c
             c?.let { old -> scope.launch { old.unload() } }
             return LiteRtClassifier(file, cacheDir).also { classifier = it }
+        }
+    }
+
+    /** The on-device model benchmark in settings: its report, or progress while it runs. */
+    var benchmarkReport by mutableStateOf<String?>(null)
+        private set
+    var benchmarkProgress by mutableStateOf<String?>(null)
+        private set
+
+    fun runBenchmark() {
+        if (benchmarkProgress != null) return
+        val c = liteRtClassifier() ?: return
+        benchmarkProgress = "loading the model"
+        scope.launch {
+            benchmarkReport = try {
+                ModelBenchmark(this@SereneApp, c, cacheDir, models.spec.name).measure { p -> benchmarkProgress = "${p.run}: ${p.done} of ${p.total} overlays" }
+            } catch (t: Throwable) {
+                Log.e("Serene", "benchmark failed", t)
+                "Benchmark failed: ${t.message}"
+            } finally {
+                benchmarkProgress = null
+            }
         }
     }
 

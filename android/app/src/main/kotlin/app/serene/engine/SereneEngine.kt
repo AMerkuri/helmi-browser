@@ -42,6 +42,8 @@ class SereneEngine(
     val policy: PolicyConfig = PolicyConfig(),
     /** Cookie banners the lists know are then just hidden when this is null. */
     @Volatile var autoconsent: AutoconsentRules? = null,
+    /** With autoconsent on, consent tools' scripts get through the lists so it can opt out (see [ConsentTools]). */
+    val allowConsentTools: Boolean = true,
 ) {
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -101,6 +103,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     fun shouldBlock(url: String, type: String, sourceUrl: String? = topUrl): Boolean {
         val rules = e.rules ?: return false
         if (sourceUrl == null || !enabled) return false
+        if (e.autoconsent != null && e.allowConsentTools && ConsentTools.matches(url)) return false
         val blocked = rules.shouldBlock(url, sourceUrl, type)
         if (blocked) {
             blockedRequests.incrementAndGet()
