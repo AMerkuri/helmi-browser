@@ -89,7 +89,7 @@ class HistorySwipe(private val tab: Tab) {
         if (!active || covering) return
         val to = if (commit) 1f else 0f
         animate(progress, to, (300 * abs(to - progress)).toLong().coerceAtLeast(120)) {
-            if (commit) navigate() else end()
+            if (commit) navigate() else clear()
         }
     }
 
@@ -101,13 +101,13 @@ class HistorySwipe(private val tab: Tab) {
             animator = ValueAnimator.ofFloat(1f, 0f).apply {
                 duration = 150
                 addUpdateListener { coverAlpha = it.animatedValue as Float }
-                doOnEnd { end() }
+                doOnEnd { clear() }
                 start()
             }
         }
     }
 
-    private fun end() {
+    private fun clear() {
         animator = null
         direction = 0
         covering = false
@@ -118,7 +118,7 @@ class HistorySwipe(private val tab: Tab) {
     /** Stops at once, the page back in place: the tab is closing or changing. */
     fun reset() {
         animator?.cancel()
-        end()
+        clear()
     }
 
     private fun animate(from: Float, to: Float, ms: Long, then: () -> Unit) {
