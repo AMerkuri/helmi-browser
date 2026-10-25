@@ -45,17 +45,23 @@ jobs:
             ai-edge-litert-sdk-qualcomm-nightly==2.4.0.dev20261024
           python -c "import ai_edge_litert_sdk_qualcomm as q; p = q.path_to_sdk_libs(); print(p); assert p and p.is_dir()"
       # The first three stages take about 20 minutes and depend only on these inputs, so a
-      # change to the compile stage reuses the quantized model.
-      - uses: actions/cache@v4
+      # change to the compile stage reuses the quantized model. Saved before the compile, which
+      # is the stage that fails.
+      - uses: actions/cache/restore@v4
         id: quantized
         with:
           path: ${{ runner.temp }}/npu/quantized
           key: npu-quantized-c677a80-512-${{ hashFiles('android/npu-model/calibration.jsonl', 'android/npu-model/constraints.txt') }}
-      - name: Build
-        run: |
-          stages=export,calibrate,quantize,compile
-          if [ "${{ steps.quantized.outputs.cache-hit }}" = true ]; then stages=compile; fi
-          python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages "$stages"
+      - name: Export, calibrate and quantize
+        if: steps.quantized.outputs.cache-hit != 'true'
+        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages export,calibrate,quantize
+      - uses: actions/cache/save@v4
+        if: steps.quantized.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/npu/quantized
+          key: ${{ steps.quantized.outputs.cache-primary-key }}
+      - name: Compile
+        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages compile
       - name: Checksum
         run: |
           cd "$RUNNER_TEMP/npu/npu"
