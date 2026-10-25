@@ -1,6 +1,7 @@
 package app.serene
 
 import android.app.UiModeManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
@@ -88,10 +89,15 @@ class DarkThemeTest {
             val dp = a.resources.displayMetrics.density
             val r = Rect(decor.width * 3 / 4, bottom - (50 * dp).toInt(), decor.width, bottom - (2 * dp).toInt())
             val wv = a.tabs.current!!.webView.let { v -> IntArray(2).also { v.getLocationInWindow(it) }[1].let { "$it+${v.height}" } }
-            rect = "$r (window ${decor.width}x${decor.height}, WebView y $wv)"
-            val bmp = Bitmap.createBitmap(r.width(), r.height(), Bitmap.Config.ARGB_8888)
-            PixelCopy.request(a.window, r, bmp, { result ->
-                if (result == PixelCopy.SUCCESS) shot = bmp
+            val night = a.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+            // The whole window, so a failure can say what the rest of it looks like.
+            val bmp = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
+            PixelCopy.request(a.window, bmp, { result ->
+                if (result == PixelCopy.SUCCESS) {
+                    val samples = listOf(10, decor.height / 2, bottom - 26 * dp.toInt(), decor.height - 2).joinToString { y -> "y$y %08x".format(bmp.getPixel(decor.width - 2, y)) }
+                    rect = "$r (window ${decor.width}x${decor.height}, WebView y $wv, uiMode night $night, right edge $samples)"
+                    shot = Bitmap.createBitmap(bmp, r.left, r.top, r.width(), r.height())
+                }
                 latch.countDown()
             }, Handler(Looper.getMainLooper()))
         }
