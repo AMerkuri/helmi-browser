@@ -17,12 +17,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.serene.browser.FilePickerHost
 import app.serene.browser.TabManager
+import app.serene.download.DownloadService
 import app.serene.ui.BrowserScreen
+import app.serene.ui.DownloadsScreen
 import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
 import app.serene.ui.TabsScreen
 
-enum class Screen { Browser, Tabs, Settings }
+enum class Screen { Browser, Tabs, Settings, Downloads }
 
 class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting lateinit var tabs: TabManager
@@ -69,6 +71,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                     Screen.Browser -> BrowserScreen(app, tabs, onOpen = { screen = it })
                     Screen.Tabs -> TabsScreen(tabs, onDone = { screen = Screen.Browser })
                     Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
+                    Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
                 }
             }
         }
@@ -81,6 +84,11 @@ class MainActivity : ComponentActivity(), FilePickerHost {
 
     /** Links opened from other apps (Serene can be the default browser). */
     private fun handleIntent(intent: Intent?) {
+        // The download notification.
+        if (intent?.action == DownloadService.ACTION_SHOW) {
+            screen = Screen.Downloads
+            return
+        }
         val url = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.dataString
             Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
