@@ -10,11 +10,11 @@
 //
 //   node harness/run.mjs --model models/Qwen3-0.6B-Q8_0.gguf [--sites harness/sites.json]
 //        [--only bbc,spiegel] [--modes baseline,rules,serene] [--wait 10000] [--headed]
-//        [--no-autoconsent]
+//        [--no-autoconsent] [--allow-consent-tools]
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { launch, newContext, residualOverlays } from './browser.mjs';
+import { launch, newContext, residualOverlays, exposure } from './browser.mjs';
 import { SereneEngine } from '../src/host/engine.mjs';
 import { RulesEngine } from '../src/host/rules.mjs';
 import { loadLists } from '../src/host/lists.mjs';
@@ -34,6 +34,8 @@ const { values: args } = parseArgs({
     out: { type: 'string' },
     headed: { type: 'boolean', default: false },
     'no-autoconsent': { type: 'boolean', default: false },
+    // Let consent tools' scripts load (the lists block most of them) so autoconsent can opt out.
+    'allow-consent-tools': { type: 'boolean', default: false },
   },
 });
 
@@ -83,7 +85,7 @@ async function visit(site, mode) {
   const engine = mode === 'baseline'
     ? new SereneEngine({ cache: new VerdictCache(), contentConfig: { observeOnly: true } })
     : new SereneEngine({ rules, classifier: mode === 'serene' ? classifier : null, cache: new VerdictCache(), autoconsent });
-  const context = await newContext(browser, { engine, onEvent: (e) => events.push({ ...e, at: Date.now() }), locale: args.locale });
+  const context = await newContext(browser, { engine, onEvent: (e) => events.push({ ...e, at: Date.now() }), locale: args.locale, probe: true, allowConsentTools: args['allow-consent-tools'] && mode !== 'baseline' });
   const page = await context.newPage();
   const t0 = Date.now();
   try {
@@ -108,7 +110,9 @@ async function snapshot(page, site, mode, visitName, events, t0) {
   const slug = `${site.name.replace(/[^a-z0-9.]+/gi, '_')}-${mode}-${visitName}`;
   await page.screenshot({ path: path.join(outDir, 'shots', slug + '.png') }).catch(() => {});
   const residual = (await residualOverlays(page).catch(() => null)) ?? { overlays: [], scrollLocked: null };
+  const seen = (await exposure(page).catch(() => null)) ?? [];
   const cands = events.filter((e) => e.type === 'candidate');
+  const byId = new Map(cands.map((c) => [c.id, c]));
   for (const c of cands) candidatesOut.write(JSON.stringify({ site: site.name, mode, visit: visitName, features: c.features, verdict: c.verdict, decidedMs: c.decidedMs, label: null }) + '\n');
   const llm = cands.filter((c) => c.verdict?.llm).map((c) => c.verdict.llm);
   const firstAction = events.find((e) => e.type === 'applied');
@@ -129,6 +133,13 @@ async function snapshot(page, site, mode, visitName, events, t0) {
       .filter((cmp) => !events.some((e) => e.type === 'autoconsent' && e.event === 'autoconsentDone' && e.cmp === cmp && e.isCosmetic)),
     actions: events.filter((e) => e.type === 'applied').map((e) => ({ action: e.action, ok: e.ok, fallback: e.fallback, source: e.source, sig: e.sig })),
     msToFirstAction: firstAction ? firstAction.at - t0 : null,
+    // Exposure: how long each overlay the engine acted on was visible before it went (probe,
+    // 100 ms resolution). List hides and cached hides never show, so they are not here.
+    exposure: seen.map((o) => {
+      const v = o.candidateId != null ? byId.get(o.candidateId)?.verdict : null;
+      return { ...o, action: v?.action ?? null, source: v?.source ?? null };
+    }),
+    actedExposureMs: seen.filter((o) => { const v = o.candidateId != null ? byId.get(o.candidateId)?.verdict : null; return v && v.action !== 'ignore'; }).map((o) => o.visibleMs),
     llmCalls: llm.length,
     llmMs: llm.map((r) => r.ms),
     llmPromptTokens: llm.map((r) => r.promptTokens),
@@ -141,6 +152,7 @@ async function snapshot(page, site, mode, visitName, events, t0) {
     engineStarted: residual.started ?? null, // false: the content script never got its init reply
     detectorScans: residual.scanMs?.length ?? 0,
     detectorScanMsMax: residual.scanMs?.length ? Math.max(...residual.scanMs) : null,
+    detectorScanMsTotal: residual.scanMs?.length ? Math.round(residual.scanMs.reduce((a, b) => a + b, 0)) : null,
   };
 }
 
@@ -148,13 +160,14 @@ function summary(m) {
   const acted = m.candidates.filter((c) => c.verdict && c.verdict.source !== 'cache' && c.verdict.action !== 'ignore');
   const s = `${m.engineStarted === false ? 'NOT STARTED ' : ''}cand=${m.candidates.length} acted=${acted.map((c) => `${c.verdict.label}:${c.verdict.action}/${c.verdict.source}`).join(',') || '-'} ` +
     `residual=${m.residualAnnoyances}/${m.residualBlocking} locked=${m.scrollLocked} rejected=${m.consentRejected.join(',') || '-'} llm=${m.llmCalls}${m.llmMs.length ? ` (${m.llmMs.join('/')} ms)` : ''}`;
-  return m.second ? `${s} | 2nd: residual=${m.second.residualAnnoyances} llm=${m.second.llmCalls}` : s;
+  const exp = m.actedExposureMs?.length ? ` exposed=${m.actedExposureMs.join('/')}ms` : '';
+  return m.second ? `${s}${exp} | 2nd: residual=${m.second.residualAnnoyances} llm=${m.second.llmCalls}` : s + exp;
 }
 
 function report(rows) {
   const L = [];
   L.push(`# Serene engine crawl, ${new Date().toISOString().slice(0, 16)}Z`, '');
-  L.push(`Viewport: Pixel 7 emulation, locale ${args.locale}, wait ${WAIT} ms. Modes: ${modes.join(', ')}. Model: ${args.model ? path.basename(args.model) : 'none'}. Autoconsent: ${autoconsent ? 'on' : 'off'}.`, '');
+  L.push(`Viewport: Pixel 7 emulation, locale ${args.locale}, wait ${WAIT} ms. Modes: ${modes.join(', ')}. Model: ${args.model ? path.basename(args.model) : 'none'}. Autoconsent: ${autoconsent ? 'on' : 'off'}. Consent tools' scripts: ${args['allow-consent-tools'] ? 'allowed' : 'blocked by the lists'}.`, '');
   L.push('After each run: "annoyances" counts overlays still on screen that the detector\'s heuristics read as annoyances (score ≥ 0.5); "blocking" counts any overlay still covering ≥ 30% of the screen; "locked" is page scrolling. Check the screenshots: heuristics are not ground truth.', '');
   L.push('| Site | Baseline overlays | Rules: annoyances / blocking / locked | Serene: annoyances / blocking / locked | Consent rejected (autoconsent) | Model calls (ms) | 2nd visit residual / model calls |');
   L.push('|---|---|---|---|---|---|---|');
@@ -168,12 +181,33 @@ function report(rows) {
     const rejected = last && !last.error ? last.consentRejected.join(', ') || '–' : '–';
     L.push(`| ${r.site} | ${base} | ${cell(ru)} | ${cell(se)} | ${rejected} | ${llm} | ${second} |`);
   }
+  L.push('', '## Exposure', '');
+  L.push('How long each overlay the engine acted on was visible on the first visit before it went, from the in-page probe (sampled every 100 ms). "Appeared" is ms after navigation start. List-hidden and cached overlays never show and are not listed. Baseline shows when the annoyances first appeared in a plain browser.', '');
+  const exposures = {};
+  L.push('| Site | Baseline: annoyance appeared (ms) | ' + modes.filter((m) => m !== 'baseline').map((m) => `${m}: appeared → visible for (ms)`).join(' | ') + ' |');
+  L.push('|---|---|' + modes.filter((m) => m !== 'baseline').map(() => '---|').join(''));
+  for (const r of rows) {
+    const b = r.modes.baseline;
+    const base = !b || b.error ? '–' : (b.exposure ?? []).filter((o) => o.heuristic && o.heuristic.label !== 'content' && o.heuristic.score >= 0.5).map((o) => `${o.heuristic.label} ${o.firstMs}`).join(', ') || '–';
+    const cells = modes.filter((m) => m !== 'baseline').map((mode) => {
+      const m = r.modes[mode];
+      if (!m || m.error) return '–';
+      const acted = (m.exposure ?? []).filter((o) => o.action && o.action !== 'ignore');
+      (exposures[mode] ??= []).push(...acted.map((o) => o.visibleMs));
+      return acted.map((o) => `${o.firstMs} → ${o.visibleMs} (${o.source})`).join(', ') || '–';
+    });
+    if (base === '–' && cells.every((c) => c === '–')) continue;
+    L.push(`| ${r.site} | ${base} | ${cells.join(' | ')} |`);
+  }
+  const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : '–'; };
+  L.push('');
+  for (const [mode, a] of Object.entries(exposures)) L.push(`- ${mode}: ${a.length} overlays acted on, visible for median ${pct(a, 0.5)} ms, p90 ${pct(a, 0.9)} ms, max ${a.length ? Math.max(...a) : '–'} ms.`);
   L.push('', '## Decisions per site', '');
   for (const r of rows) {
     L.push(`### ${r.site}`, '');
     for (const [mode, m] of Object.entries(r.modes)) {
       if (m.error) { L.push(`- **${mode}**: error: ${m.error}`); continue; }
-      L.push(`- **${mode}**: ${m.blockedRequests} requests blocked, ${m.cosmetic?.hideSelectors ?? 0} site hide rules + ${m.genericSelectors} generic, ${m.candidates.length} candidates, ${m.detectorScans} detector scans (max ${m.detectorScanMsMax} ms), first action at ${m.msToFirstAction ?? '–'} ms, screenshot \`${m.shot}\``);
+      L.push(`- **${mode}**: ${m.blockedRequests} requests blocked, ${m.cosmetic?.hideSelectors ?? 0} site hide rules + ${m.genericSelectors} generic, ${m.candidates.length} candidates, ${m.detectorScans} detector scans (max ${m.detectorScanMsMax} ms, total ${m.detectorScanMsTotal} ms), first action at ${m.msToFirstAction ?? '–'} ms, screenshot \`${m.shot}\``);
       for (const c of m.candidates) {
         const v = c.verdict?.source === 'cache' ? 'cached site rule, applied in the page' : c.verdict ? `${c.verdict.label} → ${c.verdict.action}${c.verdict.buttonLabel ? ` "${c.verdict.buttonLabel}"` : ''} (${c.verdict.source}${c.decidedMs != null ? `, ${c.decidedMs} ms` : ''})` : 'observed';
         L.push(`  - \`${c.sig}\` ${c.edge} ${Math.round(c.coverage * 100)}%, h=${c.heuristic.label}:${c.heuristic.score}: ${v} · "${c.text}"`);

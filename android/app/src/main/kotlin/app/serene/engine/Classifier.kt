@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -29,6 +30,8 @@ data class ClassifierResult(
     val backend: String = "",
     /** Probability of [label] when the backend scores labels (the prototype's llama.cpp mode); null here. */
     val confidence: Double? = null,
+    /** Time to the first streamed chunk (about the prefill), when the reply was streamed. */
+    val firstChunkMs: Long? = null,
 )
 
 /** Features in, label out (the button is the policy's call). */
@@ -46,6 +49,13 @@ class LiteRtClassifier(
     private val cacheDir: File,
     private val idleMs: Long = 90_000,
 ) : Classifier {
+    /**
+     * Stream the reply and stop as soon as the label is known, instead of decoding the whole
+     * `{"label": ..., "target": N}` object. The policy ignores the model's target, so the label
+     * is all we need, and greedy decoding gives the same label either way. Off until the
+     * on-device benchmark (ModelBenchmark) has shown it works on real phones.
+     */
+    @Volatile var stopAfterLabel = false
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var engine: Engine? = null
@@ -78,7 +88,20 @@ class LiteRtClassifier(
         throw IllegalStateException("model failed to load: ${err?.message}", err)
     }
 
-    override suspend fun classify(f: Features): ClassifierResult = withContext(Dispatchers.Default) {
+    /** Loads the model if needed; returns the load time in ms (0 if it was already loaded). */
+    suspend fun warmUp(): Long = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            unloadJob?.cancel()
+            val t0 = System.nanoTime()
+            val wasLoaded = engine != null
+            try { load() } finally { scheduleUnload() }
+            if (wasLoaded) 0L else (System.nanoTime() - t0) / 1_000_000
+        }
+    }
+
+    override suspend fun classify(f: Features): ClassifierResult = classify(f, stopAfterLabel)
+
+    suspend fun classify(f: Features, stopEarly: Boolean): ClassifierResult = withContext(Dispatchers.Default) {
         mutex.withLock {
             unloadJob?.cancel()
             try {
@@ -95,11 +118,30 @@ class LiteRtClassifier(
                         enableResponseFormat = true,
                     ),
                 )
-                val raw = conversation.use { it.sendMessage(prompt, responseFormat = ResponseFormat.json(Prompt.OUTPUT_SCHEMA)).toString() }
+                var firstChunkMs: Long? = null
+                val raw = conversation.use { c ->
+                    val format = ResponseFormat.json(Prompt.OUTPUT_SCHEMA)
+                    if (!stopEarly) return@use c.sendMessage(prompt, responseFormat = format).toString()
+                    var acc = ""
+                    try {
+                        c.sendMessageAsync(prompt, responseFormat = format).first { chunk ->
+                            if (firstChunkMs == null) firstChunkMs = (System.nanoTime() - t0) / 1_000_000
+                            val t = chunk.toString()
+                            // Chunks may be deltas or the text so far; handle both.
+                            acc = if (t.startsWith(acc)) t else acc + t
+                            Prompt.labelPrefix(acc) != null
+                        }
+                    } catch (e: NoSuchElementException) {
+                        // The stream ended before the label was complete; parse what came.
+                    } finally {
+                        runCatching { c.cancelProcess() }
+                    }
+                    acc
+                }
                 val ms = (System.nanoTime() - t0) / 1_000_000
                 lastError = null
-                val r = Prompt.parse(raw, f.buttons.size)
-                ClassifierResult(r?.label ?: "content", r?.target ?: -1, ms, raw, invalid = r == null, backend = backendName)
+                val r = if (stopEarly) Prompt.labelPrefix(raw)?.let { Prompt.Reply(it, -1) } ?: Prompt.parse(raw, f.buttons.size) else Prompt.parse(raw, f.buttons.size)
+                ClassifierResult(r?.label ?: "content", r?.target ?: -1, ms, raw, invalid = r == null, backend = backendName, firstChunkMs = firstChunkMs)
             } catch (t: Throwable) {
                 lastError = t.message
                 throw t

@@ -1,5 +1,7 @@
 package app.serene.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.compose.foundation.clickable
@@ -38,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
@@ -146,6 +149,8 @@ private fun ModelSection(app: SereneApp) {
                 Text("Downloaded. Status: ${app.classifierInfo()}", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(onClick = m::delete) { Text("Delete model") }
+                Spacer(Modifier.height(12.dp))
+                BenchmarkSection(app)
             }
             is ModelState.Failed -> {
                 Text("Download failed: ${st.message}", color = MaterialTheme.colorScheme.error)
@@ -156,6 +161,32 @@ private fun ModelSection(app: SereneApp) {
     SwitchRow("Use the model", "For overlays the heuristics are unsure about.", s.modelEnabled) { s.modelEnabled = it }
     SwitchRow("Download on Wi-Fi only", null, s.wifiOnlyDownloads) { s.wifiOnlyDownloads = it }
     SwitchRow("Skip the model in battery saver", "Lists and heuristics only while battery saver is on.", s.skipModelOnBatterySaver) { s.skipModelOnBatterySaver = it }
+}
+
+// Runs the prototype's labelled overlays through the model on this phone (ModelBenchmark).
+@Composable
+private fun BenchmarkSection(app: SereneApp) {
+    val ctx = LocalContext.current
+    Text("Model benchmark", style = MaterialTheme.typography.bodyMedium)
+    Text(
+        "Runs 57 sample overlays through the model twice, to measure speed and accuracy on this phone. Takes a few minutes; keep the screen on.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(6.dp))
+    val progress = app.benchmarkProgress
+    if (progress != null) {
+        Text("Running: $progress")
+    } else {
+        OutlinedButton(onClick = app::runBenchmark) { Text(if (app.benchmarkReport == null) "Run benchmark" else "Run again") }
+    }
+    app.benchmarkReport?.let { report ->
+        Spacer(Modifier.height(6.dp))
+        Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+        Spacer(Modifier.height(6.dp))
+        Button(onClick = {
+            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene model benchmark", report))
+        }) { Text("Copy results") }
+    }
 }
 
 @Composable

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { launch, newContext } from '../harness/browser.mjs';
+import { launch, newContext, exposure } from '../harness/browser.mjs';
 import { SereneEngine } from '../src/host/engine.mjs';
 import { RulesEngine } from '../src/host/rules.mjs';
 import { loadLists } from '../src/host/lists.mjs';
@@ -56,7 +56,7 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
   const exp = expectOf(file);
   const events = [], llmCalls = [];
   const engine = new SereneEngine({ rules, classifier: stubClassifier(llmCalls), cache, autoconsent: withAutoconsent ? autoconsent : null });
-  const context = await newContext(browser, { engine, onEvent: (e) => events.push(e) });
+  const context = await newContext(browser, { engine, onEvent: (e) => events.push(e), probe: true });
   const page = await context.newPage();
   await page.goto(base + file + query);
   if (exp.tapFirst) { await page.waitForTimeout(300); await page.tap(exp.tapFirst); }
@@ -76,6 +76,7 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
       scrollable: h.overflow !== 'hidden' && b.overflow !== 'hidden' && b.position !== 'fixed',
     };
   }, exp);
+  state.exposure = await exposure(page);
   await context.close();
   return { exp, state, events, llmCalls, cache };
 }
@@ -88,6 +89,10 @@ for (const file of FIXTURES) {
     for (const c of exp.clicked || []) assert.ok(state.clicked.includes(c), `should click "${c}", clicked ${JSON.stringify(state.clicked)}`);
     for (const c of exp.notClicked || []) assert.ok(!state.clicked.includes(c), `must not click "${c}"`);
     if (exp.scroll) assert.ok(state.scrollable, 'page scrolling should be restored');
+    if (exp.maxVisibleMs != null) {
+      const shown = Math.max(0, ...state.exposure.filter((o) => o.sig.includes(exp.gone.slice(1))).map((o) => o.visibleMs));
+      assert.ok(shown <= exp.maxVisibleMs, `${exp.gone} was on screen for ${shown} ms (at most ${exp.maxVisibleMs})`);
+    }
     const acted = events.filter((e) => e.type === 'candidate' && e.verdict && e.verdict.action !== 'ignore');
     if (exp.via === 'rules') assert.equal(acted.length, 0, 'rules should handle it before the detector');
     if (exp.via === 'heuristic') assert.ok(acted.some((e) => e.verdict.source === 'heuristic'), `heuristics should act: ${JSON.stringify(events.filter((e) => e.type === 'candidate').map((e) => [e.features.sig, e.features.heuristic, e.verdict]))}`);

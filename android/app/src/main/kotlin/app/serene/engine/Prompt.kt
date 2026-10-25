@@ -60,6 +60,21 @@ object Prompt {
 
     data class Reply(val label: String, val target: Int)
 
+    private val LABEL_SO_FAR = Regex(""""label"\s*:\s*"([a-z_]+)""")
+
+    /**
+     * The label from the start of a reply, once it is certain: the label string is closed, or
+     * what has been written so far starts exactly one label. All nine labels start with a
+     * different word, so this is usually known one token into the label.
+     */
+    fun labelPrefix(partial: String): String? {
+        val m = LABEL_SO_FAR.find(partial) ?: return null
+        val so = m.groupValues[1]
+        val closed = partial.length > m.range.last + 1 && partial[m.range.last + 1] == '"'
+        if (closed) return so.takeIf { it in LABELS }
+        return LABELS.filter { it.startsWith(so) }.singleOrNull()?.takeIf { so.length >= 3 }
+    }
+
     /** Validate a raw model reply. Returns null when it is unusable. */
     fun parse(raw: String?, nButtons: Int): Reply? {
         val m = Regex("""\{[\s\S]*\}""").find(raw ?: return null) ?: return null
