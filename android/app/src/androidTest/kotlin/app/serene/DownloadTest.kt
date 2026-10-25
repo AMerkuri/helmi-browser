@@ -23,6 +23,8 @@ import org.junit.runner.RunWith
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 /**
@@ -37,6 +39,8 @@ class DownloadTest {
     private lateinit var server: ServerSocket
     private val base get() = "http://127.0.0.1:${server.localPort}"
     private val started = mutableListOf<Download>()
+    // Slow mode holds a full download here, part way through, so a pause always lands before the end.
+    private val held = CountDownLatch(1)
 
     @Before
     fun setUp() {
@@ -51,6 +55,7 @@ class DownloadTest {
 
     @After
     fun tearDown() {
+        held.countDown()
         server.close()
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as SereneApp
         started.forEach { d -> d.uri?.let { runCatching { app.contentResolver.delete(it, null, null) } } }
@@ -92,7 +97,11 @@ class DownloadTest {
                     val n = minOf(16_384, file.size - i)
                     out.write(file, i, n)
                     i += n
-                    if (slow) SystemClock.sleep(15)
+                    // The rest of a whole-file response waits (a resume's Range response doesn't).
+                    if (slow && from == 0 && i >= 512_000) {
+                        out.flush()
+                        held.await(30, TimeUnit.SECONDS)
+                    }
                 }
             }
             else -> head("404 Not Found", "Content-Length: 0")
