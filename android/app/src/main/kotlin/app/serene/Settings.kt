@@ -56,6 +56,11 @@ class Settings(context: Context) {
         get() = prefs.getInt("tab_index", 0)
         set(v) = prefs.edit { putInt("tab_index", v) }
 
+    /** Asked for the notification permission once (Android 13+), at the first download. */
+    var askedNotifications: Boolean
+        get() = prefs.getBoolean("asked_notifications", false)
+        set(v) = prefs.edit { putBoolean("asked_notifications", v) }
+
     var modelDownloadId: Long
         get() = prefs.getLong("model_download_id", -1)
         set(v) = prefs.edit { putLong("model_download_id", v) }

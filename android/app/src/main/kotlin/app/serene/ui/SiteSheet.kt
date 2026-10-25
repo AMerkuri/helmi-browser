@@ -1,5 +1,9 @@
 package app.serene.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,9 +26,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.serene.BuildConfig
 import app.serene.SereneApp
+import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.engine.CandidateRecord
 
@@ -49,6 +56,7 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
     @Suppress("UNUSED_VARIABLE") val v = tab.version
     val s = tab.session
     val site = s?.site()
+    val ctx = LocalContext.current
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
             Text(site ?: "No page", style = MaterialTheme.typography.titleLarge)
@@ -91,6 +99,25 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onReport) { Text("Report missed popup") }
                 if (site != null) OutlinedButton(onClick = { app.engine.cache.clear(site); tab.reload() }) { Text("Forget this site") }
+            }
+            if (site != null) {
+                Spacer(Modifier.height(8.dp))
+                // A first visit again: the site's cookies (consent choices included), storage and Serene's rules for it.
+                TextButton(onClick = {
+                    app.engine.cache.clear(site)
+                    SiteData.clear(tab.url) { tab.reload() }
+                }) { Text("Clear site data and reload") }
+                // The engine's ms-stamped log for this page, to paste into a bug report or a chat.
+                TextButton(onClick = {
+                    val text = buildString {
+                        appendLine("${tab.url}")
+                        appendLine("Serene ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA}) · ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
+                        appendLine("${s.blockedRequests.get()} requests blocked · cookies rejected: ${s.consentRejected().joinToString().ifEmpty { "no" }}")
+                        s.log().forEach { appendLine(it) }
+                    }
+                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene page log", text))
+                    Toast.makeText(ctx, "Page log copied", Toast.LENGTH_SHORT).show()
+                }) { Text("Copy page log") }
             }
             Spacer(Modifier.height(24.dp))
         }

@@ -60,6 +60,15 @@ object Prompt {
 
     data class Reply(val label: String, val target: Int)
 
+    private val CLOSED_LABEL = Regex(""""label"\s*:\s*"([^"]*)"""")
+
+    /**
+     * The label string from the start of a free-form reply, once its closing quote is there;
+     * null before that. It can be anything the model wrote ("header", "cart-drawer"): the
+     * caller treats a value outside [LABELS] as content.
+     */
+    fun closedLabel(partial: String): String? = CLOSED_LABEL.find(partial)?.groupValues?.get(1)
+
     /** Validate a raw model reply. Returns null when it is unusable. */
     fun parse(raw: String?, nButtons: Int): Reply? {
         val m = Regex("""\{[\s\S]*\}""").find(raw ?: return null) ?: return null

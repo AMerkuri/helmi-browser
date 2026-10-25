@@ -54,6 +54,8 @@ android {
             assets.directories += "../../engine/src/content"
             // autoconsent.js and its rules + config, built by `npm run build` in engine/ and committed.
             assets.directories += "../../engine/dist"
+            // The model eval's labelled overlays, for the on-device benchmark in settings.
+            assets.directories += "../../engine/test/data"
             jniLibs.directories += layout.buildDirectory.dir("rustJniLibs").get().asFile.path
         }
         // The prototype's fixture pages, for the on-device end-to-end test.

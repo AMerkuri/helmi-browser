@@ -99,3 +99,9 @@ test('cache keys by registrable domain and emits CSS for hide verdicts', () => {
   c.undo('https://example.com/', 'div.nl-modal');
   assert.equal(c.rulesFor('https://example.com/')[0].action, 'ignore');
 });
+
+test('consent tools\' own hosts are recognised, look-alikes are not', async () => {
+  const { isConsentTool } = await import('../src/host/autoconsent.mjs');
+  for (const u of ['https://cdn.cookielaw.org/scripttemplates/otSDKStub.js', 'https://consent.cookiebot.com/uc.js', 'https://cdn.privacy-mgmt.com/wrapperMessagingWithoutDetection.js', 'https://sdk.privacy-center.org/loader.js']) assert.ok(isConsentTool(u), u);
+  for (const u of ['https://www.onetrust.com.evil.example/x.js', 'https://notcookielaw.org/x.js', 'https://cdn.example.com/cookielaw.org.js', 'not a url']) assert.ok(!isConsentTool(u), u);
+});

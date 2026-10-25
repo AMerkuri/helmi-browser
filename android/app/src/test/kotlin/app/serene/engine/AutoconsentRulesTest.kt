@@ -4,6 +4,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -46,5 +47,11 @@ class AutoconsentRulesTest {
         assertEquals("##.cookie-banner\n###onetrust-banner-sdk", FilterLists.consentPart(combined, FilterLists.EASYLIST_COOKIE_SECTIONS))
         assertEquals(combined, FilterLists.consentPart(combined, FilterLists.ALL))
         assertEquals("", FilterLists.consentPart(combined, null))
+    }
+
+    // Mirrors the consent-tool host test in engine/test/policy.test.mjs.
+    @Test fun consentToolHosts() {
+        for (u in listOf("https://cdn.cookielaw.org/scripttemplates/otSDKStub.js", "https://consent.cookiebot.com/uc.js", "https://cdn.privacy-mgmt.com/wrapperMessagingWithoutDetection.js", "https://sdk.privacy-center.org/loader.js")) assertTrue(u, ConsentTools.matches(u))
+        for (u in listOf("https://www.onetrust.com.evil.example/x.js", "https://notcookielaw.org/x.js", "https://cdn.example.com/cookielaw.org.js", "not a url")) assertFalse(u, ConsentTools.matches(u))
     }
 }

@@ -1,0 +1,6 @@
+<!doctype html><title>Cookie banner in the page HTML</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px} #cookiebanner{position:fixed;bottom:0;left:0;right:0;background:#fff;padding:16px;box-shadow:0 0 8px #0005;z-index:9999}</style><script>window.__clicked=[];function clk(n,el){__clicked.push(n);(el.closest("[data-box]")||el).remove()}</script>
+<script type="application/json" id="expect">{"gone":"#cookiebanner","visible":["#article"],"via":"rules","notClicked":["accept"],"maxVisibleMs":100}</script>
+<div id="cookiebanner" data-box>
+<p>This site uses cookies for analytics and personalised ads. You can change your choice at any time.</p>
+<button onclick="clk('accept',this)">Accept all</button> <button onclick="clk('reject',this)">Reject all</button></div>
+<article id="article"><h1>Library extends opening hours</h1><p>The central library will stay open until nine on weekdays from next month, after a survey of readers.</p><p>Weekend hours stay the same. The reading room gets twenty more seats.</p><p>More text so the page scrolls.</p><p style="height:1500px">Long content.</p></article>

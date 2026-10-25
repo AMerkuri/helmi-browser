@@ -8,12 +8,14 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.serene.download.Downloads
 import app.serene.engine.AutoconsentRules
 import app.serene.engine.Classifier
 import app.serene.engine.FilterLists
 import app.serene.engine.LiteRtClassifier
 import app.serene.engine.SereneEngine
 import app.serene.engine.VerdictCache
+import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +63,7 @@ class SereneApp : Application() {
     lateinit var models: ModelManager private set
     lateinit var engine: SereneEngine private set
     lateinit var lists: FilterLists private set
+    lateinit var downloads: Downloads private set
 
     /** Shown in settings: "loading", "ready", or an error. */
     var rulesStatus by mutableStateOf("loading")
@@ -76,6 +79,7 @@ class SereneApp : Application() {
         settings = Settings(this)
         models = ModelManager(this, settings, scope)
         models.refresh()
+        downloads = Downloads(this)
         lists = FilterLists(File(filesDir, "lists"))
         engine = SereneEngine(
             rules = null, // heuristics only until the lists are loaded
@@ -120,11 +124,39 @@ class SereneApp : Application() {
         if (settings.skipModelOnBatterySaver && getSystemService(PowerManager::class.java).isPowerSaveMode) return null
         val mem = ActivityManager.MemoryInfo().also { getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
         if (mem.lowMemory) return null
+        return liteRtClassifier()
+    }
+
+    /** The downloaded model, whether or not browsing may use it right now (the benchmark uses it too). */
+    fun liteRtClassifier(): LiteRtClassifier? {
+        val file = models.readyFile() ?: return null
         synchronized(this) {
             val c = classifier
             if (c != null && c.modelFile == file) return c
             c?.let { old -> scope.launch { old.unload() } }
             return LiteRtClassifier(file, cacheDir).also { classifier = it }
+        }
+    }
+
+    /** The on-device model benchmark in settings: its report, or progress while it runs. */
+    var benchmarkReport by mutableStateOf<String?>(null)
+        private set
+    var benchmarkProgress by mutableStateOf<String?>(null)
+        private set
+
+    fun runBenchmark() {
+        if (benchmarkProgress != null) return
+        val c = liteRtClassifier() ?: return
+        benchmarkProgress = "loading the model"
+        scope.launch {
+            benchmarkReport = try {
+                ModelBenchmark(this@SereneApp, c, cacheDir, models.spec.name).measure { p -> benchmarkProgress = "${p.run}: ${p.done} of ${p.total} overlays" }
+            } catch (t: Throwable) {
+                Log.e("Serene", "benchmark failed", t)
+                "Benchmark failed: ${t.message}"
+            } finally {
+                benchmarkProgress = null
+            }
         }
     }
 
