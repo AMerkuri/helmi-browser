@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import app.serene.SereneApp
@@ -101,6 +102,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             displayZoomControls = false
             mediaPlaybackRequiresUserGesture = true
             setSupportMultipleWindows(false) // target=_blank opens in this tab
+            // Passkeys and security keys: WebView passes navigator.credentials to Credential Manager
+            // with the page's origin, as a browser does. Needs CREDENTIAL_MANAGER_SET_ORIGIN in the
+            // manifest, and the passkey provider must trust Serene as a browser (docs/passkeys.md).
+            if (webAuthnSupported) {
+                WebSettingsCompat.setWebAuthenticationSupport(this, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER)
+            }
         }
         installEngine()
         webView.webViewClient = Client()
@@ -296,6 +303,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         private var script: String? = null
         val documentStartSupported: Boolean
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        val webAuthnSupported: Boolean
+            get() = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)
 
         /**
          * engine/dist/autoconsent.js, then engine/src/content/serene.js, both packaged as assets.

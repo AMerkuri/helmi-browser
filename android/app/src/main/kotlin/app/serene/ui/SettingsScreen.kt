@@ -113,7 +113,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)
             ListItem(
                 headlineContent = { Text("Serene ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}, ${BuildConfig.GIT_SHA})") },
-                supportingContent = { Text("WebView ${wv?.versionName ?: "?"} · document-start scripts ${if (Tab.documentStartSupported) "supported" else "not supported (fallback)"}") },
+                supportingContent = { Text("WebView ${wv?.versionName ?: "?"} · document-start scripts ${if (Tab.documentStartSupported) "supported" else "not supported (fallback)"} · passkeys ${if (Tab.webAuthnSupported) "supported" else "not supported by this WebView"}") },
             )
             Spacer(Modifier.height(32.dp))
         }
