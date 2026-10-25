@@ -33,7 +33,7 @@ class ReaderTest {
         <body><nav class="menu"><a href="/news">News</a> <a href="/sport">Sport</a></nav>
         <article><h1>Harbour ferry returns</h1>
         ${(1..6).joinToString("") { "<p>Paragraph $it. The harbour ferry between Northpoint and the island of Vell resumed its timetable on Monday, six weeks after a winter storm tore the loading ramp from its hinges.</p>" }}
-        <p><img src="ferry.jpg" onerror="document.title='ran'"></p>
+        <p><img src="ferry.jpg" onerror="window.ran = 1"></p>
         </article>
         <div class="cookie">We use cookies to show personalised ads. <button>Accept all</button></div>
         </body></html>
