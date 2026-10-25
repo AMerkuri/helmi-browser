@@ -3,12 +3,15 @@ package app.serene.browser
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.PixelCopy
 import android.view.ViewGroup
 import android.widget.Toast
 import android.webkit.ConsoleMessage
@@ -22,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.serene.browser.HistorySwipe.Companion.BACK
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebSettingsCompat
@@ -86,10 +90,15 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
     private val main = Handler(Looper.getMainLooper())
     private val changeQueued = AtomicBoolean(false)
 
+    /** Swiping back and forward through the history, and pulling down to reload. */
+    val swipe = HistorySwipe(this)
+    val pull = PullRefresh(this)
+
     // MATCH_PARENT, not the default WRAP_CONTENT: with a wrap_content height the page's
     // viewport is 0 px tall, so every vh-sized element (bottom sheets, consent boxes) collapses.
-    val webView: WebView = WebView(context).apply {
+    val webView: WebView = SereneWebView(context, swipe, pull).apply {
         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        onScrolled = ::snapshotSoon
     }
 
     init {
@@ -185,14 +194,18 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
     fun load(input: String) {
         val target = app.settings.searchEngine.let { resolveInput(input, it.template) }
+        snapshot()
         webView.loadUrl(target)
         url = target
     }
 
     fun reload() = webView.reload()
     fun stop() = webView.stopLoading()
-    fun goBack() { if (webView.canGoBack()) webView.goBack() }
-    fun goForward() { if (webView.canGoForward()) webView.goForward() }
+    fun goBack() { snapshot(); go(BACK) }
+    fun goForward() { snapshot(); go(HistorySwipe.FORWARD) }
+
+    /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
+    fun go(dir: Int) { if (webView.canGoBackOrForward(dir)) webView.goBackOrForward(dir) }
 
     @Volatile private var destroyed = false
 
@@ -200,8 +213,63 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         if (destroyed) return
         destroyed = true
         main.removeCallbacksAndMessages(null)
+        swipe.reset()
+        pull.reset()
+        Snapshots.clear(id)
         webView.stopLoading()
         webView.destroy()
+    }
+
+    // Between a new document's start and its first paint: the old page is still on screen.
+    private var docLoading = false
+    private var onShown: (() -> Unit)? = null
+    private val shownTimeout = Runnable { shown() }
+
+    /** Calls [then] once the page a history step went to has drawn (or after a while, regardless). */
+    fun whenShown(then: () -> Unit) {
+        onShown = then
+        main.removeCallbacks(shownTimeout)
+        main.postDelayed(shownTimeout, 2500)
+    }
+
+    private fun shown() {
+        val then = onShown ?: return
+        onShown = null
+        main.removeCallbacks(shownTimeout)
+        then()
+    }
+
+    private val snapshotLater = Runnable { snapshot() }
+
+    /** The page moved: take its snapshot once it has rested a moment. */
+    private fun snapshotSoon() {
+        main.removeCallbacks(snapshotLater)
+        main.postDelayed(snapshotLater, 400)
+    }
+
+    /**
+     * A picture of the content area as it is now, for swiping back (or forward) to this page
+     * later. PixelCopy, because draw() of a WebView comes out blank on phones. Not while a
+     * swipe or pull is on screen, or while a new page is replacing this one.
+     */
+    fun snapshot() {
+        if (destroyed || swipe.active || pull.active || docLoading || !webView.isAttachedToWindow) return
+        val w = webView.width
+        val h = webView.height
+        if (w == 0 || h == 0) return
+        val window = activityOf(webView.context)?.window ?: return
+        val list = webView.copyBackForwardList()
+        val item = list.currentItem ?: return
+        val index = list.currentIndex
+        val xy = IntArray(2).also { webView.getLocationInWindow(it) }
+        val bmp = Bitmap.createBitmap(w / 2, h / 2, Bitmap.Config.ARGB_8888)
+        try {
+            PixelCopy.request(window, Rect(xy[0], xy[1], xy[0] + w, xy[1] + h), bmp, { result ->
+                // A swipe that started meanwhile may be in the picture.
+                if (result == PixelCopy.SUCCESS && !swipe.active && !destroyed) Snapshots.put(id, index, Snapshot(item.url, bmp))
+            }, main)
+        } catch (e: IllegalArgumentException) { // window not attached to a surface yet
+        }
     }
 
     private inner class Client : WebViewClient() {
@@ -219,7 +287,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val scheme = request.url.scheme?.lowercase() ?: return false
-            if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) return false
+            if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) {
+                // Leaving this page (a link, a script): its picture for swiping back to it.
+                if (request.isForMainFrame && !request.isRedirect) snapshot()
+                return false
+            }
             // intent:, mailto:, tel:, market: and app links go to other apps.
             return try {
                 val intent = if (scheme == "intent") Intent.parseUri(request.url.toString(), Intent.URI_INTENT_SCHEME)
@@ -238,6 +310,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
+            docLoading = true
             // A new page: the download goes on in the notification and the downloads screen.
             hasPage = true
             downloadPage = false
@@ -246,9 +319,25 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             if (!documentStartSupported) view.evaluateJavascript(contentScript(view.context), null)
         }
 
-        override fun onPageFinished(view: WebView, pageUrl: String) { updateNav(pageUrl) }
+        override fun onPageCommitVisible(view: WebView, pageUrl: String) {
+            docLoading = false
+            shown()
+        }
 
-        override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) { updateNav(pageUrl) }
+        override fun onPageFinished(view: WebView, pageUrl: String) {
+            updateNav(pageUrl)
+            docLoading = false
+            shown()
+            pull.done()
+            snapshotSoon()
+        }
+
+        override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) {
+            updateNav(pageUrl)
+            // A same-document step (#hash, history.pushState) draws no new page; a new document
+            // starts meanwhile and is waited for.
+            main.postDelayed({ if (!docLoading) shown() }, 200)
+        }
     }
 
     private fun updateNav(pageUrl: String) {
@@ -313,6 +402,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         fun contentScript(context: Context): String = script ?: listOf("autoconsent.js", "serene.js")
             .joinToString("\n") { name -> context.assets.open(name).bufferedReader().use { it.readText() } }
             .also { script = it }
+
+        private tailrec fun activityOf(c: Context?): android.app.Activity? = when (c) {
+            is android.app.Activity -> c
+            is ContextWrapper -> activityOf(c.baseContext)
+            else -> null
+        }
 
         private fun EMPTY_RESPONSE() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
     }
