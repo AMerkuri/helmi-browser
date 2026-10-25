@@ -1,5 +1,6 @@
 package app.serene.ui
 
+import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -102,13 +103,17 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
             if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
             else Spacer(Modifier.height(2.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
+                val startPage = tab.url.isEmpty() || tab.url == "about:blank"
                 key(tab.id) {
                     AndroidView(
                         factory = { (tab.webView.parent as? ViewGroup)?.removeView(tab.webView); tab.webView },
                         modifier = Modifier.fillMaxSize(),
+                        // A WebView that has loaded nothing drew the address bar and the bars around
+                        // it solid black; the start page covers it anyway.
+                        update = { it.visibility = if (startPage) View.INVISIBLE else View.VISIBLE },
                     )
                 }
-                if (tab.url.isEmpty() || tab.url == "about:blank") StartPage(app)
+                if (startPage) StartPage(app)
             }
             BottomBar(app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true })
         }
