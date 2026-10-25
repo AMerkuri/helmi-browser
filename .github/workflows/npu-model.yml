@@ -36,6 +36,8 @@ jobs:
           python-version: "3.13"
       - name: Install litert-torch and the Qualcomm SDK
         run: |
+          # QAIRT's x86_64 libraries are built against LLVM's libc++, which the runner lacks.
+          sudo apt-get update -q && sudo apt-get install -y -q libc++1 libc++abi1
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
           # litert-torch main: the NPU pipeline and its Qwen3-0.6B / SM8750 config are newer
