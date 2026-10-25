@@ -60,20 +60,14 @@ object Prompt {
 
     data class Reply(val label: String, val target: Int)
 
-    private val LABEL_SO_FAR = Regex(""""label"\s*:\s*"([a-z_]+)""")
+    private val CLOSED_LABEL = Regex(""""label"\s*:\s*"([^"]*)"""")
 
     /**
-     * The label from the start of a reply, once it is certain: the label string is closed, or
-     * what has been written so far starts exactly one label. All nine labels start with a
-     * different word, so this is usually known one token into the label.
+     * The label string from the start of a free-form reply, once its closing quote is there;
+     * null before that. It can be anything the model wrote ("header", "cart-drawer"): the
+     * caller treats a value outside [LABELS] as content.
      */
-    fun labelPrefix(partial: String): String? {
-        val m = LABEL_SO_FAR.find(partial) ?: return null
-        val so = m.groupValues[1]
-        val closed = partial.length > m.range.last + 1 && partial[m.range.last + 1] == '"'
-        if (closed) return so.takeIf { it in LABELS }
-        return LABELS.filter { it.startsWith(so) }.singleOrNull()?.takeIf { so.length >= 3 }
-    }
+    fun closedLabel(partial: String): String? = CLOSED_LABEL.find(partial)?.groupValues?.get(1)
 
     /** Validate a raw model reply. Returns null when it is unusable. */
     fun parse(raw: String?, nButtons: Int): Reply? {

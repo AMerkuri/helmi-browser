@@ -6,18 +6,14 @@ import org.junit.Test
 
 class PromptTest {
     @Test
-    fun labelPrefixIsKnownOnceItIsUnique() {
-        assertNull(Prompt.labelPrefix("{\"la"))
-        assertNull(Prompt.labelPrefix("{\"label\": \""))
-        assertNull(Prompt.labelPrefix("{\"label\": \"co")) // cookie_consent or content
-        assertEquals("cookie_consent", Prompt.labelPrefix("{\"label\": \"cookie"))
-        assertEquals("content", Prompt.labelPrefix("{\"label\":\"content"))
-        assertEquals("notification_prompt", Prompt.labelPrefix("{\"label\": \"notification_prompt\", \"target\": "))
-    }
-
-    @Test
-    fun closedLabelMustBeALabel() {
-        assertNull(Prompt.labelPrefix("{\"label\": \"cookies\", \"target\": 0}"))
-        assertEquals("survey", Prompt.labelPrefix("{\"label\": \"survey\", \"target\": 1}"))
+    fun labelIsKnownOnceItsQuoteCloses() {
+        assertNull(Prompt.closedLabel("{\"la"))
+        assertNull(Prompt.closedLabel("{\"label\": \""))
+        assertNull(Prompt.closedLabel("{\"label\": \"cookie_con"))
+        assertEquals("cookie_consent", Prompt.closedLabel("{\"label\": \"cookie_consent\","))
+        assertEquals("content", Prompt.closedLabel("{\"label\":\"content\""))
+        // What Qwen3 writes on LiteRT-LM without a constraint: sometimes fenced, sometimes its own label.
+        assertEquals("app_install", Prompt.closedLabel("```json\n{\"label\": \"app_install\", \"target\": 1}"))
+        assertEquals("cart-drawer", Prompt.closedLabel("{\"label\": \"cart-drawer\", "))
     }
 }

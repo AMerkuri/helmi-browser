@@ -47,6 +47,7 @@ import app.serene.BuildConfig
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
 import app.serene.SereneApp
+import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
 import kotlinx.coroutines.delay
@@ -76,6 +77,11 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                     )
                 },
                 trailingContent = { OutlinedButton(onClick = { app.loadRules(force = true) }) { Text("Update") } },
+            )
+            ListItem(
+                headlineContent = { Text("Browsing data") },
+                supportingContent = { Text("Cookies and site storage for every site, including consent choices.") },
+                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { } }) { Text("Clear") } },
             )
             ListItem(
                 headlineContent = { Text("Learned site rules") },

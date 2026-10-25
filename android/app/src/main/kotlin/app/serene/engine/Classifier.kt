@@ -41,21 +41,28 @@ interface Classifier {
 
 /**
  * Qwen3-0.6B on LiteRT-LM. Loads lazily on the first uncertain candidate (GPU first, CPU if the
- * GPU backend fails), runs one inference at a time, and unloads after [idleMs] without calls so
- * the ~0.6 GB model does not sit in RAM.
+ * GPU backend fails, or only [backends]), runs one inference at a time, and unloads after
+ * [idleMs] without calls so the ~0.6 GB model does not sit in RAM.
  */
 class LiteRtClassifier(
     val modelFile: File,
     private val cacheDir: File,
     private val idleMs: Long = 90_000,
+    private val backends: List<() -> Backend> = listOf({ Backend.GPU() }, { Backend.CPU() }),
 ) : Classifier {
     /**
-     * Stream the reply and stop as soon as the label is known, instead of decoding the whole
-     * `{"label": ..., "target": N}` object. The policy ignores the model's target, so the label
-     * is all we need, and greedy decoding gives the same label either way. Off until the
-     * on-device benchmark (ModelBenchmark) has shown it works on real phones.
+     * How the model answers.
+     * [Reply.FREE]: no output constraint; the reply is streamed and cut off once the label string
+     * is closed, and a label outside the nine counts as content. On the desktop LiteRT-LM build
+     * (same .litertlm file, CPU) that is 89% right on the eval set, against 70% for [Reply.JSON]:
+     * LiteRT-LM's JSON constraint forces the compact `{"label":"` form, which this model never
+     * writes on its own, and that pushes it towards wrong labels (app_install above all). Free
+     * replies stop after about 8 tokens instead of 12.
+     * [Reply.JSON]: the schema-constrained `{"label": ..., "target": N}` the app used before.
      */
-    @Volatile var stopAfterLabel = false
+    enum class Reply { FREE, JSON }
+
+    @Volatile var reply = Reply.FREE
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var engine: Engine? = null
@@ -71,7 +78,8 @@ class LiteRtClassifier(
     private fun load(): Engine {
         engine?.let { return it }
         var err: Throwable? = null
-        for (backend in listOf(Backend.GPU(), Backend.CPU())) {
+        for (make in backends) {
+            val backend = make()
             try {
                 val t0 = System.nanoTime()
                 val e = Engine(EngineConfig(modelPath = modelFile.path, backend = backend, maxNumTokens = 1024, cacheDir = cacheDir.path))
@@ -99,9 +107,9 @@ class LiteRtClassifier(
         }
     }
 
-    override suspend fun classify(f: Features): ClassifierResult = classify(f, stopAfterLabel)
+    override suspend fun classify(f: Features): ClassifierResult = classify(f, reply)
 
-    suspend fun classify(f: Features, stopEarly: Boolean): ClassifierResult = withContext(Dispatchers.Default) {
+    suspend fun classify(f: Features, mode: Reply): ClassifierResult = withContext(Dispatchers.Default) {
         mutex.withLock {
             unloadJob?.cancel()
             try {
@@ -115,24 +123,23 @@ class LiteRtClassifier(
                         samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0),
                         thinkingConfig = ThinkingConfig(enableThinking = false),
                         maxOutputToken = 32,
-                        enableResponseFormat = true,
+                        enableResponseFormat = mode == Reply.JSON,
                     ),
                 )
                 var firstChunkMs: Long? = null
                 val raw = conversation.use { c ->
-                    val format = ResponseFormat.json(Prompt.OUTPUT_SCHEMA)
-                    if (!stopEarly) return@use c.sendMessage(prompt, responseFormat = format).toString()
+                    if (mode == Reply.JSON) return@use c.sendMessage(prompt, responseFormat = ResponseFormat.json(Prompt.OUTPUT_SCHEMA)).toString()
                     var acc = ""
                     try {
-                        c.sendMessageAsync(prompt, responseFormat = format).first { chunk ->
+                        c.sendMessageAsync(prompt).first { chunk ->
                             if (firstChunkMs == null) firstChunkMs = (System.nanoTime() - t0) / 1_000_000
                             val t = chunk.toString()
                             // Chunks may be deltas or the text so far; handle both.
                             acc = if (t.startsWith(acc)) t else acc + t
-                            Prompt.labelPrefix(acc) != null
+                            Prompt.closedLabel(acc) != null
                         }
                     } catch (e: NoSuchElementException) {
-                        // The stream ended before the label was complete; parse what came.
+                        // The stream ended before a label was written; parse what came.
                     } finally {
                         runCatching { c.cancelProcess() }
                     }
@@ -140,7 +147,11 @@ class LiteRtClassifier(
                 }
                 val ms = (System.nanoTime() - t0) / 1_000_000
                 lastError = null
-                val r = if (stopEarly) Prompt.labelPrefix(raw)?.let { Prompt.Reply(it, -1) } ?: Prompt.parse(raw, f.buttons.size) else Prompt.parse(raw, f.buttons.size)
+                val r = if (mode == Reply.FREE) {
+                    Prompt.closedLabel(raw)?.let { Prompt.Reply(if (it in Prompt.LABELS) it else "content", -1) }
+                } else {
+                    Prompt.parse(raw, f.buttons.size)
+                }
                 ClassifierResult(r?.label ?: "content", r?.target ?: -1, ms, raw, invalid = r == null, backend = backendName, firstChunkMs = firstChunkMs)
             } catch (t: Throwable) {
                 lastError = t.message

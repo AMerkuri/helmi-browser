@@ -147,7 +147,7 @@ class SereneApp : Application() {
         benchmarkProgress = "loading the model"
         scope.launch {
             benchmarkReport = try {
-                ModelBenchmark(this@SereneApp, c, models.spec.name).measure { p -> benchmarkProgress = "${p.done} of ${p.total} overlays" }
+                ModelBenchmark(this@SereneApp, c, cacheDir, models.spec.name).measure { p -> benchmarkProgress = "${p.run}: ${p.done} of ${p.total} overlays" }
             } catch (t: Throwable) {
                 Log.e("Serene", "benchmark failed", t)
                 "Benchmark failed: ${t.message}"
