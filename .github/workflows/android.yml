@@ -89,7 +89,8 @@ jobs:
             ].join('\n');
             const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
             const body = pr.body || '';
-            const re = new RegExp(`${start}[\\s\\S]*?${end}`);
+            // Markers on lines of their own, so a description that quotes them stays intact.
+            const re = new RegExp(`^${start}$[\\s\\S]*?^${end}$`, 'm');
             const next = re.test(body) ? body.replace(re, () => section) : `${body.trimEnd()}\n\n${section}\n`;
             if (next !== body) await github.rest.pulls.update({ ...context.repo, pull_number: pr.number, body: next });
       - uses: actions/upload-artifact@v4
