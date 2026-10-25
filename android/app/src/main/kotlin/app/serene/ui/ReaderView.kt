@@ -222,16 +222,16 @@ private fun ReaderStyleSheet(prefs: ReaderPrefs, current: ReaderTheme, onDismiss
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 24.dp).padding(bottom = 32.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-                ThemeSwatch("Auto", null, selected = prefs.theme == null, onClick = { prefs.setTheme(null) })
+                ThemeSwatch("Auto", null, selected = prefs.theme == null, onClick = { prefs.theme = null })
                 ReaderTheme.entries.forEach { t ->
-                    ThemeSwatch(t.label, t, selected = prefs.theme == t, onClick = { prefs.setTheme(t) })
+                    ThemeSwatch(t.label, t, selected = prefs.theme == t, onClick = { prefs.theme = t })
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("A", fontFamily = FontFamily.Serif, fontSize = 14.sp)
                 Slider(
                     value = prefs.textSize.toFloat(),
-                    onValueChange = { prefs.setTextSize(it.roundToInt()) },
+                    onValueChange = { prefs.textSize = it.roundToInt() },
                     valueRange = ReaderPrefs.MIN_SIZE.toFloat()..ReaderPrefs.MAX_SIZE.toFloat(),
                     steps = ReaderPrefs.MAX_SIZE - ReaderPrefs.MIN_SIZE - 1,
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
@@ -239,11 +239,11 @@ private fun ReaderStyleSheet(prefs: ReaderPrefs, current: ReaderTheme, onDismiss
                 Text("A", fontFamily = FontFamily.Serif, fontSize = 24.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = prefs.serif, onClick = { prefs.setSerif(true) }, label = { Text("Serif", fontFamily = FontFamily.Serif) })
-                FilterChip(selected = !prefs.serif, onClick = { prefs.setSerif(false) }, label = { Text("Sans", fontFamily = FontFamily.SansSerif) })
+                FilterChip(selected = prefs.serif, onClick = { prefs.serif = true }, label = { Text("Serif", fontFamily = FontFamily.Serif) })
+                FilterChip(selected = !prefs.serif, onClick = { prefs.serif = false }, label = { Text("Sans", fontFamily = FontFamily.SansSerif) })
             }
-            SwitchRow("Justify, with hyphens", prefs.justify, prefs::setJustify)
-            SwitchRow("Tap the edges to turn pages", prefs.tapToTurn, prefs::setTapToTurn)
+            SwitchRow("Justify, with hyphens", prefs.justify, { prefs.justify = it })
+            SwitchRow("Tap the edges to turn pages", prefs.tapToTurn, { prefs.tapToTurn = it })
             Text("Theme now: ${current.label}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
