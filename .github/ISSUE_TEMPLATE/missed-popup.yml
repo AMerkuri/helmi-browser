@@ -1,0 +1,48 @@
+# Filed from the app: "Report missed popup" opens this form with every field filled in
+# (app/src/main/kotlin/app/serene/report/IssueReport.kt). The field ids are the query
+# parameters it sets, so rename them in both places.
+name: Missed popup
+description: A cookie banner, newsletter box, app banner or other overlay that Serene did not remove, or removed by mistake.
+title: "Missed popup: "
+labels: [missed-popup]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The quickest way to file this is **Report missed popup** in the Serene menu, which fills in everything below. Issues are public, so check the page address and the page snippet before you submit.
+  - type: input
+    id: url
+    attributes:
+      label: Page
+      description: Address of the page. The app drops the query string and fragment.
+      placeholder: https://example.com/article
+    validations:
+      required: true
+  - type: textarea
+    id: note
+    attributes:
+      label: What happened
+      description: What was on screen, and what Serene should have done.
+      placeholder: Newsletter box after scrolling halfway, Serene left it up.
+  - type: input
+    id: app
+    attributes:
+      label: App and device
+      description: Serene version, device, Android and WebView versions.
+  - type: textarea
+    id: engine
+    attributes:
+      label: What the engine did
+      description: Candidates with their verdicts, and the tail of the page log.
+      render: text
+  - type: textarea
+    id: overlay
+    attributes:
+      label: Overlay on screen
+      description: What the detector sees on top of the page now, with a trimmed snippet of its HTML.
+      render: html
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: The app copies its screenshot to the clipboard and saves it to Pictures/Serene. Long-press here and paste it, or tap the attach bar below the box and pick it.

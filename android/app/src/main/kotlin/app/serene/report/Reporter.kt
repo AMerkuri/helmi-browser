@@ -1,12 +1,17 @@
 package app.serene.report
 
 import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
@@ -20,6 +25,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import java.io.File
 import java.text.SimpleDateFormat
@@ -28,8 +34,9 @@ import java.util.Locale
 
 /**
  * "Report missed popup": what the detector sees on screen right now, what the engine did on this
- * page, a screenshot and the user's note, saved as files and handed to the share sheet. Nothing
- * leaves the phone unless the user sends it.
+ * page, a screenshot and the user's note, saved as files. The user either opens them as a
+ * prefilled GitHub issue or hands the files to the share sheet. Nothing leaves the phone unless
+ * the user submits or sends it.
  */
 object Reporter {
     // Same probe as residualOverlays() in engine/harness/browser.mjs: the content script's own
@@ -48,7 +55,7 @@ object Reporter {
         if (p === 'fixed' || p === 'sticky') root = n;
       }
       if (root) {
-        if (!seen.has(root)) { seen.add(root); const f = s ? s.extract(root) : { tag: root.localName, text: (root.innerText || '').slice(0, 300) }; if (f) { delete f._buttons; delete f._iframes; f.serene = root.getAttribute('data-serene'); out.push(f); } }
+        if (!seen.has(root)) { seen.add(root); const f = s ? s.extract(root) : { tag: root.localName, text: (root.innerText || '').slice(0, 300) }; if (f) { delete f._buttons; delete f._iframes; f.serene = root.getAttribute('data-serene'); f.html = root.outerHTML.replace(/\s+/g, ' ').slice(0, 1500); out.push(f); } }
         break;
       }
     }
@@ -99,6 +106,40 @@ object Reporter {
         if (v.width == 0 || v.height == 0) return null
         Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888).also { v.draw(Canvas(it)) }
     }.getOrNull()
+
+    /**
+     * The prefilled GitHub issue for this report (see [IssueReport]); [open] loads it in a tab.
+     * A new-issue URL cannot carry files, so the screenshot goes to Pictures/Serene (where the
+     * form's attach button finds it) and onto the clipboard, to paste into the Screenshot box.
+     */
+    fun openIssue(context: Context, dir: File, note: String, open: (String) -> Unit) {
+        if (note.isNotBlank()) File(dir, "note.txt").writeText(note)
+        val report = EngineJson.parseToJsonElement(File(dir, "report.json").readText()).jsonObject
+        val shot = File(dir, "screenshot.png").takeIf { it.exists() }
+        if (shot != null) {
+            val saved = runCatching { saveToPictures(context, shot) }.getOrNull()
+            val uri = saved ?: FileProvider.getUriForFile(context, "${context.packageName}.reports", shot)
+            context.getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newUri(context.contentResolver, "Serene screenshot", uri))
+            val where = if (saved != null) " and saved to Pictures/Serene" else ""
+            Toast.makeText(context, "Screenshot copied$where. Paste or attach it in the Screenshot box.", Toast.LENGTH_LONG).show()
+        }
+        open(IssueReport.url(report, note))
+    }
+
+    /** Android 10+ needs no permission to add to the shared Pictures folder. */
+    private fun saveToPictures(context: Context, png: File): Uri? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, "serene-report-${png.parentFile?.name}.png")
+            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Serene")
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+        resolver.openOutputStream(uri)?.use { out -> png.inputStream().use { it.copyTo(out) } }
+        return uri
+    }
 
     /** Adds the user's note and opens the share sheet with the JSON and the screenshot. */
     fun share(context: Context, dir: File, note: String, url: String) {
