@@ -6,10 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemClock
-import android.view.PixelCopy
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,8 +20,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * The bottom bar's icons stand out from the bar in both themes, also when the system theme
@@ -73,39 +68,32 @@ class DarkThemeTest {
 
     /**
      * The right quarter of the bottom bar, where the ⋮ menu button is: the bar is the bottom 52 dp
-     * above the navigation bar. Null until the window is laid out and drawn.
+     * above the navigation bar. Null until the window is laid out. A screenshot of the display,
+     * not a PixelCopy of the window: on the CI emulator that read black everywhere but the start
+     * page, address bar and bottom bar included.
      */
     private fun menuButton(scenario: ActivityScenario<MainActivity>): Bitmap? {
-        var shot: Bitmap? = null
-        val latch = CountDownLatch(1)
+        var r: Rect? = null
         scenario.onActivity { a ->
             // The empty start tab focuses the address bar; keep the keyboard out of the way.
             a.currentFocus?.clearFocus()
             val decor = a.window.decorView
             WindowCompat.getInsetsController(a.window, decor).hide(WindowInsetsCompat.Type.ime())
-            val insets = ViewCompat.getRootWindowInsets(decor)
-            if (decor.width == 0 || insets == null) return@onActivity latch.countDown()
+            val insets = ViewCompat.getRootWindowInsets(decor) ?: return@onActivity
+            if (decor.width == 0) return@onActivity
             val bottom = decor.height - insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.ime()).bottom
             val dp = a.resources.displayMetrics.density
-            val r = Rect(decor.width * 3 / 4, bottom - (50 * dp).toInt(), decor.width, bottom - (2 * dp).toInt())
-            val wv = a.tabs.current!!.webView.let { v -> IntArray(2).also { v.getLocationInWindow(it) }[1].let { "$it+${v.height}" } }
+            val origin = IntArray(2).also { decor.getLocationOnScreen(it) }
+            r = Rect(decor.width * 3 / 4, bottom - (50 * dp).toInt(), decor.width, bottom - (2 * dp).toInt()).apply { offset(origin[0], origin[1]) }
             val night = a.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-            // The whole window, so a failure can say what the rest of it looks like.
-            val bmp = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-            PixelCopy.request(a.window, bmp, { result ->
-                if (result == PixelCopy.SUCCESS) {
-                    val samples = listOf(10, decor.height / 2, bottom - 26 * dp.toInt(), decor.height - 2).joinToString { y -> "y$y %08x".format(bmp.getPixel(decor.width - 2, y)) }
-                    rect = "$r (window ${decor.width}x${decor.height}, WebView y $wv, uiMode night $night, right edge $samples)"
-                    shot = Bitmap.createBitmap(bmp, r.left, r.top, r.width(), r.height())
-                }
-                latch.countDown()
-            }, Handler(Looper.getMainLooper()))
+            rect = "$r (window ${decor.width}x${decor.height}, uiMode night $night)"
         }
-        assertTrue("PixelCopy timed out", latch.await(10, TimeUnit.SECONDS))
-        return shot
+        val crop = r ?: return null
+        val screen = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+        if (crop.right > screen.width || crop.bottom > screen.height) return null
+        return Bitmap.createBitmap(screen, crop.left, crop.top, crop.width(), crop.height())
     }
 
-    // An undrawn window copies as transparent black, so that is not a dark bar yet.
     private fun barIsDark(b: Bitmap): Boolean? = b.getPixel(1, 1).takeIf { Color.alpha(it) == 255 }?.let { luminance(it) < 0.5 }
 
     private fun luminance(c: Int) = (0.2126 * Color.red(c) + 0.7152 * Color.green(c) + 0.0722 * Color.blue(c)) / 255
