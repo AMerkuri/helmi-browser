@@ -3,6 +3,7 @@ package app.serene.engine
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
@@ -32,6 +33,8 @@ data class ClassifierResult(
     val confidence: Double? = null,
     /** Time to the first streamed chunk (about the prefill), when the reply was streamed. */
     val firstChunkMs: Long? = null,
+    /** The call used a conversation whose system prompt was prefilled before it (LiteRtClassifier.prepare). */
+    val prepared: Boolean = false,
 )
 
 /** Features in, label out (the button is the policy's call). */
@@ -63,6 +66,16 @@ class LiteRtClassifier(
     enum class Reply { FREE, JSON }
 
     @Volatile var reply = Reply.FREE
+
+    /**
+     * Keep the next conversation ready, with the system prompt already prefilled
+     * (prefillPrefaceOnInit), so that a call only prefills the overlay's own ~35 tokens. The
+     * 0.18.1 API cannot copy or rewind a session's KV cache, so this is the way to stop paying
+     * for the 204-token system prompt on every call: it is paid between calls instead. Free
+     * replies only.
+     */
+    @Volatile var prepare = true
+    private var ready: Conversation? = null
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var engine: Engine? = null
@@ -104,6 +117,36 @@ class LiteRtClassifier(
             val wasLoaded = engine != null
             try { load() } finally { scheduleUnload() }
             if (wasLoaded) 0L else (System.nanoTime() - t0) / 1_000_000
+        }.also { prepareNext() }
+    }
+
+    // A fresh conversation per call: same system prefix every time, no history.
+    private fun newConversation(e: Engine, mode: Reply, prefill: Boolean) = e.createConversation(
+        ConversationConfig(
+            systemInstruction = Contents.of(Prompt.SYSTEM),
+            samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0),
+            prefillPrefaceOnInit = prefill,
+            thinkingConfig = ThinkingConfig(enableThinking = false),
+            maxOutputToken = 32,
+            enableResponseFormat = mode == Reply.JSON,
+        ),
+    )
+
+    /** Builds the next call's conversation in the background, unless one is ready. */
+    private fun prepareNext() {
+        if (prepare) scope.launch { prepareNow() }
+    }
+
+    /** Builds the next call's conversation now; returns how long that took (0 if there was nothing to do). */
+    suspend fun prepareNow(): Long = withContext(Dispatchers.Default) {
+        mutex.withLock {
+            val e = engine ?: return@withLock 0L
+            if (ready != null || !prepare) return@withLock 0L
+            val t0 = System.nanoTime()
+            ready = runCatching { newConversation(e, Reply.FREE, prefill = true) }
+                .onFailure { Log.w(TAG, "could not prepare a conversation: ${it.message}") }
+                .getOrNull()
+            (System.nanoTime() - t0) / 1_000_000
         }
     }
 
@@ -116,16 +159,11 @@ class LiteRtClassifier(
                 val e = load()
                 val prompt = Prompt.build(f)
                 val t0 = System.nanoTime()
-                // A fresh conversation per call: same system prefix every time, no history.
-                val conversation = e.createConversation(
-                    ConversationConfig(
-                        systemInstruction = Contents.of(Prompt.SYSTEM),
-                        samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0),
-                        thinkingConfig = ThinkingConfig(enableThinking = false),
-                        maxOutputToken = 32,
-                        enableResponseFormat = mode == Reply.JSON,
-                    ),
-                )
+                // One conversation at a time: a prepared one this call cannot use is closed first.
+                val prepared = ready?.takeIf { mode == Reply.FREE && prepare }
+                if (prepared == null) ready?.let { runCatching { it.close() } }
+                ready = null
+                val conversation = prepared ?: newConversation(e, mode, prefill = false)
                 var firstChunkMs: Long? = null
                 val raw = conversation.use { c ->
                     if (mode == Reply.JSON) return@use c.sendMessage(prompt, responseFormat = ResponseFormat.json(Prompt.OUTPUT_SCHEMA)).toString()
@@ -152,14 +190,14 @@ class LiteRtClassifier(
                 } else {
                     Prompt.parse(raw, f.buttons.size)
                 }
-                ClassifierResult(r?.label ?: "content", r?.target ?: -1, ms, raw, invalid = r == null, backend = backendName, firstChunkMs = firstChunkMs)
+                ClassifierResult(r?.label ?: "content", r?.target ?: -1, ms, raw, invalid = r == null, backend = backendName, firstChunkMs = firstChunkMs, prepared = prepared != null)
             } catch (t: Throwable) {
                 lastError = t.message
                 throw t
             } finally {
                 scheduleUnload()
             }
-        }
+        }.also { prepareNext() }
     }
 
     private fun scheduleUnload() {
@@ -170,6 +208,8 @@ class LiteRtClassifier(
     }
 
     suspend fun unload() = mutex.withLock {
+        ready?.let { runCatching { it.close() } }
+        ready = null
         engine?.close()
         engine = null
     }
