@@ -25,7 +25,7 @@ import kotlin.concurrent.thread
 class ReportTest {
     @Test
     fun screenshotShowsThePage() {
-        val html = "<!doctype html><title>Serene report test</title><body style='margin:0;background:#c00'><h1 style='background:#fff'>Serene report test</h1><p style='height:2000px'>text</p></body>".toByteArray()
+        val html = "<!doctype html><title>Serene report test</title><body style='margin:0;background:#c00'><div style='margin:80px 40px;height:160px;background:#fff'></div><p style='height:2000px'>text</p></body>".toByteArray()
         val server = ServerSocket(0)
         thread(isDaemon = true) {
             while (!server.isClosed) runCatching {

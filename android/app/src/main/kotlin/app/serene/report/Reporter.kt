@@ -155,14 +155,21 @@ object Reporter {
 
     private fun colour(b: Bitmap) = "#%08x".format(b.getPixel(b.width / 2, b.height / 2))
 
-    /** A blank capture: every pixel on a 16 x 16 grid has the same colour. */
+    /**
+     * A blank capture: every pixel has the same colour. All of them, row by row: a sparse grid
+     * can land only on the white of a text page and throw away a good screenshot.
+     */
     fun isUniform(b: Bitmap): Boolean {
-        val n = 16
-        val px = IntArray(n * n) { i -> b.getPixel((i % n) * (b.width - 1) / (n - 1), (i / n) * (b.height - 1) / (n - 1)) }
-        return isUniform(px)
+        val row = IntArray(b.width)
+        val first = b.getPixel(0, 0)
+        for (y in 0 until b.height) {
+            b.getPixels(row, 0, b.width, 0, y, b.width, 1)
+            if (!isUniform(row, first)) return false
+        }
+        return true
     }
 
-    fun isUniform(pixels: IntArray): Boolean = pixels.isEmpty() || pixels.all { it == pixels[0] }
+    fun isUniform(pixels: IntArray, colour: Int = pixels.firstOrNull() ?: 0): Boolean = pixels.all { it == colour }
 
     /**
      * The prefilled GitHub issue for this report (see [IssueReport]); [open] loads it in a tab.
