@@ -15,19 +15,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  npu-model:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      # Export and calibration hold the float model and its activations; give them room.
-      - name: More swap
+      # The runner's disk is mostly preinstalled toolchains; the build needs ~15 GB (Python
+      # packages, the Hugging Face weights and three .litertlm stages) plus swap for the export.
+      - name: Disk space and swap
         run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           sudo swapoff -a || true
-          sudo fallocate -l 12G /swapfile2 && sudo chmod 600 /swapfile2 && sudo mkswap /swapfile2 && sudo swapon /swapfile2
-          free -g
+          sudo rm -f /mnt/swapfile /swapfile
+          sudo fallocate -l 8G /swapfile2 && sudo chmod 600 /swapfile2 && sudo mkswap /swapfile2 && sudo swapon /swapfile2
+          df -h / && free -g
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
