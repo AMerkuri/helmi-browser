@@ -19,7 +19,7 @@ test/                   fixture e2e tests, unit tests, model eval + labelled see
 
 ```sh
 npm install && npx playwright install chromium
-npm run build            # dist/autoconsent.js (npm test runs it first)
+npm run build            # dist/: autoconsent.js + its rules and config, also packaged by the app (npm test runs it first)
 npm test
 npm run model && npm run llm-eval
 npm run crawl            # or: npm run crawl:no-model

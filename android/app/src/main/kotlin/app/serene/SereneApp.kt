@@ -8,6 +8,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.serene.engine.AutoconsentRules
 import app.serene.engine.Classifier
 import app.serene.engine.FilterLists
 import app.serene.engine.LiteRtClassifier
@@ -83,6 +84,16 @@ class SereneApp : Application() {
             siteEnabled = settings::isSiteEnabled,
         )
         loadRules(force = false)
+        scope.launch(Dispatchers.IO) {
+            // DuckDuckGo autoconsent's rule snapshot (engine/dist): a real "reject" for the consent
+            // tools it knows, in any language. Until it is parsed, list-matched banners are just hidden.
+            try {
+                fun asset(name: String) = assets.open(name).bufferedReader().use { it.readText() }
+                engine.autoconsent = AutoconsentRules(asset("autoconsent-rules.json"), asset("autoconsent-config.json"))
+            } catch (t: Throwable) {
+                Log.e("Serene", "autoconsent rules failed", t)
+            }
+        }
     }
 
     fun loadRules(force: Boolean) {

@@ -24,3 +24,5 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm test
+      # The app packages dist/ as assets: the committed copy must match the build.
+      - run: git diff --exit-code -- dist

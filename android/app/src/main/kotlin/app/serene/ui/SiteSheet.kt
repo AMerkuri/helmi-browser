@@ -70,8 +70,10 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 }
                 Spacer(Modifier.height(16.dp))
                 val actions = s.actions()
+                val rejected = s.consentRejected()
                 Text(
-                    "${s.blockedRequests.get()} requests blocked · ${actions.size} overlays handled",
+                    "${s.blockedRequests.get()} requests blocked · ${actions.size} overlays handled" +
+                        if (rejected.isNotEmpty()) " · cookies rejected (${rejected.joinToString()})" else "",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(8.dp))

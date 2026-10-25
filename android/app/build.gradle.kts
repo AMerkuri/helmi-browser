@@ -52,6 +52,8 @@ android {
         getByName("main") {
             // The content script is the engine prototype's file, unchanged: one source of truth.
             assets.directories += "../../engine/src/content"
+            // autoconsent.js and its rules + config, built by `npm run build` in engine/ and committed.
+            assets.directories += "../../engine/dist"
             jniLibs.directories += layout.buildDirectory.dir("rustJniLibs").get().asFile.path
         }
         // The prototype's fixture pages, for the on-device end-to-end test.

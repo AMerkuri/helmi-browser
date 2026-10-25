@@ -14,15 +14,16 @@ After the first start:
 
 | Engine piece (prototype) | App |
 |---|---|
-| `src/content/serene.js` | Packaged unchanged as an asset and injected with `WebViewCompat.addDocumentStartJavaScript(…, setOf("*"))` into every frame |
+| `src/content/serene.js` | Packaged unchanged as an asset and injected with `WebViewCompat.addDocumentStartJavaScript(…, setOf("*"))` into every frame, after `dist/autoconsent.js` in the same script |
+| `src/host/autoconsent.mjs` | [`AutoconsentRules.kt`](app/src/main/kotlin/app/serene/engine/AutoconsentRules.kt): DuckDuckGo autoconsent's rules (`engine/dist`, an asset) filtered per frame URL; [`AutoconsentRulesTest.kt`](app/src/test/kotlin/app/serene/engine/AutoconsentRulesTest.kt) checks it against autoconsent's own filter |
 | `SereneBridge` (harness shim) | `WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*"))`; replies go through the frame's `JavaScriptReplyProxy` |
 | `context.route` | `WebViewClient.shouldInterceptRequest` → `RulesEngine.shouldBlock`, returning an empty response |
 | `src/host/rules.mjs` (adblock-rs) | [`rules-jni/`](rules-jni): the same adblock-rust 0.13.3 crate over JNI, built with `cargo-ndk`; the parsed engine is cached on disk |
 | `src/host/policy.mjs` | [`Policy.kt`](app/src/main/kotlin/app/serene/engine/Policy.kt), same regexes and thresholds; [`PolicyTest.kt`](app/src/test/kotlin/app/serene/engine/PolicyTest.kt) mirrors `policy.test.mjs` |
-| `src/host/classifier.mjs` | [`Prompt.kt`](app/src/main/kotlin/app/serene/engine/Prompt.kt) (same prompt and schema) + [`Classifier.kt`](app/src/main/kotlin/app/serene/engine/Classifier.kt): LiteRT-LM 0.18.1, GPU backend with CPU fallback, JSON-schema constrained decoding, thinking off, unloaded after 90 s idle |
+| `src/host/classifier.mjs` | [`Prompt.kt`](app/src/main/kotlin/app/serene/engine/Prompt.kt) (same prompt and schema) + [`Classifier.kt`](app/src/main/kotlin/app/serene/engine/Classifier.kt): LiteRT-LM 0.18.1, GPU backend with CPU fallback, JSON-schema constrained decoding, thinking off, unloaded after 90 s idle. The prototype's single-pass label scoring is not ported (LiteRT-LM's Kotlin API has no scoring call), so there is no confidence and the policy acts on the label |
 | `src/host/cache.mjs` | [`VerdictCache.kt`](app/src/main/kotlin/app/serene/engine/VerdictCache.kt), a JSON file keyed by eTLD+1 |
 | `src/host/engine.mjs` | [`SereneEngine.kt`](app/src/main/kotlin/app/serene/engine/SereneEngine.kt): one `PageSession` per tab navigation |
-| `src/host/lists.mjs` | [`FilterLists.kt`](app/src/main/kotlin/app/serene/engine/FilterLists.kt), refreshed every 4 days |
+| `src/host/lists.mjs` | [`FilterLists.kt`](app/src/main/kotlin/app/serene/engine/FilterLists.kt), refreshed every 4 days; it also builds the small cookie-rules engine (`RulesEngine.consent`) that marks which hide selectors to park for autoconsent |
 
 When the policy or prompt changes in `engine/src/host/`, change the Kotlin port in the same PR; the unit tests are a line-by-line mirror of the prototype's.
 

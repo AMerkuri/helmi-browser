@@ -75,6 +75,8 @@ class FixturesTest(private val file: String) {
             val end = SystemClock.uptimeMillis() + 120_000
             while (app.engine.rules == null && SystemClock.uptimeMillis() < end) SystemClock.sleep(500)
             assertNotNull("filter lists did not load: ${app.rulesStatus}", app.engine.rules)
+            while (app.engine.autoconsent == null && SystemClock.uptimeMillis() < end) SystemClock.sleep(100)
+            assertNotNull("autoconsent rules did not load", app.engine.autoconsent)
         }
 
         @JvmStatic
@@ -173,6 +175,7 @@ class FixturesTest(private val file: String) {
                 "rules" -> assertEquals("rules should handle it before the detector\n$log", 0, acted.size)
                 "heuristic" -> assertTrue("heuristics should act\n$log", acted.any { it.source == "heuristic" })
                 "llm" -> assertTrue("model should be asked\n$log", synchronized(llmCalls) { file in llmCalls } && acted.any { it.source == "llm" })
+                "autoconsent" -> assertTrue("autoconsent should answer it\n$log", s?.consentRejected()?.isNotEmpty() == true && acted.isEmpty())
             }
             if (exp["gone"] == null) assertEquals("nothing should be acted on\n$log", 0, acted.size)
         }
