@@ -10,9 +10,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -180,7 +177,7 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
         Column(Modifier.fillMaxSize().background(bg).statusBarsPadding().navigationBarsPadding()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AndroidView(factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView }, modifier = Modifier.fillMaxSize())
-                AnimatedVisibility(visible = chrome, enter = fadeIn(), exit = fadeOut()) {
+                if (chrome) {
                     Row(
                         Modifier.fillMaxWidth().background(bg.copy(alpha = 0.96f)).padding(horizontal = 4.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
