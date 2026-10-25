@@ -73,6 +73,22 @@ class ModelManager(private val context: Context, private val settings: Settings,
         poll()
     }
 
+    /** Copies a model file the user downloaded themselves (a gated one), then checks it like a download. */
+    fun import(uri: Uri) {
+        val s = spec
+        if (state is ModelState.Downloading) cancel()
+        dir.mkdirs()
+        state = ModelState.Verifying
+        scope.launch {
+            val copied = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)!!.use { input -> partFile(s).outputStream().use { input.copyTo(it, 1 shl 20) } }
+                }.isSuccess
+            }
+            if (copied) verify() else { partFile(s).delete(); state = ModelState.Failed("could not read the file") }
+        }
+    }
+
     fun cancel() {
         val id = settings.modelDownloadId
         if (id >= 0) dm.remove(id)
@@ -133,9 +149,13 @@ class ModelManager(private val context: Context, private val settings: Settings,
     private suspend fun verify() {
         val s = spec
         state = ModelState.Verifying
+        var problem = "checksum mismatch, try again"
         val ok = withContext(Dispatchers.IO) {
             val part = partFile(s)
-            if (!part.exists() || part.length() != s.sizeBytes) return@withContext false
+            if (!part.exists() || part.length() != s.sizeBytes) {
+                if (part.exists()) problem = "wrong file: ${part.length()} bytes, expected ${s.sizeBytes}"
+                return@withContext false
+            }
             val md = MessageDigest.getInstance("SHA-256")
             part.inputStream().use { input ->
                 val buf = ByteArray(1 shl 20)
@@ -146,9 +166,10 @@ class ModelManager(private val context: Context, private val settings: Settings,
                 }
             }
             val hex = md.digest().joinToString("") { "%02x".format(it) }
+            if (hex != s.sha256 && s.gatedPage != null) problem = "checksum mismatch: the file's SHA-256 is $hex"
             hex == s.sha256 && part.renameTo(file(s))
         }
         if (!ok) partFile(s).delete()
-        state = if (ok) ModelState.Ready else ModelState.Failed("checksum mismatch, try again")
+        state = if (ok) ModelState.Ready else ModelState.Failed(problem)
     }
 }
