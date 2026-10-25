@@ -43,8 +43,6 @@ def main() -> None:
   config = pathlib.Path(npu_export.__file__).parent / "configs" / "qwen3_0.6b_qualcomm_sm8750.json"
   cfg = NpuPipelineConfig.load_json(str(config))
   cfg.cache_length = args.cache_length
-  cfg.calibration_eval_task_names = ["serene"]
-  cfg.max_calibration_decode_steps = 16  # replies stop after the label, about 8 tokens
   print(cfg)
 
   exported = work / "exported" / "model.litertlm"
@@ -63,6 +61,8 @@ def main() -> None:
         input_litertlm=str(exported),
         calibration_dataset_dir=str(calib_data),
         calibration_result_save_dir=str(calib_out),
+        calibration_eval_task_names=["serene"],
+        max_calibration_decode_steps=16,  # replies stop after the label, about 8 tokens
         enable_formatting=False,  # the prompts already carry Qwen3's chat template
     )
   if "quantize" in todo:
