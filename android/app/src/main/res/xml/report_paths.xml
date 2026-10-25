@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="reports" path="reports/" />
+    <!-- Downloads before Android 10, which go to app storage instead of the shared folder. -->
+    <external-files-path name="downloads" path="Download/" />
+    <files-path name="downloads-internal" path="downloads/" />
 </paths>

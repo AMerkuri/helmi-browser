@@ -1,20 +1,17 @@
 package app.serene.browser
 
 import android.annotation.SuppressLint
-import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.widget.Toast
 import android.webkit.ConsoleMessage
-import android.webkit.CookieManager
-import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -30,12 +27,15 @@ import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import app.serene.SereneApp
+import app.serene.download.Download
 import app.serene.engine.EngineJson
 import app.serene.engine.FrameRef
 import app.serene.engine.PageSession
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
@@ -64,6 +64,20 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         private set
     var session by mutableStateOf<PageSession?>(null)
         private set
+    /**
+     * The tab was opened for a file: its only navigation turned into a download, so the WebView
+     * has nothing to draw (it shows solid black). The download page stands in for it.
+     */
+    var downloadPage by mutableStateOf(false)
+        private set
+    /** A navigation has started showing something. Until then the WebView would draw black. */
+    var hasPage by mutableStateOf(false)
+        private set
+    /** The latest download from this tab; a bar over the page shows it until dismissed. */
+    var downloadBar by mutableStateOf<Download?>(null)
+
+    // The user agent of a blob: download while its data comes back from the page.
+    @Volatile private var blobUserAgent: String? = null
 
     // Created when the main-frame request goes out, promoted when the new document says hello.
     @Volatile private var pending: PageSession? = null
@@ -105,7 +119,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             }
         }
         webView.setDownloadListener { dlUrl, userAgent, contentDisposition, mimeType, _ ->
-            download(context, dlUrl, userAgent, contentDisposition, mimeType)
+            onDownload(dlUrl, userAgent, contentDisposition, mimeType)
         }
     }
 
@@ -117,6 +131,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, _, isMainFrame, reply: JavaScriptReplyProxy ->
             val data = message.data ?: return@addWebMessageListener
             if (destroyed) return@addWebMessageListener
+            if (isMainFrame && data.startsWith("{\"type\":\"serene-download\"")) {
+                main.post { onBlobData(data) }
+                return@addWebMessageListener
+            }
             val frame = object : FrameRef {
                 override val isTop = isMainFrame
                 override fun send(json: String) {
@@ -213,6 +231,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
+            // A new page: the download goes on in the notification and the downloads screen.
+            hasPage = true
+            downloadPage = false
+            downloadBar = null
             // Old WebViews without DOCUMENT_START_SCRIPT: best effort, may lose the race.
             if (!documentStartSupported) view.evaluateJavascript(contentScript(view.context), null)
         }
@@ -228,17 +250,45 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         canGoForward = webView.canGoForward()
     }
 
-    private fun download(context: Context, dlUrl: String, userAgent: String, contentDisposition: String, mimeType: String) {
-        runCatching {
-            val name = URLUtil.guessFileName(dlUrl, contentDisposition, mimeType)
-            val req = DownloadManager.Request(Uri.parse(dlUrl))
-                .setMimeType(mimeType)
-                .addRequestHeader("User-Agent", userAgent)
-                .addRequestHeader("Cookie", CookieManager.getInstance().getCookie(dlUrl) ?: "")
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
-            context.getSystemService(DownloadManager::class.java).enqueue(req)
-        }.onFailure { Log.w(TAG, "download failed: ${it.message}") }
+    private fun onDownload(dlUrl: String, userAgent: String, contentDisposition: String?, mimeType: String?) {
+        // Nothing in the history: the tab was opened for this file (a link from another app).
+        // Links on a page (target=_blank too, see setSupportMultipleWindows) keep the page.
+        val blank = webView.copyBackForwardList().currentItem == null
+        if (blank) downloadPage = true
+        progress = 100
+        if (dlUrl.startsWith("blob:")) return fetchBlob(dlUrl, userAgent)
+        val referer = if (blank) null else Uri.parse(url).let { u -> if (u.scheme?.startsWith("http") == true) "${u.scheme}://${u.authority}/" else null }
+        downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, referer, id)
+    }
+
+    /** A blob: URL only exists inside the page, so the page reads it and sends it back as data:. */
+    private fun fetchBlob(blobUrl: String, userAgent: String) {
+        blobUserAgent = userAgent
+        val js = """(async () => {
+            const post = m => window.SereneBridge && SereneBridge.postMessage(JSON.stringify(Object.assign({ type: 'serene-download' }, m)));
+            try {
+                const blob = await (await fetch(${JSONObject.quote(blobUrl)})).blob();
+                const r = new FileReader();
+                r.onload = () => post({ url: r.result });
+                r.onerror = () => post({ error: String(r.error) });
+                r.readAsDataURL(blob);
+            } catch (e) { post({ error: String(e) }); }
+        })()"""
+        webView.evaluateJavascript(js, null)
+    }
+
+    private fun onBlobData(data: String) {
+        // Only an answer to fetchBlob counts: the page can post to SereneBridge too.
+        val ua = blobUserAgent ?: return
+        blobUserAgent = null
+        val msg = runCatching { EngineJson.parseToJsonElement(data).jsonObject }.getOrNull() ?: return
+        val dataUrl = msg["url"]?.jsonPrimitive?.contentOrNull
+        if (dataUrl == null || !dataUrl.startsWith("data:")) {
+            Log.w(TAG, "blob download failed: ${msg["error"]?.jsonPrimitive?.contentOrNull}")
+            Toast.makeText(webView.context, "Serene couldn't save this file", Toast.LENGTH_SHORT).show()
+            return
+        }
+        downloadBar = app.downloads.start(dataUrl, ua, null, null, null, id)
     }
 
     companion object {

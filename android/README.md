@@ -38,6 +38,7 @@ The model is skipped in battery saver (a setting), when the system reports low m
 
   Nothing leaves the phone unless you submit or send it.
 - **Settings**: Serene on/off, filter list status and update, forget learned site rules, model download/choice/delete, Wi-Fi-only, battery saver, sites where Serene is off, search engine.
+- **Downloads**: Serene fetches files itself, with the page's cookies (so signed-in links such as GitHub Actions artifacts work), and saves them to the phone's Downloads folder. A tab opened just for a file shows a download page like Chrome's (name, MB done / total, time left, pause/resume, cancel, Open when done); a link on a page keeps the page and shows the same row in a bar at the bottom. Pausing resumes later with an HTTP Range request. **Menu → Downloads** lists every download; a notification shows progress while one runs and opens the file when it finishes. Opening a downloaded `.apk` hands it to the installer, which asks you to allow installs from Serene the first time.
 - Serene can be set as the default browser (it handles `http`/`https` links). Open tabs are restored on the next start.
 
 ## Building locally
