@@ -25,13 +25,15 @@ import java.util.concurrent.TimeUnit
 class ReaderTest {
     private val inst = InstrumentationRegistry.getInstrumentation()
 
-    // A hand-written article page: chrome and a fixed cookie bar around the story.
+    // A hand-written article page: chrome and a fixed cookie bar around the story. The title is
+    // long enough that Readability drops the site name after " | " (it keeps it on titles of four
+    // words or fewer).
     private val article = """
         <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-        <title>Harbour ferry returns | The Coastal Gazette</title>
+        <title>Harbour ferry returns after storm repairs | The Coastal Gazette</title>
         <style>.cookie { position: fixed; bottom: 0; left: 0; right: 0; }</style></head>
         <body><nav class="menu"><a href="/news">News</a> <a href="/sport">Sport</a></nav>
-        <article><h1>Harbour ferry returns</h1>
+        <article><h1>Harbour ferry returns after storm repairs</h1>
         ${(1..6).joinToString("") { "<p>Paragraph $it. The harbour ferry between Northpoint and the island of Vell resumed its timetable on Monday, six weeks after a winter storm tore the loading ramp from its hinges.</p>" }}
         <p><img src="ferry.jpg" onerror="window.ran = 1"></p>
         </article>
@@ -63,7 +65,7 @@ class ReaderTest {
         assertNotNull(page)
         val p = page!!
         assertTrue(p.article)
-        assertEquals("Harbour ferry returns", p.title)
+        assertEquals("Harbour ferry returns after storm repairs", p.title)
         assertEquals("https://news.example/ferry", p.url)
         assertTrue(p.text.contains("Paragraph 6."))
         assertFalse(p.text.contains("We use cookies"))
@@ -75,7 +77,7 @@ class ReaderTest {
         var t = ""
         inst.runOnMainSync { web.evaluateJavascript("document.title") { t = it; title.countDown() } }
         assertTrue(title.await(10, TimeUnit.SECONDS))
-        assertEquals("\"Harbour ferry returns\"", t)
+        assertEquals("\"Harbour ferry returns after storm repairs\"", t)
         inst.runOnMainSync { web.destroy() }
     }
 }
