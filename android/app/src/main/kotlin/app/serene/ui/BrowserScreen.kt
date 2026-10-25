@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,6 +78,7 @@ import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
+import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
 import java.io.File
 
@@ -86,6 +88,10 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
     val context = LocalContext.current
     var showSite by remember { mutableStateOf(false) }
     var reportDir by remember { mutableStateOf<File?>(null) }
+    // Reader mode and the summary sheet, for the current tab's page.
+    var reader by remember { mutableStateOf<ReaderPage?>(null) }
+    var summary by remember { mutableStateOf<ReaderPage?>(null) }
+    LaunchedEffect(tab.id) { reader = null; summary = null }
 
     BackHandler(enabled = tab.canGoBack) { tab.goBack() }
 
@@ -104,43 +110,73 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
         Reporter.capture(context, app, tab) { reportDir = it }
     }
 
+    // The page's article from engine/dist/reader.js, then what to do with it.
+    val withArticle = { then: (ReaderPage) -> Unit ->
+        ReaderPage.extract(tab.webView) { page ->
+            if (page == null) Toast.makeText(context, "Serene found no text on this page", Toast.LENGTH_SHORT).show()
+            else then(page)
+        }
+    }
+
     // The content colour a Surface would set: without it icons default to black and vanish on the
     // dark theme's bars. Not a Surface itself: wrapping the WebView in one turned the address bar
     // and the bars around the page solid black.
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface)
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .imePadding(),
-        ) {
-            UrlBar(app, tab, onShield = { showSite = true })
-            if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
-            else Spacer(Modifier.height(2.dp))
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                val startPage = tab.url.isEmpty() || tab.url == "about:blank"
-                val downloadPage = tab.downloadPage
-                key(tab.id) {
-                    AndroidView(
-                        factory = { (tab.webView.parent as? ViewGroup)?.removeView(tab.webView); tab.webView },
-                        modifier = Modifier.fillMaxSize(),
-                        // A WebView that has loaded nothing drew the address bar and the bars around
-                        // it solid black; the start page covers it anyway.
-                        // The same goes for a tab whose first page hasn't started yet (a link from
-                        // another app) or whose only navigation was a download.
-                        update = { it.visibility = if (startPage || downloadPage || !tab.hasPage) View.INVISIBLE else View.VISIBLE },
-                    )
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding(),
+            ) {
+                UrlBar(app, tab, onShield = { showSite = true })
+                if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
+                else Spacer(Modifier.height(2.dp))
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    val startPage = tab.url.isEmpty() || tab.url == "about:blank"
+                    val downloadPage = tab.downloadPage
+                    key(tab.id) {
+                        AndroidView(
+                            factory = { (tab.webView.parent as? ViewGroup)?.removeView(tab.webView); tab.webView },
+                            modifier = Modifier.fillMaxSize(),
+                            // A WebView that has loaded nothing drew the address bar and the bars around
+                            // it solid black; the start page covers it anyway.
+                            // The same goes for a tab whose first page hasn't started yet (a link from
+                            // another app) or whose only navigation was a download.
+                            update = { it.visibility = if (startPage || downloadPage || !tab.hasPage) View.INVISIBLE else View.VISIBLE },
+                        )
+                    }
+                    if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab) })
+                    else if (startPage) StartPage(app)
+                    else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
+                        DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
+                    }
                 }
-                if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab) })
-                else if (startPage) StartPage(app)
-                else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
-                    DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
-                }
+                BottomBar(
+                    app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
+                    onReader = { withArticle { reader = it } }, onSummarize = { withArticle { summary = it } },
+                )
             }
-            BottomBar(app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true })
+            reader?.let { page ->
+                ReaderView(
+                    page, app.readerPrefs,
+                    onClose = { reader = null },
+                    onOpenLink = { url -> reader = null; tab.load(url) },
+                    onSummarize = { summary = page },
+                )
+            }
         }
+    }
+
+    summary?.let { page ->
+        SummarySheet(
+            app, page,
+            onDismiss = { summary = null },
+            onOpenSettings = { summary = null; reader = null; onOpen(Screen.Settings) },
+            onReader = if (reader == null && page.html.isNotEmpty()) ({ summary = null; reader = page }) else null,
+        )
     }
 
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
@@ -219,7 +255,10 @@ private fun ShieldButton(app: SereneApp, tab: Tab, onClick: () -> Unit) {
 }
 
 @Composable
-private fun BottomBar(app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Screen) -> Unit, onReport: () -> Unit, onSite: () -> Unit) {
+private fun BottomBar(
+    app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Screen) -> Unit, onReport: () -> Unit, onSite: () -> Unit,
+    onReader: () -> Unit, onSummarize: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     HorizontalDivider()
     Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -235,6 +274,9 @@ private fun BottomBar(app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Scree
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("New tab") }, onClick = { menu = false; tabs.open() })
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { menu = false; onOpen(Screen.Downloads) })
+                val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
+                DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { menu = false; onReader() })
+                DropdownMenuItem(text = { Text("Summarize page") }, enabled = onPage, onClick = { menu = false; onSummarize() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { menu = false; onReport() })
                 val site = tab.session?.site()
                 if (site != null) {

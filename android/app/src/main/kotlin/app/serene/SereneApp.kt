@@ -17,6 +17,8 @@ import app.serene.engine.SereneEngine
 import app.serene.engine.VerdictCache
 import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
+import app.serene.reader.ReaderPrefs
+import app.serene.reader.Summarizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -64,6 +66,7 @@ class SereneApp : Application() {
     lateinit var engine: SereneEngine private set
     lateinit var lists: FilterLists private set
     lateinit var downloads: Downloads private set
+    lateinit var readerPrefs: ReaderPrefs private set
 
     /** Shown in settings: "loading", "ready", or an error. */
     var rulesStatus by mutableStateOf("loading")
@@ -80,6 +83,7 @@ class SereneApp : Application() {
         models = ModelManager(this, settings, scope)
         models.refresh()
         downloads = Downloads(this)
+        readerPrefs = ReaderPrefs(this)
         lists = FilterLists(File(filesDir, "lists"))
         engine = SereneEngine(
             rules = null, // heuristics only until the lists are loaded
@@ -167,4 +171,20 @@ class SereneApp : Application() {
             else -> "not loaded (loads on the first uncertain overlay)"
         }
     } ?: "not loaded (loads on the first uncertain overlay)"
+
+    private var summarizer: Summarizer? = null
+
+    /**
+     * The downloaded model for page summaries (reader/Summarizer), null until it is downloaded.
+     * Loading it unloads the overlay classifier's copy first, so one model is in memory at a time.
+     */
+    fun summarizer(): Summarizer? {
+        val file = models.readyFile() ?: return null
+        synchronized(this) {
+            val s = summarizer
+            if (s != null && s.modelFile == file) return s
+            s?.let { old -> scope.launch { old.unload() } }
+            return Summarizer(file, cacheDir, beforeLoad = { classifier?.unload() }).also { summarizer = it }
+        }
+    }
 }
