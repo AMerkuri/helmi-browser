@@ -11,20 +11,22 @@ import java.net.URL
  * parsed engine is saved next to them, so later launches skip parsing.
  */
 class FilterLists(private val dir: File) {
-    data class Source(val name: String, val url: String)
+    /** [consent]: which part of the list is cookie-banner rules (see [consentPart]). */
+    data class Source(val name: String, val url: String, val consent: String? = null)
 
     data class Status(val updatedAt: Long, val bytes: Long, val error: String? = null)
 
     // Fanboy's Annoyance List already includes the EasyList Cookie List.
     val sources = listOf(
-        Source("fanboy-annoyance.txt", "https://raw.githubusercontent.com/easylist/easylist/gh-pages/fanboy-annoyance.txt"),
-        Source("annoyances-cookies.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt"),
+        Source("fanboy-annoyance.txt", "https://raw.githubusercontent.com/easylist/easylist/gh-pages/fanboy-annoyance.txt", consent = EASYLIST_COOKIE_SECTIONS),
+        Source("annoyances-cookies.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt", consent = ALL),
         Source("annoyances-others.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-others.txt"),
     )
     // uBO scriptlets/redirect resources in the format adblock-rust's use_resources() expects.
     private val resources = Source("resources.json", "https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json")
 
     private val engineFile = File(dir, "engine.dat")
+    private val consentFile = File(dir, "consent.dat")
 
     fun status(): Status? {
         val files = (sources + resources).map { File(dir, it.name) }
@@ -40,16 +42,22 @@ class FilterLists(private val dir: File) {
         dir.mkdirs()
         var changed = false
         for (s in sources + resources) changed = fetch(s, force) or changed
-        val texts = sources.mapNotNull { File(dir, it.name).takeIf(File::exists)?.readText() }
+        val present = sources.mapNotNull { s -> File(dir, s.name).takeIf(File::exists)?.let { s to it.readText() } }
         val res = File(dir, resources.name).takeIf(File::exists)?.readText() ?: "[]"
-        if (texts.isEmpty()) return null
-        if (!changed && engineFile.exists()) {
-            RulesEngine.fromSerialized(engineFile.readBytes(), res)?.let { return it }
+        if (present.isEmpty()) return null
+        if (!changed && engineFile.exists() && consentFile.exists()) {
+            RulesEngine.fromSerialized(engineFile.readBytes(), res)?.let { engine ->
+                engine.consent = RulesEngine.fromSerialized(consentFile.readBytes(), "[]")
+                return engine
+            }
         }
         val t0 = System.nanoTime()
-        val engine = RulesEngine.fromLists(texts, res) ?: return null
-        Log.i(TAG, "parsed ${texts.size} lists in ${(System.nanoTime() - t0) / 1_000_000} ms")
+        val engine = RulesEngine.fromLists(present.map { it.second }, res) ?: return null
+        engine.consent = present.map { (s, text) -> consentPart(text, s.consent) }.filter { it.isNotEmpty() }
+            .takeIf { it.isNotEmpty() }?.let { RulesEngine.fromLists(it, "[]") }
+        Log.i(TAG, "parsed ${present.size} lists in ${(System.nanoTime() - t0) / 1_000_000} ms")
         engine.serialize()?.let { bytes -> runCatching { engineFile.writeBytes(bytes) } }
+        engine.consent?.serialize()?.let { bytes -> runCatching { consentFile.writeBytes(bytes) } }
         return engine
     }
 
@@ -81,5 +89,21 @@ class FilterLists(private val dir: File) {
     companion object {
         private const val TAG = "SereneLists"
         const val MAX_AGE_MS = 4L * 24 * 3600 * 1000
+        const val ALL = "all"
+        const val EASYLIST_COOKIE_SECTIONS = "easylist-cookie-sections"
+        private val SECTION = Regex("""^! \*\*\* easylist:(\S+) \*\*\*""")
+
+        /** The cookie-banner part of a list: all of it, the EasyList Cookie sections of a combined list, or none. */
+        fun consentPart(text: String, consent: String?): String = when (consent) {
+            ALL -> text
+            EASYLIST_COOKIE_SECTIONS -> {
+                var on = false
+                text.lineSequence().filter { line ->
+                    val m = SECTION.find(line)
+                    if (m != null) { on = m.groupValues[1].startsWith("easylist_cookie/"); false } else on
+                }.joinToString("\n")
+            }
+            else -> ""
+        }
     }
 }

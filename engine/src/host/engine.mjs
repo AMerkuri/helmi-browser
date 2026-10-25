@@ -1,16 +1,17 @@
 // Host side of the hybrid engine: what the Android app's native layer will do.
 // One PageSession per tab navigation; frames talk to it through the bridge.
-import { preDecide, verdict, DEFAULT_POLICY } from './policy.mjs';
+import { preDecide, verdict, fromModel, DEFAULT_POLICY } from './policy.mjs';
 import { siteOf } from './cache.mjs';
 
 export class SereneEngine {
   /**
    * @param rules       RulesEngine or null (LLM/heuristics only)
-   * @param classifier  object with classify(features) → {label, target, ms}, or null
+   * @param classifier  object with classify(features) → {label, confidence?, ms}, or null
    * @param cache       VerdictCache
+   * @param autoconsent AutoconsentRules or null (cookie banners the lists know are then just hidden)
    */
-  constructor({ rules = null, classifier = null, cache, policy = DEFAULT_POLICY, contentConfig = {} }) {
-    Object.assign(this, { rules, classifier, cache, policy, contentConfig });
+  constructor({ rules = null, classifier = null, cache, policy = DEFAULT_POLICY, contentConfig = {}, autoconsent = null }) {
+    Object.assign(this, { rules, classifier, cache, policy, contentConfig, autoconsent });
   }
 
   newPage(onEvent = () => {}) { return new PageSession(this, onEvent); }
@@ -23,6 +24,7 @@ class PageSession {
     this.frames = new Map();       // origin -> frame (for consent iframes)
     this.frameSummaries = new Map(); // origin -> {text, buttons}
     this.candidates = new Map();   // id -> {features, verdict}
+    this.consent = new Map();      // origin -> autoconsent progress in that frame {cmp, busy, ok}
     this.topUrl = null;
     this.exceptions = [];
   }
@@ -51,23 +53,26 @@ class PageSession {
         return;
       }
       case 'applied': return this.applied(msg);
+      case 'autoconsent': return this.autoconsentEvent(msg, frame);
       case 'log': this.emit({ type: 'log', msg: msg.msg }); return;
     }
   }
 
   hello(msg, frame) {
     if (frame.isTop) this.topUrl = msg.url;
-    const out = { type: 'init', config: this.e.contentConfig, css: '', siteRules: [] };
+    const out = { type: 'init', config: this.e.contentConfig, css: '', consentSelectors: [], siteRules: [] };
     const t0 = performance.now();
     if (this.e.rules) {
       const c = this.e.rules.cosmetic(msg.url);
       this.exceptions = c.exceptions;
       out.css = c.hideSelectors.length ? `${c.hideSelectors.join(',\n')}{display:none!important}` : '';
+      out.consentSelectors = c.consentSelectors;
       out.script = c.script;
       out.procedural = c.procedural;
       if (frame.isTop) this.generichide = c.generichide;
-      this.emit({ type: 'cosmetic', url: msg.url, hideSelectors: c.hideSelectors.length, procedural: c.procedural.length, scriptlets: !!c.script, ms: Math.round(performance.now() - t0) });
+      this.emit({ type: 'cosmetic', url: msg.url, hideSelectors: c.hideSelectors.length, consentSelectors: c.consentSelectors.length, procedural: c.procedural.length, scriptlets: !!c.script, ms: Math.round(performance.now() - t0) });
     }
+    if (this.e.autoconsent && !this.e.contentConfig.observeOnly) out.autoconsent = this.e.autoconsent.forFrame(msg.url, frame.isTop);
     if (frame.isTop) {
       out.siteRules = this.e.cache.rulesFor(msg.url);
       const cached = this.e.cache.cssFor(msg.url);
@@ -78,9 +83,9 @@ class PageSession {
 
   classIds(msg, frame) {
     // Always reply: the content script holds its first scan until this arrives.
-    const sels = this.e.rules && !this.generichide ? this.e.rules.genericSelectors(msg.classes, msg.ids, this.exceptions) : [];
-    if (sels.length) this.emit({ type: 'generic', selectors: sels });
-    frame.send({ type: 'generic', css: sels.length ? `${sels.join(',\n')}{display:none!important}` : '' });
+    const sels = this.e.rules && !this.generichide ? this.e.rules.genericSelectors(msg.classes, msg.ids, this.exceptions) : { hide: [], consent: [] };
+    if (sels.hide.length || sels.consent.length) this.emit({ type: 'generic', selectors: [...sels.hide, ...sels.consent], consent: sels.consent.length });
+    frame.send({ type: 'generic', css: sels.hide.length ? `${sels.hide.join(',\n')}{display:none!important}` : '', consentSelectors: sels.consent });
   }
 
   async candidate(msg, frame) {
@@ -103,11 +108,17 @@ class PageSession {
       }
     }
 
+    // A consent dialog in a frame where autoconsent is answering it, or already has.
+    const acOrigin = (f.iframeOrigins ?? []).find((o) => this.consent.get(o)?.busy || this.consent.get(o)?.ok);
+    if (acOrigin) {
+      const ac = await this.waitForConsent(acOrigin, 4000);
+      if (ac.ok) v = { ...verdict('content', -1, feats, 'autoconsent'), cmp: ac.cmp };
+    }
     v ??= preDecide(feats, { llmAvailable: !!this.e.classifier, policy: this.e.policy });
     if (v.needsLlm) {
       try {
         const r = await this.e.classifier.classify(feats);
-        v = { ...verdict(r.label, r.target, feats, 'llm'), llm: r };
+        v = { ...fromModel(r, feats, this.e.policy), llm: r };
       } catch (err) {
         v = { ...verdict('content', -1, feats, 'llm-error'), error: err.message };
       }
@@ -118,7 +129,7 @@ class PageSession {
     this.emit({ type: 'candidate', ...rec });
     frame.send({ type: 'verdict', id: msg.id, action: v.action, target: v.target, buttonLabel: v.buttonLabel, inFrame: v.inFrame, source: v.source });
     // Cache decisions that hold for the site; a user-gesture "content" is about that moment only.
-    if (frame.isTop && v.source !== 'user-gesture' && v.source !== 'backdrop' && v.source !== 'llm-error') {
+    if (frame.isTop && !['user-gesture', 'backdrop', 'llm-error', 'autoconsent'].includes(v.source)) {
       this.e.cache.put(this.topUrl || f.url, { sig: f.sig, label: v.label, action: v.action, buttonLabel: v.buttonLabel, source: v.source });
     }
   }
@@ -129,6 +140,25 @@ class PageSession {
     // The click did not dismiss it: next time, hide straight away.
     if (rec && msg.fallback === 'hide' && rec.verdict?.source !== 'cache') {
       this.e.cache.put(this.topUrl, { sig: rec.features.sig, label: rec.verdict.label, action: 'hide', source: rec.verdict.source });
+    }
+  }
+
+  /** Autoconsent progress from a frame: found a CMP popup, opted out (or failed), finished. */
+  autoconsentEvent(msg, frame) {
+    const origin = msg.origin;
+    const s = this.consent.get(origin) ?? { cmp: msg.cmp, busy: false, ok: null };
+    if (msg.event === 'popupFound') Object.assign(s, { cmp: msg.cmp, busy: true });
+    if (msg.event === 'optOutResult') Object.assign(s, { busy: false, ok: !!msg.result });
+    if (msg.event === 'autoconsentDone') Object.assign(s, { busy: false, ok: s.ok ?? true, cosmetic: !!msg.isCosmetic });
+    this.consent.set(origin, s);
+    this.emit({ type: 'autoconsent', ...msg, isTop: frame.isTop });
+  }
+
+  async waitForConsent(origin, ms) {
+    for (const end = performance.now() + ms; ; ) {
+      const s = this.consent.get(origin);
+      if (!s?.busy || performance.now() > end) return s ?? {};
+      await new Promise((r) => setTimeout(r, 100));
     }
   }
 

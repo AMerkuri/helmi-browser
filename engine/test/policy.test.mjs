@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { actionFor, isSafeTarget, preDecide, looksLikeChrome } from '../src/host/policy.mjs';
-import { buildPrompt, parseReply } from '../src/host/classifier.mjs';
+import { actionFor, isSafeTarget, preDecide, looksLikeChrome, fromModel } from '../src/host/policy.mjs';
+import { buildPrompt, parseReply, scoreLabels } from '../src/host/classifier.mjs';
 import { VerdictCache, siteOf } from '../src/host/cache.mjs';
 
 const base = { sig: 'div.x', tag: 'div', role: '', ariaModal: false, tokens: '', text: 'We use cookies', textLen: 14, buttons: ['Accept all', 'Reject all'], hasEmail: false, hasPassword: false, hasVideo: false, iframeOrigins: [], coverage: 0.2, edge: 'bottom', scrollLocked: false, userInitiated: false, isBackdrop: false, looksLikeLayout: false };
@@ -63,10 +63,30 @@ test('prompt stays compact and replies are validated', () => {
   const p = buildPrompt({ ...base, text: 'x'.repeat(1000) });
   assert.ok(p.length < 600, `prompt is ${p.length} chars`);
   assert.match(p, /\[1\] Reject all/);
-  assert.deepEqual(parseReply('{"label":"newsletter","target":1}', 2), { label: 'newsletter', target: 1 });
-  assert.deepEqual(parseReply('<think></think>{"label":"survey","target":9}', 2), { label: 'survey', target: -1 });
-  assert.equal(parseReply('{"label":"banana","target":0}', 2), null);
-  assert.equal(parseReply('nope', 2), null);
+  assert.deepEqual(parseReply('{"label":"newsletter"}'), { label: 'newsletter' });
+  assert.deepEqual(parseReply('<think></think>{"label":"survey","target":9}'), { label: 'survey' });
+  assert.equal(parseReply('{"label":"banana"}'), null);
+  assert.equal(parseReply('nope'), null);
+});
+
+test('model verdicts: the policy picks the button, unsure annoyance labels are left alone', () => {
+  const v = fromModel({ label: 'cookie_consent', confidence: 0.97 }, base);
+  assert.equal(v.action, 'click');
+  assert.equal(v.buttonLabel, 'Reject all');
+  assert.equal(fromModel({ label: 'cookie_consent', confidence: 0.5 }, base).action, 'ignore');
+  assert.equal(fromModel({ label: 'cookie_consent', confidence: 0.5 }, base).source, 'llm-unsure');
+  assert.equal(fromModel({ label: 'cookie_consent' }, base).action, 'click', 'generate mode has no confidence');
+  assert.equal(fromModel({ label: 'content', confidence: 0.3 }, base).action, 'ignore');
+});
+
+test('single-pass label scores are a softmax over the labels', () => {
+  const r = scoreLabels({ cookie_consent: 2, newsletter: 0, content: 0 });
+  assert.equal(r.label, 'cookie_consent');
+  assert.ok(Math.abs(r.confidence - Math.exp(2) / (Math.exp(2) + 2)) < 1e-9);
+  assert.ok(Math.abs(Object.values(r.scores).reduce((a, b) => a + b, 0) - 1) < 1e-9);
+  // The vocabulary's other tokens weigh as much as the labels together: half the mass is off-label.
+  const w = 1 + 2 * Math.exp(-2); // sum of exp(logit - max) over the labels, max = 2
+  assert.ok(Math.abs(scoreLabels({ cookie_consent: 2, newsletter: 0, content: 0 }, { total: 2 * w, max: 2 }).offLabel - 0.5) < 1e-9);
 });
 
 test('cache keys by registrable domain and emits CSS for hide verdicts', () => {

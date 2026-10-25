@@ -1,15 +1,16 @@
 # Serene: hybrid engine prototype
 
-Status: prototype, tested on real sites · 2026-10-24 · Step 2 of 4. Code in [`engine/`](../engine). Builds on [decisions.md](decisions.md).
+Status: prototype, tested on real sites · 2026-10-24 (updated the same day: autoconsent and single-pass label scoring) · Step 2 of 4. Code in [`engine/`](../engine). Builds on [decisions.md](decisions.md).
 
 ## Summary
 
 - The engine runs in four layers: network rules, then cosmetic rules, then an overlay detector with heuristics, then the LLM for the uncertain cases. Every decision is cached per site.
 - The DOM side is one content script, [`engine/src/content/serene.js`](../engine/src/content/serene.js). It is written against the same `SereneBridge` object that `addWebMessageListener` gives us, so it goes into the app unchanged.
 - The host side (rules, policy, cache, prompt) is plain JS in [`engine/src/host/`](../engine/src/host). It has no DOM code, so it ports straight to Kotlin in step 3.
-- **Tested:** 16 end-to-end fixture tests in Chromium with a Pixel 7 viewport, plus 8 unit tests, all passing. The rules engine builds in about 60 ms, and lookups cost about 0.2 ms per page and about 2 µs per request.
+- **Tested:** 18 end-to-end fixture tests in Chromium with a Pixel 7 viewport, plus 10 unit tests, all passing. The rules engine builds in about 60 ms, and lookups cost about 0.2 ms per page and about 2 µs per request.
 - **Real sites (29 reachable of 30):** 13 sites had something on screen in a plain browser (a consent wall, a login wall, a locked page). The full engine cleared 11 of them, broke none, and hid nothing on the 3 control sites. Filter lists and heuristics did almost all of it: the model was asked 4 times in 58 page loads. See [Real sites](#real-sites-2026-10-24).
-- **Real model:** Qwen3-0.6B labels 48 of 57 overlays correctly (84%), or 54 of 57 (95%) once site headers are kept away from it, as the engine now does. About 650 ms per call on 4 x86 cores without a GPU.
+- **Real model:** Qwen3-0.6B now scores all nine labels in one forward pass instead of writing a JSON answer. That takes 231 ms per call instead of 733 ms on 4 x86 cores without a GPU, and it gives a probability per label. With the header guard and a new confidence floor, 55 of 57 overlays come out right (96%, up from 95%). See [Single-pass label scoring](#single-pass-label-scoring).
+- **Cookie banners get a real "reject" in any language** when DuckDuckGo's autoconsent rules know the consent tool: they press the tool's own reject control by its id, not by its text. Banners the filter lists match are parked (invisible but still there) while autoconsent works, and hidden after. See [What each layer does](#what-each-layer-does) and [the third crawl](#autoconsent-on-real-sites-third-crawl).
 - The first real-site run found five bugs that the fixtures missed, all fixed here (see [What the first crawl found](#what-the-first-crawl-found)).
 
 ## Flow
@@ -19,18 +20,23 @@ navigation
   │ request ──► adblock-rust network check ──► block (CMP / annoyance scripts)
   │
   ├─ document start: content script ──hello──► host: cosmetic(url) + cached site verdicts
-  │                                   ◄─init── hide CSS, scriptlets, procedural filters, site rules
+  │                                   ◄─init── hide CSS, consent selectors, scriptlets, procedural
+  │                                            filters, site rules, autoconsent rules for this frame
+  ├─ autoconsent (every frame): finds a known consent tool → presses its reject → reports back;
+  │      list-matched cookie banners stay parked (opacity 0, click-through) until it is done
   ├─ DOMContentLoaded: class/id tokens ─────► host: generic hide selectors (##.cookie-banner)
   │                                   ◄─generic─ (first scan waits for this reply, max 500 ms)
   └─ scan (load, +0.8/2/4/7/11 s, and 250 ms after DOM mutations)
         elementsFromPoint on an 18-point grid → outermost fixed/sticky ancestor = candidate
+        (skipped while autoconsent is answering a popup in this frame, max 5 s)
         cached verdict for its signature? → act locally, no round trip
         features + heuristic score ──candidate──► host policy:
             user tapped < 1.5 s ago            → ignore (user-opened menu or dialog)
             thin bar at the top (header/nav)   → ignore, unless cookie wording or a strong score
             heuristic ≥ 0.85                   → act on the heuristic label
             heuristic < 0.25 / page chrome     → ignore
-            in between, or modal-shaped with no keyword hit → LLM
+            in between, or modal-shaped with no keyword hit → LLM (label scores, one pass)
+            LLM's annoyance label below 0.6 confidence → ignore
         ◄─verdict── click (decline/close button) | hide | ignore
         verdict cached as (eTLD+1, selector signature)
 ```
@@ -39,18 +45,23 @@ navigation
 
 **Rules.** The lists are Fanboy's Annoyance List (which already includes the EasyList Cookie List), uBO Cookie Notices and uBO Other Annoyances: about 65k lines, 3.1 MB serialized. Brave's `adblock-rs` binds the same adblock-rust crate we will ship over JNI. The content script applies hide CSS, uBO scriptlets, and a subset of procedural filters (`has-text`, `upward`, `min-text-length`, `matches-css`, plus `remove`/`style` actions). The first detector scan waits for the generic class/id rules. Without that wait, the detector raced the lists for banners the lists already cover (the `cookie-onetrust` fixture caught this).
 
+**Autoconsent.** [DuckDuckGo's autoconsent](https://github.com/duckduckgo/autoconsent) (MPL-2.0, the library DuckDuckGo's own browsers use) knows a few hundred consent tools: OneTrust, Sourcepoint, Didomi, Quantcast, Usercentrics, TrustArc, Cookiebot and many site-specific ones. For each it knows how to tell that a popup is showing and which controls make up an opt-out, by element id or structure, not by button text. That is what makes it work in Greek, Hungarian, Arabic or any other language our decline word list lacks. [`autoconsent-entry.js`](../engine/src/content/autoconsent-entry.js) is bundled into `dist/autoconsent.js` (93 KB, `npm run build`) and injected before `serene.js` in every frame. The host ([`autoconsent.mjs`](../engine/src/host/autoconsent.mjs)) sends each frame the rules that can run on its URL (about 160 KB of JSON for a top frame, mostly generic rules; a few KB for an iframe) in the init reply, with `autoAction: 'optOut'`, so it never opts in. In a WebView the document-start script runs in the page's main world, so autoconsent's eval snippets run inline. Two things keep it and the rest of the engine out of each other's way:
+- *Parking.* Autoconsent only acts on a popup it can see, and `display: none` from the lists would hide it from those checks. So the rules engine now has a second, small adblock engine with just the cookie rules (uBO Cookie Notices plus the EasyList Cookie sections of Fanboy's list), which marks which hide selectors are cookie banners. Those get `opacity: 0; pointer-events: none` instead: invisible and click-through, but still laid out. When autoconsent finishes with the frame (or after 10 s) they switch to `display: none`.
+- *Holding the detector.* While autoconsent is answering a popup in the top frame (from "popup found" to its opt-out result, at most 5 s), the detector does not scan, then scans again. For a consent dialog in an iframe, the host waits for that frame's autoconsent result and leaves the overlay alone if it succeeded.
+
 **Detector.** It does not walk the whole DOM. It samples 18 viewport points with `elementsFromPoint` and climbs to the outermost `position: fixed|sticky` ancestor, plus `dialog[open]` and `[aria-modal]`. Anything that covers the reader's view shows up at one of those points. On the fixtures a scan costs under 5 ms; real-page cost is a step 4 measurement. The detector reads open shadow roots, and it reads cross-origin CMP iframes through that frame's own copy of the script (`frameSummary`), which can then click inside the frame. The frame also runs the keyword heuristics on its own text, so a consent dialog in an iframe no longer needs the model.
 
 **Features** sent to the host: about 300 characters of text, up to 8 button labels in order, role/aria, id/class tokens, iframe origins, coverage, screen edge, z-index, scroll lock, email/password/video inputs, a "looks like page layout" flag, and whether the user just tapped. The prompt is under 600 characters, about 100–200 tokens plus the cached system prompt.
 
 **Heuristics.** Keyword sets per label (cookie wording in about 15 languages), a structure score (coverage, scroll lock, `aria-modal`, z-index, a few buttons), and penalties for headers, navigation, video and big text blocks. Clear cases never reach the model. In the rules-only run, 9 of the 11 overlay fixtures were handled without it.
 
-**LLM.** Qwen3-0.6B, zero-shot, with thinking suppressed (an empty `<think>` block plus `/no_think`). The output is constrained by a JSON-schema grammar to `{"label": <one of 9>, "target": -1..7}`, so the reply cannot be malformed. Calls are serialized and reuse the system-prompt KV cache. In the harness it runs on llama.cpp (`node-llama-cpp`, GGUF Q8_0); on the phone it runs on LiteRT-LM with the `.litertlm` build. The prompt and the output contract are the same in both.
+**LLM.** Qwen3-0.6B, zero-shot, with thinking suppressed (an empty `<think>` block). It does not write an answer any more. The engine prefills the prompt plus the start of the answer, `{"label": "`, and reads the model's next-token logits for the first token of each of the nine labels. All nine first tokens differ (`cookie`, `newsletter`, `notification`, `pay`, `app`, `login`, `chat`, `survey`, `content`; checked at load), so that one forward pass decides the label. A softmax over those nine logits gives a probability per label, and the policy uses it (see below). The model no longer picks a button: the policy's decline list always did that in practice. The old grammar-constrained JSON mode is still there (`--mode generate`) for comparison. Calls are serialized and reuse the system-prompt KV cache. In the harness it runs on llama.cpp (`node-llama-cpp`, GGUF Q8_0); on the phone it runs on LiteRT-LM with the `.litertlm` build. The prompt and the output contract are the same in both.
 
 **Policy (safety rules)** in [`policy.mjs`](../engine/src/host/policy.mjs):
 - We only ever click a button that declines or closes. If the model picks "Accept", "Allow", "Subscribe", "Sign in" or "Open in app", the policy looks for a decline button itself and hides the overlay if there is none. "Continue without accepting" counts as a decline.
 - Paywall teasers and login walls are always hidden, never clicked. Only the overlay goes; inline paywalls are not touched.
 - Overlays that appear within 1.5 s of a user tap are left alone, and that decision is not cached.
+- If the model's top label is an annoyance but its probability is under 0.6, the overlay is left alone (`llm-unsure`). On the eval set every correct annoyance label scored 0.82 or more, and most wrong ones (a header, an audio player or a sticky nav read as an app banner or a wall) scored 0.56 or less.
 - Thin bars at the top edge are page chrome: under 15% of the screen, plus a `<header>`/`<nav>` tag, a header/nav class, or under 60 characters of text. They never go to the model. On one that is not tagged as a header, only cookie wording or a very strong heuristic score leads to an action.
 - "Reject and subscribe" buttons on pay-or-consent walls are not declines.
 - After a click, if the overlay is still there 900 ms later, it is hidden instead, and the cache is updated to `hide`.
@@ -67,6 +78,7 @@ Hand-written pages that imitate common patterns. They are not copies of real sit
 | Fixture | Handled by | Outcome |
 |---|---|---|
 | OneTrust-style bottom banner | rules (generic `#onetrust-banner-sdk`) | hidden before the detector sees it |
+| OneTrust banner in Greek, with OneTrust's own button ids | autoconsent | clicked "Απόρριψη όλων" (reject all); without autoconsent the lists only hide it (tested both ways) |
 | custom cookie bar (unknown class) | heuristics | clicked "Reject all" |
 | German consent modal + backdrop + scroll lock | heuristics | clicked "Nur notwendige Cookies", backdrop gone, scrolling restored |
 | consent in a cross-origin iframe | heuristics (on the frame's own text) | clicked "Reject" inside the iframe |
@@ -121,6 +133,22 @@ The first crawl ran the PR #2 code unchanged. It found five bugs, all fixed in t
 
 The eval set also had the Japanese and German fixture texts double-encoded (UTF-8 read as Windows-1252). The Japanese "unknown language" case was unreadable to the model, and is now fixed.
 
+### Autoconsent on real sites (third crawl)
+
+The same 30 sites, same container (US address), twice: with autoconsent and without it. Reports: [with](results/2026-10-24/crawl-3-autoconsent-on.md), [without](results/2026-10-24/crawl-3-autoconsent-off.md).
+
+| Site | Without autoconsent | With autoconsent |
+|---|---|---|
+| The Guardian | US notice closed by the detector ("Closer") | Sourcepoint answered in its iframe: a real opt-out, nothing for the detector to do |
+| nu.nl | DPG Media consent wall hidden by the lists | DPG Media rule opted out |
+| Spiegel | pay-or-consent wall hidden by the heuristics | hidden by autoconsent's Sourcepoint rule; it correctly does not reject, because rejecting there means paying |
+| Healthline | nothing to do | **wrong:** its `healthline-media` rule found no modal but still clicked the first header button, which opened the site menu. That rule is now disabled; rechecked twice, the page stays clean |
+| the other 25 | same result both ways | same result both ways |
+
+- Nothing else changed: the same residual overlays (Gymshark's top promo bar, the Pinterest wall that the crawl's heuristics over-count), no new false positives on the control sites, and 4 model calls in 58 loads both ways.
+- The surprise: on most sites with a big consent tool, OneTrust on Stack Overflow and Gymshark for example, autoconsent never saw a banner. The filter lists block the consent tool's script (`cookielaw.org`, `otSDKStub`) at the network level, so no banner and no consent prompt is ever shown. No consent is given, but no "reject" is recorded either. Whether to let those scripts load so that autoconsent can answer them is a step 4 question, best measured from an EU address, where GDPR banners carry the reject buttons this is about.
+- weather.com's first action varied between 4.2 and 11.4 s across runs with and without autoconsent; that is the page, not the engine.
+
 ### Model accuracy
 
 [`test/llm-eval.mjs`](../engine/test/llm-eval.mjs) on 57 labelled records: the 30-record seed set plus 27 overlays from the crawl, labelled by hand. Log: [llm-eval.txt](results/2026-10-24/llm-eval.txt).
@@ -139,17 +167,46 @@ The eval set also had the Japanese and German fixture texts double-encoded (UTF-
 - The model's `target` (which button to press) is close to useless. It picked an "accept" or "subscribe" button 16 times. The policy overrules those every time, and it only clicks buttons that match its own decline list. So in practice the button choice comes from the regex, not the model. Dropping `target` from the output, or asking the model only to rank decline candidates, is a step 4 option.
 - 650 ms on a desktop CPU means little for phones. LiteRT-LM on a phone NPU/GPU is the number that matters (step 4). Even on a desktop CPU, though, the call takes long enough that the overlay is visibly on screen meanwhile. Quarantining (hiding while deciding) already covers scores ≥ 0.6.
 
+### Single-pass label scoring
+
+Same 57 records, same machine (4 x86 cores, no GPU), same prompt. Logs: [scoring](results/2026-10-24/llm-eval-scoring.txt), [generate](results/2026-10-24/llm-eval-generate.txt).
+
+| | Generate JSON (before) | Score labels in one pass (now) |
+|---|---|---|
+| Label accuracy | 84% (48/57) | 82% (47/57) |
+| With the header guard | 95% (54/57) | 93% (53/57) |
+| With the guard and the 0.6 confidence floor | n/a | **96% (55/57)** |
+| Median latency | 733 ms | **231 ms** |
+| p95 latency | 901 ms | 390 ms |
+| Invalid replies | 0 | 0 (cannot happen) |
+
+| Confidence | Records | Correct |
+|---|---|---|
+| 0.9–1.0 | 41 | 93% |
+| 0.7–0.9 | 6 | 83% |
+| 0.5–0.7 | 7 | 43% |
+| under 0.5 | 3 | 33% |
+
+- The speed-up is the decode step going away. The cost is now one prefill of about 300 tokens, most of it the cached system prompt.
+- Raw accuracy is one record lower: the audio-player record flips to "app install" at p = 0.50. The confidence floor turns that and four other low-confidence mistakes (a header, the article that mentions cookies, the Reddit and Healthline bars) into "leave alone". The two errors left are the Pinterest wall read as a cookie wall (p = 0.53, now left alone instead of hidden as the wrong kind) and Medium's sidebar read as an app banner at p = 0.99.
+- The floor of 0.6 comes from 57 records. It looks like a clean gap (correct annoyance labels ≥ 0.82, most mistakes ≤ 0.56), but it should be rechecked on a larger set.
+- The prompt still asks for a `target` button. Nothing reads it any more, but deleting that line from the prompt cost 5 points in generate mode (84% → 79%) and 5 in scoring mode (82% → 77%), so it stays.
+- The confidence numbers are only partly calibrated: the 0.9–1.0 group is right 93% of the time, and the misses there are site headers at p = 1.00, which the header guard already handles.
+
 ## Running
 
 ```sh
 cd engine
 npm install                 # builds adblock-rust (needs Rust); Node ≥ 22
 npx playwright install chromium
+npm run build               # dist/autoconsent.js (npm test runs it first)
 npm test                    # fixtures + unit tests (about 1 minute)
 npm run model               # Qwen3-0.6B Q8_0 GGUF, ~640 MB, from huggingface.co
 npm run llm-eval            # model accuracy + latency on test/data/labeled-features.jsonl
+npm run llm-eval -- --mode generate   # the older grammar-constrained JSON mode, for comparison
 npm run crawl               # 30 real sites → results/<time>/report.md + shots/
 npm run crawl -- --only bbc,spiegel --headed
+npm run crawl -- --no-autoconsent
 ```
 
 The crawl needs normal web access and huggingface.co, so it needs a full-network environment or a local machine. A run takes about 25 minutes. Set `SERENE_DEBUG=1` to log every host-to-page message. Which overlays appear depends on the visitor's country (GDPR banners show up for EU IPs), so record where the crawl ran.
@@ -165,13 +222,17 @@ Done in [android/](../android); its README maps each piece below to the Kotlin f
 | `context.route` | `WebViewClient.shouldInterceptRequest` → `RulesEngine.shouldBlock` |
 | `rules.mjs` (adblock-rs) | adblock-rust via JNI (`cargo-ndk`); same calls |
 | `policy.mjs`, `cache.mjs`, `classifier.mjs` prompt/parse | Kotlin, same logic; cache in Room or DataStore |
-| `LlamaClassifier` (llama.cpp) | LiteRT-LM `Engine`/`Session` with constrained decoding; same prompt and schema |
+| `dist/autoconsent.js` + `serene.js` | one document-start script, autoconsent first (`Tab.contentScript`). `npm run build` also writes `dist/autoconsent-rules.json` (autoconsent's compact rules, 16.61.0) and `dist/autoconsent-config.json`; the app packages `dist/` as assets and [`AutoconsentRules.kt`](../android/app/src/main/kotlin/app/serene/engine/AutoconsentRules.kt) ports `filterCompactRules`. The rules are a snapshot from the build: refreshing them at runtime like the filter lists is a later step |
+| `RulesEngine` consent engine | `RulesEngine.consent`: a second adblock-rust engine from `FilterLists.consentPart`, saved next to the main one as `consent.dat` |
+| `LlamaClassifier` single-pass scoring (llama.cpp logits) | not ported yet. LiteRT-LM's C++ and C APIs have text scoring: `Session::RunTextScoring` / `litert_lm_session_run_text_scoring`, after `RunPrefill`, scores a list of candidate texts in one batched pass and returns their log-likelihoods. Score the nine label strings after the prompt and `{"label": "`. The Kotlin API (0.18.1) does not expose it, so it needs a small JNI shim over the C API. Until then the app keeps JSON-constrained decoding, which gives no confidence, so `Policy.fromModel` acts on the label as before |
 
 ## Known gaps
 
 - **Unmeasured:** on-device latency and battery (step 4 on phones), and the crawl from an EU address. The real-site numbers above come from 29 sites and one US location. That is enough to find bugs, but too few to tune thresholds on.
-- Decline buttons are matched by a word list in about 20 languages, now including Japanese, Chinese, Korean, Russian, Turkish and the Nordic languages. A decline button in any other language cannot be clicked, so the overlay is hidden instead. That is the safe fallback, but it leaves the consent undecided.
-- The model's button choice (`target`) is not used in practice (see [Model accuracy](#model-accuracy)).
+- Decline buttons are matched by a word list in about 20 languages, now including Japanese, Chinese, Korean, Russian, Turkish and the Nordic languages. Consent tools that autoconsent knows are answered in any language. For anything else, a decline button in another language cannot be clicked, so the overlay is hidden instead. That is the safe fallback, but it leaves the consent undecided.
+- The filter lists block some consent tools' scripts outright, so autoconsent never gets a banner to answer (see [the third crawl](#autoconsent-on-real-sites-third-crawl)).
+- Autoconsent rules can be wrong for a region (the Healthline rule clicked a menu button from a US address). Disabled rules go in `AUTOCONSENT_CONFIG.disabledCmps`; an EU crawl would show more.
+- Autoconsent adds about 160 KB of rules to each top-frame init reply in the prototype (see the porting table for how the app avoids that).
 - An overlay can be on screen for 1.6–4.6 s before the engine acts on it, unless the lists cover it. Scanning sooner, or quarantining more eagerly, is a step 4 item.
 - The crawl's "annoyances" count comes from the detector's own heuristics. It over-counts headers that contain "Log in Sign up" (Pinterest), so check the screenshots.
 - Scriptlets are applied after the host replies (async), not strictly before page scripts. That matches what WebView allows without rewriting HTML responses. Some uBO scriptlets lose races because of it.

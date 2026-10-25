@@ -243,9 +243,13 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         val documentStartSupported: Boolean
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
 
-        /** engine/src/content/serene.js, packaged as an asset. */
-        fun contentScript(context: Context): String =
-            script ?: context.assets.open("serene.js").bufferedReader().use { it.readText() }.also { script = it }
+        /**
+         * engine/dist/autoconsent.js, then engine/src/content/serene.js, both packaged as assets.
+         * One script, so autoconsent is defined before serene.js starts it.
+         */
+        fun contentScript(context: Context): String = script ?: listOf("autoconsent.js", "serene.js")
+            .joinToString("\n") { name -> context.assets.open(name).bufferedReader().use { it.readText() } }
+            .also { script = it }
 
         private fun EMPTY_RESPONSE() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
     }

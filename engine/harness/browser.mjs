@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import { chromium, devices } from 'playwright';
 
 const CONTENT_JS = fs.readFileSync(new URL('../src/content/serene.js', import.meta.url), 'utf8');
+// Built by `npm run build`; serene.js starts it when the host's init reply carries rules.
+const AUTOCONSENT_JS = fs.readFileSync(new URL('../dist/autoconsent.js', import.meta.url), 'utf8');
 const SHIM = `
   window.SereneBridge = { postMessage: (s) => window.__sereneHost(s), onmessage: null };
   window.__sereneDeliver = (s) => { const b = window.SereneBridge; if (b && b.onmessage) b.onmessage({ data: s }); };
@@ -43,7 +45,7 @@ export async function newContext(browser, { engine = null, onEvent = () => {}, l
     if (msg.type === 'hello' && isTop) sessions.set(source.page, engine.newPage(onEvent));
     await sessionFor(source.page).onMessage(msg, frameCtx(source.frame));
   });
-  await context.addInitScript({ content: SHIM + CONTENT_JS });
+  await context.addInitScript({ content: SHIM + AUTOCONSENT_JS + '\n' + CONTENT_JS });
 
   if (engine.rules) {
     await context.route('**/*', (route) => {

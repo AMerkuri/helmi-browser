@@ -4,10 +4,12 @@ The hybrid annoyance engine: filter lists → overlay detector + heuristics → 
 
 ```
 src/content/serene.js   content script (document start, every frame): rules CSS, detector, features, actions
+src/content/autoconsent-entry.js  entry for dist/autoconsent.js (npm run build): DuckDuckGo autoconsent, injected before serene.js
 src/host/rules.mjs      adblock-rust (Brave) network + cosmetic rules
 src/host/lists.mjs      filter list download/refresh
 src/host/policy.mjs     cache → heuristics → LLM routing, safe-click rules
-src/host/classifier.mjs prompt, output schema, llama.cpp backend for Qwen3-0.6B
+src/host/classifier.mjs prompt, single-pass label scoring (or grammar-constrained JSON), llama.cpp backend for Qwen3-0.6B
+src/host/autoconsent.mjs autoconsent rules + config for each frame
 src/host/cache.mjs      per-site verdict cache (eTLD+1 + selector signature)
 src/host/engine.mjs     host session per page (what the app's native side will do)
 harness/browser.mjs     Playwright stand-in for the WebView hooks
@@ -17,6 +19,7 @@ test/                   fixture e2e tests, unit tests, model eval + labelled see
 
 ```sh
 npm install && npx playwright install chromium
+npm run build            # dist/: autoconsent.js + its rules and config, also packaged by the app (npm test runs it first)
 npm test
 npm run model && npm run llm-eval
 npm run crawl            # or: npm run crawl:no-model

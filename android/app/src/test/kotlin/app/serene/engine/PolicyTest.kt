@@ -52,6 +52,16 @@ class PolicyTest {
         assertFalse(Policy.looksLikeChrome(bar.copy(edge = "bottom")))
     }
 
+    @Test fun modelVerdictsPolicyPicksTheButtonUnsureLabelsAreLeftAlone() {
+        val v = Policy.fromModel("cookie_consent", 0.97, base)
+        assertEquals("click", v.action)
+        assertEquals("Reject all", v.buttonLabel)
+        assertEquals("ignore", Policy.fromModel("cookie_consent", 0.5, base).action)
+        assertEquals("llm-unsure", Policy.fromModel("cookie_consent", 0.5, base).source)
+        assertEquals("generate mode has no confidence", "click", Policy.fromModel("cookie_consent", null, base).action)
+        assertEquals("ignore", Policy.fromModel("content", 0.3, base).action)
+    }
+
     @Test fun paywallAndLoginAreHiddenNeverClicked() {
         assertEquals("hide", Policy.actionFor("paywall_teaser", 0, base.copy(buttons = listOf("Close"))).action)
         assertEquals("hide", Policy.actionFor("login_wall", 0, base.copy(buttons = listOf("Close"))).action)

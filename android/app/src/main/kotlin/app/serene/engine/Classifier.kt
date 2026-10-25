@@ -27,9 +27,11 @@ data class ClassifierResult(
     val raw: String = "",
     val invalid: Boolean = false,
     val backend: String = "",
+    /** Probability of [label] when the backend scores labels (the prototype's llama.cpp mode); null here. */
+    val confidence: Double? = null,
 )
 
-/** Features in, label + button index out. */
+/** Features in, label out (the button is the policy's call). */
 interface Classifier {
     suspend fun classify(f: Features): ClassifierResult
 }

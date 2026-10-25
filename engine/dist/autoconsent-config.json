@@ -1,0 +1,24 @@
+{
+ "enabled": true,
+ "autoAction": "optOut",
+ "disabledCmps": [
+  "healthline-media"
+ ],
+ "enablePrehide": true,
+ "enableCosmeticRules": true,
+ "enableGeneratedRules": true,
+ "enableHeuristicDetection": false,
+ "enablePopupMutationObserver": false,
+ "detectRetries": 20,
+ "prehideTimeout": 2000,
+ "visualTest": false,
+ "logs": {
+  "lifecycle": false,
+  "rulesteps": false,
+  "detectionsteps": false,
+  "evals": false,
+  "errors": false,
+  "messages": false,
+  "waits": false
+ }
+}

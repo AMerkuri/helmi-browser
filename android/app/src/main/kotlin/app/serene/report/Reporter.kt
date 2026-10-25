@@ -84,6 +84,7 @@ object Reporter {
                 put("model", app.models.state.toString())
                 put("modelId", app.settings.modelId)
                 put("blockedRequests", session?.blockedRequests?.get() ?: 0)
+                put("consentRejected", JsonArray((session?.consentRejected() ?: emptyList()).map(::JsonPrimitive)))
                 put("snapshot", snapshot)
                 put("candidates", EngineJson.encodeToJsonElement(ListSerializer(CandidateRecord.serializer()), session?.candidates() ?: emptyList()))
                 put("log", JsonArray((session?.log() ?: emptyList()).map(::JsonPrimitive)))

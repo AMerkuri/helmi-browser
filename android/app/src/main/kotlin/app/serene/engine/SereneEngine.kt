@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -39,6 +40,8 @@ class SereneEngine(
     /** Serene off globally or for this site (eTLD+1): detect only, never act. */
     private val siteEnabled: (String) -> Boolean,
     val policy: PolicyConfig = PolicyConfig(),
+    /** Cookie banners the lists know are then just hidden when this is null. */
+    @Volatile var autoconsent: AutoconsentRules? = null,
 ) {
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -68,6 +71,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     private val frameSummaries = ConcurrentHashMap<String, Features>()       // origin -> {text, buttons, heuristic}
     private val records = ConcurrentHashMap<Int, CandidateRecord>()
     private val logLines = CopyOnWriteArrayList<String>()
+    private val consent = ConcurrentHashMap<String, Consent>()               // origin -> autoconsent progress in that frame
     private var exceptions: List<String> = emptyList()
     private var generichide = false
 
@@ -132,6 +136,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
                 }.toString())
             }
             "applied" -> applied(msg)
+            "autoconsent" -> autoconsentEvent(msg, frame)
             "log" -> log("page: ${msg.str("msg")}")
         }
     }
@@ -154,10 +159,12 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
                 exceptions = c.exceptions
                 if (frame.isTop) generichide = c.generichide
                 if (c.hideSelectors.isNotEmpty()) css = c.hideSelectors.joinToString(",\n") + "{display:none!important}"
+                put("consentSelectors", JsonArray(c.consentSelectors.map(::JsonPrimitive)))
                 put("script", c.script)
                 put("procedural", JsonArray(c.procedural))
-                if (frame.isTop) log("cosmetic: ${c.hideSelectors.size} hide, ${c.procedural.size} procedural, scriptlets=${c.script.isNotEmpty()}, ${(System.nanoTime() - t0) / 1_000_000} ms")
+                if (frame.isTop) log("cosmetic: ${c.hideSelectors.size} hide, ${c.consentSelectors.size} consent, ${c.procedural.size} procedural, scriptlets=${c.script.isNotEmpty()}, ${(System.nanoTime() - t0) / 1_000_000} ms")
             }
+            if (enabled) e.autoconsent?.let { put("autoconsent", it.forFrame(url, frame.isTop)) }
             if (enabled && frame.isTop) {
                 put("siteRules", EngineJson.encodeToJsonElement(ListSerializer(SiteRule.serializer()), e.cache.rulesFor(url)))
                 val cached = e.cache.cssFor(url)
@@ -173,11 +180,12 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         val rules = e.rules
         val sels = if (enabled && rules != null && !generichide) {
             rules.genericSelectors(msg.strings("classes"), msg.strings("ids"), exceptions)
-        } else emptyList()
-        if (sels.isNotEmpty()) log("generic: ${sels.size} selectors")
+        } else RulesEngine.Generic(emptyList(), emptyList())
+        if (sels.hide.isNotEmpty() || sels.consent.isNotEmpty()) log("generic: ${sels.hide.size} selectors, ${sels.consent.size} consent")
         frame.send(buildJsonObject {
             put("type", "generic")
-            put("css", if (sels.isNotEmpty()) sels.joinToString(",\n") + "{display:none!important}" else "")
+            put("css", if (sels.hide.isNotEmpty()) sels.hide.joinToString(",\n") + "{display:none!important}" else "")
+            put("consentSelectors", JsonArray(sels.consent.map(::JsonPrimitive)))
         }.toString())
     }
 
@@ -210,15 +218,24 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             }
         }
 
+        // A consent dialog in a frame where autoconsent is answering it, or already has.
+        var v: Verdict? = null
+        val acOrigin = f.iframeOrigins.firstOrNull { consent[it]?.let { c -> c.busy || c.ok == true } == true }
+        if (acOrigin != null) {
+            val ac = waitForConsent(acOrigin, 4000)
+            if (ac?.ok == true) v = Policy.verdict("content", -1, feats, "autoconsent")
+        }
+
         val classifier = e.classifierNow()
-        var v = Policy.preDecide(feats, llmAvailable = classifier != null, p = e.policy)
+        v = v ?: Policy.preDecide(feats, llmAvailable = classifier != null, p = e.policy)
         var llmMs: Long? = null
         if (v.needsLlm && classifier != null) {
             v = try {
                 val r = classifier.classify(feats)
                 llmMs = r.ms
-                log("llm #$id: ${r.label} target=${r.target} ${r.ms} ms ${r.backend}${if (r.invalid) " INVALID: ${r.raw}" else ""}")
-                Policy.verdict(r.label, r.target, feats, "llm")
+                log("llm #$id: ${r.label}${r.confidence?.let { " p=%.2f".format(it) } ?: ""} ${r.ms} ms ${r.backend}${if (r.invalid) " INVALID: ${r.raw}" else ""}")
+                // The model only names the label; which button to press is the policy's call.
+                Policy.fromModel(r.label, r.confidence, feats, e.policy)
             } catch (t: Throwable) {
                 log("llm #$id error: ${t.message}")
                 Policy.verdict("content", -1, feats, "llm-error")
@@ -238,7 +255,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             put("source", v.source)
         }.toString())
         // Cache decisions that hold for the site; a user-gesture "content" is about that moment only.
-        if (frame.isTop && v.source !in setOf("user-gesture", "backdrop", "llm-error")) {
+        if (frame.isTop && v.source !in setOf("user-gesture", "backdrop", "llm-error", "autoconsent")) {
             e.cache.put(topUrl ?: f.url, SiteRule(sig = f.sig, label = v.label, action = v.action, buttonLabel = v.buttonLabel, source = v.source))
         }
     }
@@ -259,6 +276,39 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         val url = topUrl ?: rec.features.url
         e.cache.undo(url, rec.features.sig)
         log("undo ${rec.features.sig}")
+    }
+
+    /** Autoconsent progress in one frame: found a CMP popup, opted out (or failed), finished. */
+    private data class Consent(val cmp: String?, val busy: Boolean = false, val ok: Boolean? = null)
+
+    private fun autoconsentEvent(msg: JsonObject, frame: FrameRef) {
+        val origin = msg.str("origin") ?: return
+        val event = msg.str("event")
+        val cmp = msg.str("cmp")
+        val result = msg["result"]?.jsonPrimitive?.booleanOrNull
+        consent.compute(origin) { _, old ->
+            val c = old ?: Consent(cmp)
+            when (event) {
+                "popupFound" -> c.copy(cmp = cmp, busy = true)
+                "optOutResult" -> c.copy(busy = false, ok = result == true)
+                "autoconsentDone" -> c.copy(busy = false, ok = c.ok ?: true)
+                else -> c
+            }
+        }
+        log("autoconsent ${if (frame.isTop) "top" else origin}: $event ${cmp ?: ""}${result?.let { " → $it" } ?: ""}")
+        onChange()
+    }
+
+    /** CMPs autoconsent opted out of on this page (for the shield sheet and the report). */
+    fun consentRejected(): List<String> = consent.values.filter { it.ok == true }.mapNotNull { it.cmp }.distinct()
+
+    private suspend fun waitForConsent(origin: String, ms: Long): Consent? {
+        val end = System.currentTimeMillis() + ms
+        while (true) {
+            val c = consent[origin]
+            if (c?.busy != true || System.currentTimeMillis() > end) return c
+            delay(100)
+        }
     }
 
     private suspend fun waitForFrame(origins: List<String>, ms: Long): String? {

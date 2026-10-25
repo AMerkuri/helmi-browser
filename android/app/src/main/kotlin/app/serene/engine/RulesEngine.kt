@@ -9,6 +9,8 @@ import kotlinx.serialization.json.JsonElement
 @Serializable
 data class Cosmetic(
     val hideSelectors: List<String> = emptyList(),
+    /** Cookie banners among the hide selectors: parked, not hidden, while autoconsent answers them. */
+    val consentSelectors: List<String> = emptyList(),
     val procedural: List<JsonElement> = emptyList(),
     val exceptions: List<String> = emptyList(),
     val script: String = "",
@@ -21,18 +23,41 @@ data class Cosmetic(
  * called from any thread (WebView calls shouldInterceptRequest on a pool).
  */
 class RulesEngine private constructor(private var handle: Long) {
+    /**
+     * A second, small engine with only the cookie-banner rules (FilterLists.consentPart). It tells
+     * which of this engine's hide selectors are consent banners; only selectors this engine
+     * returns are ever used, so its exceptions still apply.
+     */
+    var consent: RulesEngine? = null
+
+    /** Generic selectors for the class/id tokens seen in a page, split like [Cosmetic]. */
+    data class Generic(val hide: List<String>, val consent: List<String>)
 
     /** Network rule check. [type] is an adblock request type ("script", "sub_frame", ...). */
     fun shouldBlock(url: String, sourceUrl: String, type: String): Boolean =
         handle != 0L && nativeCheck(handle, url, sourceUrl, type)
 
     fun cosmetic(url: String): Cosmetic {
+        val c = rawCosmetic(url)
+        val cookie = consent?.rawCosmetic(url)?.hideSelectors?.toHashSet() ?: return c
+        val (consentSels, hide) = c.hideSelectors.partition { it in cookie }
+        return c.copy(hideSelectors = hide, consentSelectors = consentSels)
+    }
+
+    private fun rawCosmetic(url: String): Cosmetic {
         val json = if (handle != 0L) nativeCosmetic(handle, url) else null
         return json?.let { runCatching { EngineJson.decodeFromString(Cosmetic.serializer(), it) }.getOrNull() } ?: Cosmetic()
     }
 
     /** Generic class/id rules (`##.cookie-banner`) for the class/id tokens seen in the page. */
-    fun genericSelectors(classes: List<String>, ids: List<String>, exceptions: List<String>): List<String> {
+    fun genericSelectors(classes: List<String>, ids: List<String>, exceptions: List<String>): Generic {
+        val all = rawGeneric(classes, ids, exceptions)
+        val cookie = consent?.rawGeneric(classes, ids, exceptions)?.toHashSet() ?: return Generic(all, emptyList())
+        val (consentSels, hide) = all.partition { it in cookie }
+        return Generic(hide, consentSels)
+    }
+
+    private fun rawGeneric(classes: List<String>, ids: List<String>, exceptions: List<String>): List<String> {
         if (handle == 0L) return emptyList()
         val json = nativeGeneric(handle, classes.toTypedArray(), ids.toTypedArray(), exceptions.toTypedArray()) ?: return emptyList()
         return runCatching { EngineJson.decodeFromString(ListSerializer(String.serializer()), json) }.getOrDefault(emptyList())
@@ -41,6 +66,8 @@ class RulesEngine private constructor(private var handle: Long) {
     fun serialize(): ByteArray? = if (handle != 0L) nativeSerialize(handle) else null
 
     fun close() {
+        consent?.close()
+        consent = null
         if (handle != 0L) nativeDestroy(handle)
         handle = 0L
     }

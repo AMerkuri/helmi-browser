@@ -20,6 +20,8 @@
     genericWaitMs: 1500,  // longest the first scan waits for the host's generic rules
     maxText: 320,
     maxButtons: 8,
+    consentParkMs: 10000, // longest a list-matched cookie banner waits for autoconsent
+    consentHoldMs: 5000,  // longest the detector waits while autoconsent answers a popup
   };
   const state = {
     started: false,
@@ -32,6 +34,10 @@
     sentIds: new Set(),
     procedural: [],
     styleEl: null,
+    consentEl: null,
+    consentSelectors: new Set(),
+    consentParked: false,  // list-matched cookie banners: parked for autoconsent, or hidden
+    consent: { lifecycle: null, busySince: 0 }, // this frame's autoconsent progress
     scrollFixed: false,
     scanMs: [],
   };
@@ -57,7 +63,9 @@
       state.siteRules = msg.siteRules || [];
       try {
         if (!config.observeOnly) {
+          startAutoconsent(msg.autoconsent);
           addCss(msg.css || '');
+          addConsentSelectors(msg.consentSelectors);
           if (msg.script) runScript(msg.script);
           state.procedural = msg.procedural || [];
         }
@@ -66,7 +74,7 @@
       }
     },
     generic(msg) {
-      if (!config.observeOnly) addCss(msg.css || '');
+      if (!config.observeOnly) { addCss(msg.css || ''); addConsentSelectors(msg.consentSelectors); }
       if (state.firstScan) { clearTimeout(state.firstScan); state.firstScan = 0; scan(); }
     },
     verdict(msg) { applyVerdict(msg); },
@@ -86,23 +94,87 @@
       state.styleEl.setAttribute(ATTR, 'rules');
     }
     state.styleEl.textContent += css + '\n';
-    if (!state.styleEl.isConnected) attachStyle();
+    if (!state.styleEl.isConnected) attachStyle(state.styleEl);
   }
 
   // The host's reply can arrive before the parser has created <html> (slow first bytes), so
   // wait for a parent instead of throwing; a throw here used to stop the detector starting.
-  function attachStyle() {
+  function attachStyle(el) {
     const parent = document.head || document.documentElement;
-    if (parent) { parent.appendChild(state.styleEl); return; }
-    if (state.styleWait) return;
-    state.styleWait = new MutationObserver(() => {
+    if (parent) { parent.appendChild(el); return; }
+    const mo = new MutationObserver(() => {
       const p = document.head || document.documentElement;
       if (!p) return;
-      state.styleWait.disconnect();
-      state.styleWait = null;
-      p.appendChild(state.styleEl);
+      mo.disconnect();
+      p.appendChild(el);
     });
-    state.styleWait.observe(document, { childList: true, subtree: true });
+    mo.observe(document, { childList: true, subtree: true });
+  }
+
+  // ---------------------------------------------------------------- cookie banners + autoconsent
+
+  // Cookie banners the lists know are parked, not hidden, while autoconsent answers them:
+  // invisible and click-through, but still laid out, because autoconsent only acts on a popup
+  // it can see (display:none would hide it from its checks). Once autoconsent is done with
+  // the frame, or after consentParkMs, they are hidden like any other list match.
+  function addConsentSelectors(sels) {
+    if (!sels || !sels.length) return;
+    for (const s of sels) state.consentSelectors.add(s);
+    renderConsentCss();
+  }
+
+  function renderConsentCss() {
+    if (!state.consentSelectors.size) return;
+    if (!state.consentEl) {
+      state.consentEl = document.createElement('style');
+      state.consentEl.setAttribute(ATTR, 'consent');
+    }
+    const decl = state.consentParked ? 'opacity:0!important;pointer-events:none!important' : 'display:none!important';
+    state.consentEl.textContent = `${[...state.consentSelectors].join(',\n')}{${decl}}`;
+    if (!state.consentEl.isConnected) attachStyle(state.consentEl);
+  }
+
+  function releaseConsent() {
+    if (!state.consentParked) return;
+    state.consentParked = false;
+    clearTimeout(state.parkTimer);
+    renderConsentCss();
+  }
+
+  const AC_BUSY = new Set(['openPopupDetected', 'runningOptOut']);
+  const AC_DONE = new Set(['nothingDetected', 'optOutSucceeded', 'optOutFailed', 'done']);
+  const AC_EVENTS = new Set(['popupFound', 'optOutResult', 'autoconsentDone', 'autoconsentError']);
+
+  function startAutoconsent(ac) {
+    const lib = window.__sereneAutoconsent;
+    if (!ac || !lib) return;
+    state.consentParked = true;
+    state.parkTimer = setTimeout(releaseConsent, config.consentParkMs);
+    try { lib.start(ac, onAutoconsent); } catch (e) { releaseConsent(); send('log', { msg: 'autoconsent error: ' + e.message }); }
+  }
+
+  function onAutoconsent(m) {
+    if (m.type === 'report') {
+      const lc = m.state && m.state.lifecycle;
+      if (lc === state.consent.lifecycle) return;
+      const wasBusy = consentBusy();
+      state.consent.lifecycle = lc;
+      if (AC_BUSY.has(lc) && !wasBusy) {
+        state.consent.busySince = performance.now();
+        setTimeout(() => scan(), config.consentHoldMs + 50); // in case it never finishes
+      }
+      if (AC_DONE.has(lc)) releaseConsent();
+      if (wasBusy && !AC_BUSY.has(lc)) setTimeout(() => scan(), 300); // what is left after it
+      return;
+    }
+    if (AC_EVENTS.has(m.type)) {
+      send('autoconsent', { event: m.type, origin: location.origin, cmp: m.cmp, result: m.result, isCosmetic: m.isCosmetic, clicks: m.totalClicks, duration: m.duration, details: m.details && String(m.details.msg || '') });
+    }
+  }
+
+  // While autoconsent is answering a popup in this frame the detector stays out of its way.
+  function consentBusy() {
+    return AC_BUSY.has(state.consent.lifecycle) && performance.now() - state.consent.busySince < config.consentHoldMs;
   }
 
   function runScript(code) {
@@ -244,6 +316,7 @@
   function scanInner() {
     if (!document.body) return [];
     if (!IS_TOP) { reportFrame(); return []; }
+    if (consentBusy()) return [];
     const roots = new Set();
     for (const [x, y] of samplePoints()) {
       let stack;

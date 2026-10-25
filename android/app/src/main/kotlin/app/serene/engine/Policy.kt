@@ -8,6 +8,7 @@ data class PolicyConfig(
     val ignoreScore: Double = 0.25,  // and ignore below this
     val noLlmActScore: Double = 0.6, // rules + heuristics only mode (no model, battery saver)
     val llmStructure: Double = 0.2,  // modal-shaped overlays with no keyword hit still go to the model
+    val llmMinConfidence: Double = 0.6, // below this the model's annoyance label is a guess: leave the overlay alone
 )
 
 /** What to do with a candidate. [needsLlm] means the heuristics are unsure: ask the model. */
@@ -76,6 +77,16 @@ object Policy {
         }
         val click = action == "click"
         return Action(action, if (click) t else -1, if (click) f.buttons[t] else null)
+    }
+
+    /**
+     * Verdict from the model's answer. The model only names the label; the button comes from the
+     * decline list. [confidence] is null when the backend gives no label probabilities (LiteRT-LM's
+     * constrained decoding), and then the label is taken as is. See fromModel() in policy.mjs.
+     */
+    fun fromModel(label: String, confidence: Double?, f: Features, p: PolicyConfig = PolicyConfig()): Verdict {
+        if (label != "content" && confidence != null && confidence < p.llmMinConfidence) return verdict("content", -1, f, "llm-unsure")
+        return verdict(label, -1, f, "llm")
     }
 
     fun verdict(label: String, target: Int, f: Features, source: String): Verdict {

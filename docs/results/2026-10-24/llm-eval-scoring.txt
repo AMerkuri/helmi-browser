@@ -1,0 +1,91 @@
+# node test/llm-eval.mjs --model models/Qwen3-0.6B-Q8_0.gguf   (single-pass scoring, default)
+load + first call: 5487 ms
+
+✓ fixture/app-install                expected=app_install          got=app_install          p=1.00 29 ms
+✓ fixture/cookie-custom              expected=cookie_consent       got=cookie_consent       p=1.00 229 ms
+✓ fixture/cookie-de-modal            expected=cookie_consent       got=cookie_consent       p=1.00 280 ms
+✓ fixture/cookie-onetrust            expected=cookie_consent       got=cookie_consent       p=1.00 203 ms
+✓ fixture/cookie-shadow              expected=cookie_consent       got=cookie_consent       p=1.00 155 ms
+✗ fixture/neg-article-mentions       expected=content              got=app_install          p=0.56 147 ms
+✗ fixture/neg-sticky-header          expected=content              got=login_wall           p=0.41 217 ms
+✓ fixture/newsletter-body-lock       expected=newsletter           got=newsletter           p=1.00 222 ms
+✓ fixture/newsletter-delayed         expected=newsletter           got=newsletter           p=0.99 245 ms
+✓ fixture/notification-prompt        expected=notification_prompt  got=notification_prompt  p=1.00 205 ms
+✓ fixture/paywall-sheet              expected=paywall_teaser       got=paywall_teaser       p=0.83 235 ms
+✓ fixture/unknown-language           expected=cookie_consent       got=cookie_consent       p=1.00 239 ms
+✓ synthetic/fr-cookie                expected=cookie_consent       got=cookie_consent       p=1.00 220 ms
+✓ synthetic/it-cookie                expected=cookie_consent       got=cookie_consent       p=1.00 213 ms
+✓ synthetic/pl-cookie                expected=cookie_consent       got=cookie_consent       p=1.00 223 ms
+✓ synthetic/sourcepoint-iframe       expected=cookie_consent       got=cookie_consent       p=1.00 232 ms
+✓ synthetic/discount-modal           expected=newsletter           got=newsletter           p=0.96 231 ms
+✓ synthetic/push-prompt              expected=notification_prompt  got=notification_prompt  p=1.00 188 ms
+✓ synthetic/app-banner               expected=app_install          got=app_install          p=0.99 167 ms
+✓ synthetic/login-wall               expected=login_wall           got=login_wall           p=1.00 220 ms
+✓ synthetic/meter-paywall            expected=paywall_teaser       got=paywall_teaser       p=0.99 167 ms
+✓ synthetic/survey                   expected=survey               got=survey               p=1.00 213 ms
+✓ synthetic/chat                     expected=chat_widget          got=chat_widget          p=0.92 178 ms
+✓ synthetic/cart-drawer              expected=content              got=content              p=0.84 233 ms
+✗ synthetic/audio-player             expected=content              got=app_install          p=0.50 211 ms
+✓ synthetic/site-menu                expected=content              got=content              p=1.00 239 ms
+✓ synthetic/filter-sheet             expected=content              got=content              p=1.00 227 ms
+✓ synthetic/es-newsletter            expected=newsletter           got=newsletter           p=1.00 217 ms
+✓ synthetic/ja-app                   expected=app_install          got=app_install          p=0.82 225 ms
+✓ synthetic/cmp-tcf-de               expected=cookie_consent       got=cookie_consent       p=1.00 244 ms
+✓ crawl/bbc/header#bbc-header        expected=content              got=content              p=0.40 230 ms
+✗ crawl/spiegel/header.-mt-8.pointer-eve expected=content              got=login_wall           p=1.00 213 ms
+✓ crawl/lemonde/div.gdpr-lmd-standard.gd expected=cookie_consent       got=cookie_consent       p=1.00 329 ms
+✓ crawl/elpais/div#pmConsentWall     expected=cookie_consent       got=cookie_consent       p=0.94 339 ms
+✓ crawl/corriere/header.header       expected=content              got=content              p=1.00 269 ms
+✓ crawl/corriere/div.privacy-cp-wall expected=cookie_consent       got=cookie_consent       p=0.99 378 ms
+✗ crawl/onet/header.Header_headerWrap expected=content              got=app_install          p=0.78 256 ms
+✓ crawl/onet/div > nav               expected=content              got=content              p=1.00 272 ms
+✓ crawl/onet/div.cmp-popup_popup.show expected=cookie_consent       got=cookie_consent       p=0.84 552 ms
+✓ crawl/idnes/a.cookie-info          expected=cookie_consent       got=cookie_consent       p=0.98 232 ms
+✓ crawl/yahoo/header#module-uh       expected=content              got=content              p=0.95 341 ms
+✓ crawl/cnn/div > div[role="dialog"] expected=cookie_consent       got=cookie_consent       p=0.98 327 ms
+✓ crawl/forbes/div.GuKkQ.header.univers expected=content              got=content              p=0.52 182 ms
+✓ crawl/forbes/div#ketch-banner      expected=cookie_consent       got=cookie_consent       p=1.00 390 ms
+✗ crawl/medium/div.ac.aj.ak          expected=content              got=app_install          p=0.99 201 ms
+✗ crawl/reddit/reddit-header-small.end- expected=content              got=chat_widget          p=0.52 225 ms
+✗ crawl/pinterest/div.box_k.elevation_k.fi expected=login_wall           got=cookie_consent       p=0.53 411 ms
+✗ crawl/stackoverflow/header.js-top-bar.l0.ps- expected=content              got=login_wall           p=1.00 256 ms
+✓ crawl/stackoverflow/div#onetrust-banner-sdk expected=cookie_consent       got=cookie_consent       p=1.00 345 ms
+✗ crawl/healthline/div#sticky-nav    expected=content              got=app_install          p=0.48 268 ms
+✓ crawl/gymshark/div#onetrust-banner-sdk expected=cookie_consent       got=cookie_consent       p=1.00 375 ms
+✓ crawl/allbirds/section.shopify-section. expected=content              got=content              p=0.52 302 ms
+✓ crawl/allbirds/section#shopify-pc__bann expected=cookie_consent       got=cookie_consent       p=1.00 360 ms
+✓ crawl/weather.com/nav.bg-white.bottom-0.fi expected=content              got=content              p=0.90 231 ms
+✓ crawl/weather.com/div.-translate-x-1\/2.fi expected=app_install          got=app_install          p=1.00 225 ms
+✓ crawl/github/div.header-wrapper.js-he expected=content              got=content              p=0.89 267 ms
+✓ crawl/duckduckgo/div > div         expected=app_install          got=app_install          p=0.62 278 ms
+
+records: 57
+label accuracy: 82%  with the header guard: 93%  with the guard and the confidence floor: 96%  annoyance-vs-content accuracy: 84%  invalid replies: 0
+mode: score
+latency per call: median 231 ms, p95 390 ms
+prompt tokens (system + features): median 304
+
+confidence (single-pass scores): bucket → records, accuracy
+  0.0–0.5    3  33%
+  0.5–0.7    7  43%
+  0.7–0.9    6  83%
+  0.9–1.0   41  93%
+  probability on non-label tokens: median 0.000, max 0.000
+
+confusion (expected → got):
+  app_install          app_install:5
+  cookie_consent       cookie_consent:20
+  content              app_install:5 login_wall:3 content:11 chat_widget:1
+  newsletter           newsletter:4
+  notification_prompt  notification_prompt:2
+  paywall_teaser       paywall_teaser:2
+  login_wall           login_wall:1 cookie_consent:1
+  survey               survey:1
+  chat_widget          chat_widget:1
+
+example prompt:
+Overlay: banner at the bottom, 14% of screen
+Element: <div> app-cta
+Text: "Reading is better in the app. Open in app for a faster experience. Open in app Not now"
+Buttons: [0] Open in app [1] Not now
+/no_think

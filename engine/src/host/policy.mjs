@@ -5,6 +5,7 @@ export const DEFAULT_POLICY = {
   ignoreScore: 0.25, // and ignore below this
   noLlmActScore: 0.6, // rules + heuristics only mode (no model, battery saver)
   llmStructure: 0.2,  // modal-shaped overlays with no keyword hit still go to the model
+  llmMinConfidence: 0.6, // below this the model's annoyance label is a guess: leave the overlay alone
 };
 
 // We only ever click buttons that decline or close. Never "Accept", "Subscribe", "Allow".
@@ -79,6 +80,16 @@ export function preDecide(f, { llmAvailable, policy = DEFAULT_POLICY }) {
   if (llmAvailable) return { needsLlm: true };
   if (h.score >= policy.noLlmActScore) return verdict(h.label, h.rejectIdx, f, 'heuristic');
   return verdict('content', -1, f, 'heuristic');
+}
+
+/**
+ * Verdict from the model's answer {label, confidence?}. The model only names the label; the
+ * button comes from the decline list. On the eval set every correct annoyance label scored
+ * ≥ 0.82, and most wrong ones (headers, players read as app banners or walls) ≤ 0.56.
+ */
+export function fromModel(r, f, policy = DEFAULT_POLICY) {
+  if (r.label !== 'content' && r.confidence != null && r.confidence < policy.llmMinConfidence) return verdict('content', -1, f, 'llm-unsure');
+  return verdict(r.label, -1, f, 'llm');
 }
 
 export function verdict(label, target, f, source) {
