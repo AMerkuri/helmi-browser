@@ -17,6 +17,7 @@
     observeOnly: false,   // harness baseline: detect and report, never act
     quarantineScore: 0.6, // hide a candidate while the host decides
     userGestureMs: 1500,  // overlays appearing this soon after a tap are user-initiated
+    genericWaitMs: 1500,  // longest the first scan waits for the host's generic rules
     maxText: 320,
     maxButtons: 8,
     consentParkMs: 10000, // longest a list-matched cookie banner waits for autoconsent
@@ -186,8 +187,9 @@
     state.started = true;
     const go = () => {
       // First scan waits for the generic class/id rules so that list-covered banners are
-      // already hidden and never reach the detector.
-      if (sendClassIds()) { state.firstScan = setTimeout(scan, 500); } else scan();
+      // already hidden and never reach the detector. A busy host (phone main thread during
+      // page load) can take a second to answer; no scan runs before the answer or the timeout.
+      if (sendClassIds()) { state.firstScan = setTimeout(() => { state.firstScan = 0; scan(); }, config.genericWaitMs); } else scan();
       const mo = new MutationObserver(onMutations);
       mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'id', 'open', 'hidden'] });
       for (const ms of [800, 2000, 4000, 7000, 11000]) setTimeout(scan, ms);
@@ -306,6 +308,7 @@
   }
 
   function scan() {
+    if (state.firstScan) return [];
     const t0 = performance.now();
     try { return scanInner(); } finally { state.scanMs.push(Math.round((performance.now() - t0) * 10) / 10); }
   }
