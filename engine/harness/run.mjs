@@ -10,7 +10,7 @@
 //
 //   node harness/run.mjs --model models/Qwen3-0.6B-Q8_0.gguf [--sites harness/sites.json]
 //        [--only bbc,spiegel] [--modes baseline,rules,serene] [--wait 10000] [--headed]
-//        [--no-autoconsent] [--allow-consent-tools]
+//        [--no-autoconsent] [--block-consent-tools]
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -34,8 +34,8 @@ const { values: args } = parseArgs({
     out: { type: 'string' },
     headed: { type: 'boolean', default: false },
     'no-autoconsent': { type: 'boolean', default: false },
-    // Let consent tools' scripts load (the lists block most of them) so autoconsent can opt out.
-    'allow-consent-tools': { type: 'boolean', default: false },
+    // Let the lists block consent tools' scripts, as before 2026-10-25 (autoconsent then rarely sees a banner).
+    'block-consent-tools': { type: 'boolean', default: false },
   },
 });
 
@@ -84,8 +84,8 @@ async function visit(site, mode) {
   const events = [];
   const engine = mode === 'baseline'
     ? new SereneEngine({ cache: new VerdictCache(), contentConfig: { observeOnly: true } })
-    : new SereneEngine({ rules, classifier: mode === 'serene' ? classifier : null, cache: new VerdictCache(), autoconsent });
-  const context = await newContext(browser, { engine, onEvent: (e) => events.push({ ...e, at: Date.now() }), locale: args.locale, probe: true, allowConsentTools: args['allow-consent-tools'] && mode !== 'baseline' });
+    : new SereneEngine({ rules, classifier: mode === 'serene' ? classifier : null, cache: new VerdictCache(), autoconsent, allowConsentTools: !args['block-consent-tools'] });
+  const context = await newContext(browser, { engine, onEvent: (e) => events.push({ ...e, at: Date.now() }), locale: args.locale, probe: true });
   const page = await context.newPage();
   const t0 = Date.now();
   try {
@@ -139,7 +139,7 @@ async function snapshot(page, site, mode, visitName, events, t0) {
       const v = o.candidateId != null ? byId.get(o.candidateId)?.verdict : null;
       return { ...o, action: v?.action ?? null, source: v?.source ?? null };
     }),
-    actedExposureMs: seen.filter((o) => { const v = o.candidateId != null ? byId.get(o.candidateId)?.verdict : null; return v && v.action !== 'ignore'; }).map((o) => o.visibleMs),
+    actedExposureMs: seen.filter((o) => { const v = o.candidateId != null ? byId.get(o.candidateId)?.verdict : null; return v && (v.action === 'click' || v.action === 'hide'); }).map((o) => o.visibleMs),
     llmCalls: llm.length,
     llmMs: llm.map((r) => r.ms),
     llmPromptTokens: llm.map((r) => r.promptTokens),
@@ -167,7 +167,7 @@ function summary(m) {
 function report(rows) {
   const L = [];
   L.push(`# Serene engine crawl, ${new Date().toISOString().slice(0, 16)}Z`, '');
-  L.push(`Viewport: Pixel 7 emulation, locale ${args.locale}, wait ${WAIT} ms. Modes: ${modes.join(', ')}. Model: ${args.model ? path.basename(args.model) : 'none'}. Autoconsent: ${autoconsent ? 'on' : 'off'}. Consent tools' scripts: ${args['allow-consent-tools'] ? 'allowed' : 'blocked by the lists'}.`, '');
+  L.push(`Viewport: Pixel 7 emulation, locale ${args.locale}, wait ${WAIT} ms. Modes: ${modes.join(', ')}. Model: ${args.model ? path.basename(args.model) : 'none'}. Autoconsent: ${autoconsent ? 'on' : 'off'}. Consent tools' scripts: ${autoconsent && !args['block-consent-tools'] ? 'allowed' : 'blocked by the lists'}.`, '');
   L.push('After each run: "annoyances" counts overlays still on screen that the detector\'s heuristics read as annoyances (score ≥ 0.5); "blocking" counts any overlay still covering ≥ 30% of the screen; "locked" is page scrolling. Check the screenshots: heuristics are not ground truth.', '');
   L.push('| Site | Baseline overlays | Rules: annoyances / blocking / locked | Serene: annoyances / blocking / locked | Consent rejected (autoconsent) | Model calls (ms) | 2nd visit residual / model calls |');
   L.push('|---|---|---|---|---|---|---|');

@@ -24,6 +24,17 @@ export const AUTOCONSENT_CONFIG = {
   logs: { lifecycle: false, rulesteps: false, detectionsteps: false, evals: false, errors: false, messages: false, waits: false },
 };
 
+// Consent tools' own hosts. The filter lists block most of them, which means their banner never
+// shows and no "reject" is ever recorded (no answer at all, which US sites read as consent).
+// With autoconsent on, these load so autoconsent can opt out; their banners stay parked
+// (invisible) meanwhile. On the 2026-10-25 crawl this added real opt-outs on Stack Overflow and
+// Gymshark (OneTrust) with nothing visible to the reader. All of them are tools autoconsent has rules for.
+export const CONSENT_TOOL_HOSTS = /(^|\.)(cookielaw\.org|onetrust\.com|cookiebot\.(com|eu)|usercentrics\.(eu|com)|didomi\.io|privacy-center\.org|privacy-mgmt\.com|sp-prod\.net|consensu\.org|quantcast\.com|inmobi\.com|trustarc\.com|truste\.com|consentmanager\.(net|de)|iubenda\.com|cookieyes\.com|osano\.com|termly\.io|cookie-script\.com|axeptio\.eu|cookiefirst\.com|privacymanager\.io|fundingchoicesmessages\.google\.com|sirdata\.(com|net)|ketchcdn\.com|clickio\.com|uniconsent\.com)$/;
+
+export function isConsentTool(url) {
+  try { return CONSENT_TOOL_HOSTS.test(new URL(url).hostname); } catch { return false; }
+}
+
 export class AutoconsentRules {
   constructor({ compact = require('@duckduckgo/autoconsent/rules/compact-rules.json'), config = AUTOCONSENT_CONFIG } = {}) {
     this.compact = compact;

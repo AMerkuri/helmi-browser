@@ -58,11 +58,6 @@ const PROBE = `(() => {
   setInterval(tick, 100);
 })();`;
 
-// Consent tools' own hosts. With allowConsentTools the lists may not block these, so the
-// consent tool shows its banner and autoconsent can answer it with a real opt-out (crawl
-// experiment, `--allow-consent-tools`).
-export const CONSENT_TOOL_HOSTS = /(^|\.)(cookielaw\.org|onetrust\.com|cookiebot\.(com|eu)|usercentrics\.(eu|com)|didomi\.io|privacy-mgmt\.com|sp-prod\.net|consensu\.org|quantcast\.com|inmobi\.com|trustarc\.com|truste\.com|consentmanager\.(net|de)|iubenda\.com|cookieyes\.com|osano\.com|termly\.io|cookie-script\.com|axeptio\.eu|cookiefirst\.com|privacymanager\.io|fundingchoicesmessages\.google\.com|sirdata\.(com|net)|ketchcdn\.com|clickio\.com|uniconsent\.com)$/;
-
 const TYPE_MAP = { document: 'sub_frame', xhr: 'xmlhttprequest', fetch: 'xmlhttprequest', eventsource: 'other', websocket: 'websocket', manifest: 'other', texttrack: 'media' };
 
 export async function launch({ headless = true } = {}) {
@@ -72,7 +67,7 @@ export async function launch({ headless = true } = {}) {
 }
 
 /** New context emulating a phone. engine = SereneEngine or null (plain browser). */
-export async function newContext(browser, { engine = null, onEvent = () => {}, locale = 'en-GB', probe = false, allowConsentTools = false } = {}) {
+export async function newContext(browser, { engine = null, onEvent = () => {}, locale = 'en-GB', probe = false } = {}) {
   const context = await browser.newContext({ ...devices['Pixel 7'], locale, ignoreHTTPSErrors: false });
   if (probe) await context.addInitScript({ content: PROBE });
   if (!engine) return context;
@@ -107,11 +102,6 @@ export async function newContext(browser, { engine = null, onEvent = () => {}, l
       if (!page || isMainDoc || !/^https?:/.test(req.url())) return route.continue();
       const type = TYPE_MAP[req.resourceType()] || req.resourceType();
       const source = page.mainFrame().url();
-      if (allowConsentTools) {
-        let host = '';
-        try { host = new URL(req.url()).hostname; } catch {}
-        if (CONSENT_TOOL_HOSTS.test(host)) return route.continue();
-      }
       return sessionFor(page).shouldBlock(req.url(), type, source) ? route.abort('blockedbyclient') : route.continue();
     });
   }

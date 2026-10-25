@@ -2,6 +2,7 @@
 // One PageSession per tab navigation; frames talk to it through the bridge.
 import { preDecide, verdict, fromModel, DEFAULT_POLICY } from './policy.mjs';
 import { siteOf } from './cache.mjs';
+import { isConsentTool } from './autoconsent.mjs';
 
 export class SereneEngine {
   /**
@@ -9,9 +10,10 @@ export class SereneEngine {
    * @param classifier  object with classify(features) → {label, confidence?, ms}, or null
    * @param cache       VerdictCache
    * @param autoconsent AutoconsentRules or null (cookie banners the lists know are then just hidden)
+   * @param allowConsentTools with autoconsent on, let consent tools' scripts through the lists so it can opt out
    */
-  constructor({ rules = null, classifier = null, cache, policy = DEFAULT_POLICY, contentConfig = {}, autoconsent = null }) {
-    Object.assign(this, { rules, classifier, cache, policy, contentConfig, autoconsent });
+  constructor({ rules = null, classifier = null, cache, policy = DEFAULT_POLICY, contentConfig = {}, autoconsent = null, allowConsentTools = true }) {
+    Object.assign(this, { rules, classifier, cache, policy, contentConfig, autoconsent, allowConsentTools });
   }
 
   newPage(onEvent = () => {}) { return new PageSession(this, onEvent); }
@@ -32,6 +34,7 @@ class PageSession {
   /** Network hook (shouldInterceptRequest). */
   shouldBlock(url, type, sourceUrl = this.topUrl) {
     if (!this.e.rules || !sourceUrl) return false;
+    if (this.e.autoconsent && this.e.allowConsentTools && isConsentTool(url)) return false;
     const blocked = this.e.rules.shouldBlock(url, sourceUrl, type);
     if (blocked) this.emit({ type: 'blocked', url, resourceType: type });
     return blocked;

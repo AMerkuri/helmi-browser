@@ -80,3 +80,17 @@ class AutoconsentRules(rulesJson: String, configJson: String) {
         return re?.containsMatchIn(url) == true
     }
 }
+
+/**
+ * Consent tools' own hosts (CONSENT_TOOL_HOSTS in engine/src/host/autoconsent.mjs). With
+ * autoconsent on they get through the lists, so it can answer their banner with a real opt-out
+ * instead of the tool never loading and nothing being recorded.
+ */
+object ConsentTools {
+    private val HOSTS = Regex("""(^|\.)(cookielaw\.org|onetrust\.com|cookiebot\.(com|eu)|usercentrics\.(eu|com)|didomi\.io|privacy-center\.org|privacy-mgmt\.com|sp-prod\.net|consensu\.org|quantcast\.com|inmobi\.com|trustarc\.com|truste\.com|consentmanager\.(net|de)|iubenda\.com|cookieyes\.com|osano\.com|termly\.io|cookie-script\.com|axeptio\.eu|cookiefirst\.com|privacymanager\.io|fundingchoicesmessages\.google\.com|sirdata\.(com|net)|ketchcdn\.com|clickio\.com|uniconsent\.com)$""")
+
+    fun matches(url: String): Boolean {
+        val host = runCatching { java.net.URI(url).host }.getOrNull() ?: return false
+        return HOSTS.containsMatchIn(host)
+    }
+}
