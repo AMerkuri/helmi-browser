@@ -1,0 +1,59 @@
+name: npu-model
+
+# Builds Qwen3-0.6B compiled ahead of time for the Snapdragon 8 Elite's NPU (android/npu-model)
+# and uploads it as an artifact. In the app, Settings → On-device model → Pick NPU model takes
+# the artifact's .zip as downloaded, and the NPU benchmark then runs it.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - android/npu-model/**
+      - .github/workflows/npu-model.yml
+
+concurrency:
+  group: npu-model-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # Export and calibration hold the float model and its activations; give them room.
+      - name: More swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 12G /swapfile2 && sudo chmod 600 /swapfile2 && sudo mkswap /swapfile2 && sudo swapon /swapfile2
+          free -g
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install litert-torch and the Qualcomm SDK
+        run: |
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
+          # litert-torch main: the NPU pipeline and its Qwen3-0.6B / SM8750 config are newer
+          # than the last release. Installing the SDK package downloads QAIRT 2.50 from Qualcomm.
+          pip install -c android/npu-model/constraints.txt \
+            "litert-torch @ git+https://github.com/google-ai-edge/litert-torch.git@c677a8069d63fc86a6d14e11168dfc387fd9357c" \
+            ai-edge-litert-sdk-qualcomm-nightly==2.4.0.dev20261024
+          python -c "import ai_edge_litert_sdk_qualcomm as q; p = q.path_to_sdk_libs(); print(p); assert p and p.is_dir()"
+      - name: Build
+        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu"
+      - name: Checksum
+        run: |
+          cd "$RUNNER_TEMP/npu/npu"
+          ls -l
+          sha256sum *.litertlm | tee SHA256SUMS
+          echo "### NPU model" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npu-model-${{ github.run_number }}
+          path: ${{ runner.temp }}/npu/npu/
+          retention-days: 30

@@ -2,6 +2,7 @@ package app.serene
 
 import android.app.ActivityManager
 import android.app.Application
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
@@ -170,15 +171,47 @@ class SereneApp : Application() {
     var npuBenchmarkProgress by mutableStateOf<String?>(null)
         private set
 
+    /** The NPU benchmark runs the model compiled for the NPU when one is imported, else the downloaded one. */
+    var npuCompiledModel by mutableStateOf(false)
+        private set
+
+    fun refreshNpuModel() {
+        npuCompiledModel = NpuBenchmark.compiledModel(this).exists()
+    }
+
+    fun importNpuModel(uri: Uri) {
+        if (npuBenchmarkProgress != null) return
+        npuBenchmarkProgress = "importing the NPU model"
+        scope.launch {
+            try {
+                val bytes = NpuBenchmark.importCompiled(this@SereneApp, uri)
+                npuBenchmarkReport = "Imported the NPU model (${bytes / 1_000_000} MB). Run the NPU benchmark to try it."
+            } catch (t: Throwable) {
+                Log.e("Serene", "NPU model import failed", t)
+                npuBenchmarkReport = "Could not import the NPU model: ${t.message}"
+            } finally {
+                refreshNpuModel()
+                npuBenchmarkProgress = null
+            }
+        }
+    }
+
+    fun deleteNpuModel() {
+        NpuBenchmark.compiledModel(this).delete()
+        refreshNpuModel()
+    }
+
     fun runNpuBenchmark() {
         if (npuBenchmarkProgress != null || benchmarkProgress != null) return
-        val file = models.readyFile() ?: return
+        val compiled = NpuBenchmark.compiledModel(this).takeIf { it.exists() }
+        val file = compiled ?: models.readyFile() ?: return
+        val name = if (compiled != null) NpuBenchmark.COMPILED_NAME else models.spec.name
         npuBenchmarkProgress = "starting"
         scope.launch {
             // One model in memory at a time: the NPU process loads its own copy.
             classifier?.unload()
             npuBenchmarkReport = try {
-                NpuBenchmark.start(this@SereneApp, file, models.spec.name) { npuBenchmarkProgress = it }
+                NpuBenchmark.start(this@SereneApp, file, name) { npuBenchmarkProgress = it }
             } catch (t: Throwable) {
                 Log.e("Serene", "NPU benchmark failed", t)
                 "NPU benchmark failed: ${t.message}"

@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.text.format.DateUtils
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +32,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -201,9 +204,15 @@ private fun BenchmarkSection(app: SereneApp) {
 @Composable
 private fun NpuBenchmarkRow(app: SereneApp) {
     val ctx = LocalContext.current
+    LaunchedEffect(Unit) { app.refreshNpuModel() }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(app::importNpuModel) }
     Spacer(Modifier.height(12.dp))
     Text(
-        "Experimental: the same overlays on the NPU. The first run compiles the model for the NPU, which can take several minutes; a second run shows whether that is kept.",
+        if (app.npuCompiledModel) {
+            "Experimental: the same overlays on the NPU, with the model compiled for it."
+        } else {
+            "Experimental: the same overlays on the NPU, with the downloaded model compiled for it on the phone (slow). Pick the compiled NPU model (the .zip from GitHub Actions, or the .litertlm in it) to run that instead."
+        },
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(6.dp))
@@ -213,6 +222,10 @@ private fun NpuBenchmarkRow(app: SereneApp) {
     } else {
         OutlinedButton(onClick = app::runNpuBenchmark, enabled = app.benchmarkProgress == null) {
             Text(if (app.npuBenchmarkReport == null) "Run NPU benchmark" else "Run NPU benchmark again")
+        }
+        Row {
+            TextButton(onClick = { pick.launch(arrayOf("*/*")) }) { Text(if (app.npuCompiledModel) "Replace NPU model" else "Pick NPU model") }
+            if (app.npuCompiledModel) TextButton(onClick = app::deleteNpuModel) { Text("Remove NPU model") }
         }
     }
     app.npuBenchmarkReport?.let { report ->

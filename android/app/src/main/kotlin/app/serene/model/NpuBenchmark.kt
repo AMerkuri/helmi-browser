@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.Process
@@ -21,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.ZipInputStream
 
 /**
  * The model benchmark on the Qualcomm NPU (Hexagon HTP), through LiteRT-LM's Backend.NPU. There is
@@ -54,7 +56,7 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         var firstCallMs = -1L
         var error: String? = null
         try {
-            progress("loading the model on the NPU (the first load compiles it, which can take minutes)")
+            progress("loading the model on the NPU (a model not compiled for it is compiled now, which takes a while)")
             loadMs = npu.warmUp()
             firstCallMs = npu.classify(rows.first().features, LiteRtClassifier.Reply.FREE).ms
             rows.forEachIndexed { i, row ->
@@ -106,6 +108,36 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         /** A Qualcomm SoC on Android 12+, where LiteRT's NPU support starts. */
         val supported: Boolean
             get() = Build.VERSION.SDK_INT >= 31 && (Build.SOC_MANUFACTURER.equals("QTI", ignoreCase = true) || Build.SOC_MANUFACTURER.contains("qualcomm", ignoreCase = true))
+
+        /** Name of the model compiled ahead of time for the NPU (android/npu-model), in the report. */
+        const val COMPILED_NAME = "Qwen3-0.6B a16w8, compiled for SM8750"
+
+        /** The model compiled ahead of time for the NPU, once imported ([importCompiled]). */
+        fun compiledModel(context: Context) = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/npu/Qwen3-0.6B.sm8750.litertlm")
+
+        /**
+         * Copies a compiled model into the app: the .litertlm itself, or the .zip GitHub Actions
+         * makes of the npu-model workflow's artifact (its first .litertlm entry). Returns its size.
+         */
+        suspend fun importCompiled(context: Context, uri: Uri): Long = withContext(Dispatchers.IO) {
+            val out = compiledModel(context)
+            out.parentFile?.mkdirs()
+            val part = File(out.path + ".part")
+            val input = context.contentResolver.openInputStream(uri)?.buffered() ?: error("cannot open the file")
+            input.use { raw ->
+                raw.mark(4)
+                val zip = ByteArray(4).let { raw.read(it) == 4 && it[0] == 'P'.code.toByte() && it[1] == 'K'.code.toByte() }
+                raw.reset()
+                part.outputStream().use { sink ->
+                    if (!zip) return@use raw.copyTo(sink)
+                    val z = ZipInputStream(raw)
+                    generateSequence { z.nextEntry }.firstOrNull { it.name.endsWith(".litertlm") } ?: error("no .litertlm in the zip")
+                    z.copyTo(sink)
+                }
+            }
+            if (!part.renameTo(out)) error("could not save the model")
+            out.length()
+        }
 
         private fun dir(context: Context) = File(context.filesDir, "npu-benchmark")
         private fun pidFile(context: Context) = File(dir(context), "pid")
