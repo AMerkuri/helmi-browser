@@ -39,7 +39,8 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     }
 
     fun save() {
-        app.settings.savedTabs = tabs.map { it.url }.filter { it.startsWith("http") }
+        // A tab opened for a download would download the file again on restore.
+        app.settings.savedTabs = tabs.filterNot { it.downloadPage }.map { it.url }.filter { it.startsWith("http") }
         app.settings.savedTabIndex = currentIndex
     }
 

@@ -8,6 +8,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.serene.download.Downloads
 import app.serene.engine.AutoconsentRules
 import app.serene.engine.Classifier
 import app.serene.engine.FilterLists
@@ -62,6 +63,7 @@ class SereneApp : Application() {
     lateinit var models: ModelManager private set
     lateinit var engine: SereneEngine private set
     lateinit var lists: FilterLists private set
+    lateinit var downloads: Downloads private set
 
     /** Shown in settings: "loading", "ready", or an error. */
     var rulesStatus by mutableStateOf("loading")
@@ -77,6 +79,7 @@ class SereneApp : Application() {
         settings = Settings(this)
         models = ModelManager(this, settings, scope)
         models.refresh()
+        downloads = Downloads(this)
         lists = FilterLists(File(filesDir, "lists"))
         engine = SereneEngine(
             rules = null, // heuristics only until the lists are loaded

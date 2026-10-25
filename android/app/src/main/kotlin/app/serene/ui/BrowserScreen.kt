@@ -1,8 +1,13 @@
 package app.serene.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,6 +71,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
@@ -82,6 +88,17 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
     var reportDir by remember { mutableStateOf<File?>(null) }
 
     BackHandler(enabled = tab.canGoBack) { tab.goBack() }
+
+    // Android 13+: the download notification needs permission. Ask once, at the first download.
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(app.downloads.items.isNotEmpty()) {
+        if (Build.VERSION.SDK_INT >= 33 && app.downloads.items.isNotEmpty() && !app.settings.askedNotifications &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            app.settings.askedNotifications = true
+            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     val startReport = {
         Reporter.capture(context, app, tab) { reportDir = it }
@@ -104,16 +121,23 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
             else Spacer(Modifier.height(2.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 val startPage = tab.url.isEmpty() || tab.url == "about:blank"
+                val downloadPage = tab.downloadPage
                 key(tab.id) {
                     AndroidView(
                         factory = { (tab.webView.parent as? ViewGroup)?.removeView(tab.webView); tab.webView },
                         modifier = Modifier.fillMaxSize(),
                         // A WebView that has loaded nothing drew the address bar and the bars around
                         // it solid black; the start page covers it anyway.
-                        update = { it.visibility = if (startPage) View.INVISIBLE else View.VISIBLE },
+                        // The same goes for a tab whose first page hasn't started yet (a link from
+                        // another app) or whose only navigation was a download.
+                        update = { it.visibility = if (startPage || downloadPage || !tab.hasPage) View.INVISIBLE else View.VISIBLE },
                     )
                 }
-                if (startPage) StartPage(app)
+                if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab) })
+                else if (startPage) StartPage(app)
+                else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
+                    DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
+                }
             }
             BottomBar(app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true })
         }
@@ -210,6 +234,7 @@ private fun BottomBar(app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Scree
             IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("New tab") }, onClick = { menu = false; tabs.open() })
+                DropdownMenuItem(text = { Text("Downloads") }, onClick = { menu = false; onOpen(Screen.Downloads) })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { menu = false; onReport() })
                 val site = tab.session?.site()
                 if (site != null) {
