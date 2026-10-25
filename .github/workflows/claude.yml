@@ -95,4 +95,5 @@ jobs:
           additional_permissions: |
             actions: read
           claude_args: >-
+            --model opus --effort high
             --allowedTools "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr checks:*),Bash(gh issue view:*),WebFetch"
