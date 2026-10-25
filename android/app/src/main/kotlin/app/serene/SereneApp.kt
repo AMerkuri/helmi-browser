@@ -2,6 +2,7 @@ package app.serene
 
 import android.app.ActivityManager
 import android.app.Application
+import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.VisibleForTesting
@@ -17,6 +18,7 @@ import app.serene.engine.SereneEngine
 import app.serene.engine.VerdictCache
 import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
+import app.serene.model.NpuBenchmark
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -76,6 +78,8 @@ class SereneApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The NPU benchmark's process (NpuBenchmarkService) needs none of the browser.
+        if (Build.VERSION.SDK_INT >= 28 && Application.getProcessName().endsWith(":npu")) return
         settings = Settings(this)
         models = ModelManager(this, settings, scope)
         models.refresh()
@@ -145,7 +149,7 @@ class SereneApp : Application() {
         private set
 
     fun runBenchmark() {
-        if (benchmarkProgress != null) return
+        if (benchmarkProgress != null || npuBenchmarkProgress != null) return
         val c = liteRtClassifier() ?: return
         benchmarkProgress = "loading the model"
         scope.launch {
@@ -156,6 +160,30 @@ class SereneApp : Application() {
                 "Benchmark failed: ${t.message}"
             } finally {
                 benchmarkProgress = null
+            }
+        }
+    }
+
+    /** The same benchmark on the Qualcomm NPU, run in a separate process (NpuBenchmark). */
+    var npuBenchmarkReport by mutableStateOf<String?>(null)
+        private set
+    var npuBenchmarkProgress by mutableStateOf<String?>(null)
+        private set
+
+    fun runNpuBenchmark() {
+        if (npuBenchmarkProgress != null || benchmarkProgress != null) return
+        val file = models.readyFile() ?: return
+        npuBenchmarkProgress = "starting"
+        scope.launch {
+            // One model in memory at a time: the NPU process loads its own copy.
+            classifier?.unload()
+            npuBenchmarkReport = try {
+                NpuBenchmark.start(this@SereneApp, file, models.spec.name) { npuBenchmarkProgress = it }
+            } catch (t: Throwable) {
+                Log.e("Serene", "NPU benchmark failed", t)
+                "NPU benchmark failed: ${t.message}"
+            } finally {
+                npuBenchmarkProgress = null
             }
         }
     }

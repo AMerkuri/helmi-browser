@@ -63,8 +63,21 @@ android {
     }
 
     packaging {
-        // Compressed native libs: a much smaller APK to download and sideload.
+        // Compressed native libs: a much smaller APK to download and sideload. The Qualcomm NPU
+        // libraries need them extracted too: the DSP loads its half (the Skel) from a file path.
         jniLibs.useLegacyPackaging = true
+        // The QNN runtime ships every Hexagon generation and the DSP and GPU backends. The NPU
+        // benchmark only needs the HTP backend, its on-device compiler (HtpPrepare, for models
+        // not compiled ahead of time) and the V79 halves, the Snapdragon 8 Elite's (SM8750).
+        jniLibs.excludes += listOf(
+            "**/libQnnDsp*.so",
+            "**/libQnnGpu.so",
+            "**/libQnnHtpV68*.so",
+            "**/libQnnHtpV69*.so",
+            "**/libQnnHtpV73*.so",
+            "**/libQnnHtpV75*.so",
+            "**/libQnnHtpV81*.so",
+        )
     }
 }
 
@@ -97,6 +110,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.guava)
     implementation(libs.litertlm)
+    implementation(libs.litert.npu.qualcomm)
+    implementation(libs.qnn.runtime)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -52,6 +52,13 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- The NPU benchmark, in its own process: Qualcomm's libraries can abort instead of
+             throwing, and that must not take the browser down with them. -->
+        <service
+            android:name=".model.NpuBenchmarkService"
+            android:exported="false"
+            android:process=":npu" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.reports"

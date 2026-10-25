@@ -1,0 +1,233 @@
+package app.serene.model
+
+import android.app.ActivityManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.IBinder
+import android.os.Process
+import android.util.Log
+import app.serene.BuildConfig
+import app.serene.engine.LiteRtClassifier
+import app.serene.engine.Policy
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.LogSeverity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * The model benchmark on the Qualcomm NPU (Hexagon HTP), through LiteRT-LM's Backend.NPU. There is
+ * no Qwen3-0.6B build compiled ahead of time for a Snapdragon, so LiteRT-LM takes its generic path
+ * with the plain .litertlm file: LiteRT's Qualcomm compiler plugin compiles the parts of the graph
+ * the HTP supports when the model loads, and the rest runs on the CPU. The libraries come from
+ * Maven (litert-npu-runtime-qualcomm, qnn-runtime) and sit in the app's nativeLibraryDir.
+ *
+ * It runs in its own process (NpuBenchmarkService, android:process=":npu"), because a failure in
+ * the vendor libraries can abort the process instead of throwing. The two processes talk through
+ * files: the service writes its pid, its progress and finally the report; [start] polls them from
+ * the app and, if the process dies first, reports that with the process's last log lines.
+ */
+class NpuBenchmark(private val context: Context, private val model: File, private val modelName: String) {
+    /** Runs every record on the NPU and returns a plain-text report to paste into an issue. */
+    suspend fun measure(progress: (String) -> Unit): String {
+        Engine.setNativeMinLogSeverity(LogSeverity.INFO) // LiteRT's partition and QNN messages, for the report
+        val libDir = context.applicationInfo.nativeLibraryDir
+        val npu = LiteRtClassifier(model, context.cacheDir, backends = listOf({ Backend.NPU(nativeLibraryDir = libDir) }))
+        val rows = ModelBenchmark(context, npu, context.cacheDir, modelName).records()
+        val n = rows.size
+        val ms = mutableListOf<Long>()
+        val firstChunk = mutableListOf<Long>()
+        val misses = mutableListOf<String>()
+        var correct = 0
+        var guarded = 0
+        var invalid = 0
+        var contentHidden = 0
+        val content = rows.count { it.expected == "content" }
+        var loadMs = -1L
+        var firstCallMs = -1L
+        var error: String? = null
+        try {
+            progress("loading the model on the NPU (the first load compiles it, which can take minutes)")
+            loadMs = npu.warmUp()
+            firstCallMs = npu.classify(rows.first().features, LiteRtClassifier.Reply.FREE).ms
+            rows.forEachIndexed { i, row ->
+                val a = npu.classify(row.features, LiteRtClassifier.Reply.FREE)
+                ms += a.ms
+                a.firstChunkMs?.let { firstChunk += it }
+                if (a.invalid) invalid++
+                if (a.label == row.expected) correct++ else misses += "${row.id}: ${row.expected} → ${a.label}"
+                val label = if (Policy.looksLikeChrome(row.features)) "content" else a.label
+                if (label == row.expected) guarded++
+                if (row.expected == "content" && label != "content") contentHidden++
+                progress("NPU: ${i + 1} of $n overlays")
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "NPU benchmark failed", t)
+            error = generateSequence(t) { it.cause }.mapNotNull { it.message }.distinct().joinToString(" ← ")
+        } finally {
+            npu.unload()
+        }
+        fun pct(k: Int) = "${(100 * k + n / 2) / n}%"
+        fun med(xs: List<Long>) = xs.sorted().let { if (it.isEmpty()) "–" else "${it[it.size / 2]} ms" }
+        fun p95(xs: List<Long>) = xs.sorted().let { if (it.isEmpty()) "–" else "${it[minOf(it.size - 1, (it.size * 95) / 100)]} ms" }
+        return buildString {
+            appendLine(header(modelName, n))
+            appendLine("NPU libraries: ${npuLibraries(libDir).ifEmpty { "none found in $libDir" }}")
+            if (error != null) appendLine("NPU failed${if (loadMs < 0) " to load" else " after loading in $loadMs ms"}: $error")
+            if (ms.isNotEmpty()) {
+                appendLine("NPU (loaded in $loadMs ms, first call $firstCallMs ms): median ${med(ms)}, p95 ${p95(ms)}, first chunk median ${med(firstChunk)}, invalid $invalid, accuracy ${pct(correct)}, with the header guard ${pct(guarded)}, content hidden $contentHidden/$content")
+                if (ms.size < n) appendLine("Stopped after ${ms.size} of $n records")
+            }
+            if (misses.isNotEmpty()) {
+                appendLine("NPU misses:")
+                misses.forEach { appendLine("  $it") }
+            }
+            // How much of the graph the compiler plugin put on the NPU, and any QNN errors.
+            val npuLines = logLines(Process.myPid()).filter { l -> NPU_LOG_WORDS.any { l.contains(it, ignoreCase = true) } }.takeLast(40)
+            if (npuLines.isNotEmpty()) {
+                appendLine("NPU log lines:")
+                npuLines.forEach { appendLine("  $it") }
+            }
+        }
+    }
+
+    companion object {
+        const val TAG = "SereneNpu"
+        private const val PROCESS = ":npu"
+        private val NPU_LOG_WORDS = listOf("npu", "qnn", "htp", "dispatch", "partition", "compil", "accelerator", "delegate")
+
+        /** A Qualcomm SoC on Android 12+, where LiteRT's NPU support starts. */
+        val supported: Boolean
+            get() = Build.VERSION.SDK_INT >= 31 && (Build.SOC_MANUFACTURER.equals("QTI", ignoreCase = true) || Build.SOC_MANUFACTURER.contains("qualcomm", ignoreCase = true))
+
+        private fun dir(context: Context) = File(context.filesDir, "npu-benchmark")
+        private fun pidFile(context: Context) = File(dir(context), "pid")
+        private fun progressFile(context: Context) = File(dir(context), "progress")
+        private fun reportFile(context: Context) = File(dir(context), "report.txt")
+
+        private fun header(modelName: String, records: Int?): String {
+            val soc = if (Build.VERSION.SDK_INT >= 31) " · ${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}" else ""
+            return listOfNotNull(
+                "Serene model benchmark (NPU)",
+                "App ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA})",
+                "Phone: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}$soc",
+                "Model: $modelName, free reply cut off after the label",
+                records?.let { "Records: $it" },
+            ).joinToString("\n")
+        }
+
+        private fun npuLibraries(libDir: String) = File(libDir).list().orEmpty()
+            .filter { it.startsWith("libQnn") || it.startsWith("libLiteRt") }.sorted().joinToString(", ")
+
+        private fun npuProcessRunning(context: Context): Boolean {
+            val name = context.packageName + PROCESS
+            return context.getSystemService(ActivityManager::class.java).runningAppProcesses.orEmpty().any { it.processName == name }
+        }
+
+        /**
+         * App side: starts the benchmark in the NPU process and waits for its report. If the
+         * process dies without one, the report says so and carries the process's log lines.
+         */
+        suspend fun start(context: Context, model: File, modelName: String, onProgress: (String) -> Unit): String = withContext(Dispatchers.IO) {
+            dir(context).deleteRecursively()
+            dir(context).mkdirs()
+            context.startService(
+                Intent(context, NpuBenchmarkService::class.java)
+                    .putExtra(NpuBenchmarkService.EXTRA_MODEL, model.path)
+                    .putExtra(NpuBenchmarkService.EXTRA_NAME, modelName),
+            )
+            waitForReport(context, modelName, onProgress)
+        }
+
+        private suspend fun waitForReport(context: Context, modelName: String, onProgress: (String) -> Unit): String {
+            val t0 = System.nanoTime()
+            var pid = -1
+            while (true) {
+                delay(1000)
+                reportFile(context).readTextOrNull()?.let { return it }
+                if (pid < 0) pid = pidFile(context).readTextOrNull()?.trim()?.toIntOrNull() ?: -1
+                progressFile(context).readTextOrNull()?.let(onProgress)
+                if (npuProcessRunning(context)) continue
+                if (pid < 0) {
+                    if (System.nanoTime() - t0 > 30_000_000_000L) return "The NPU benchmark process did not start."
+                    continue
+                }
+                delay(500) // the report may land just before the process exits
+                reportFile(context).readTextOrNull()?.let { return it }
+                return buildString {
+                    appendLine(header(modelName, records = null))
+                    appendLine("NPU libraries: ${npuLibraries(context.applicationInfo.nativeLibraryDir)}")
+                    appendLine("The NPU process died (a native crash, or the system killed it) while ${progressFile(context).readTextOrNull() ?: "starting"}.")
+                    appendLine("Its last log lines:")
+                    logLines(pid).forEach { appendLine("  $it") }
+                }
+            }
+        }
+
+        private fun File.readTextOrNull() = takeIf { it.exists() }?.readText()
+
+        /** The last lines a process logged, plus the crash buffer (abort message and backtrace). */
+        private fun logLines(pid: Int): List<String> {
+            fun logcat(vararg args: String) = runCatching {
+                val p = ProcessBuilder(listOf("logcat", "-d", "-v", "threadtime") + args).redirectErrorStream(true).start()
+                p.inputStream.bufferedReader().readLines().also { p.waitFor() }
+            }.getOrElse { listOf("(logcat failed: ${it.message})") }
+            val own = logcat("--pid=$pid").takeLast(80)
+            val crash = logcat("-b", "crash").filter { " $pid " in it }.takeLast(40)
+            return own + crash.filter { it !in own }
+        }
+
+        /** NPU process side: the progress and report files the app polls. */
+        internal fun writePid(context: Context) {
+            dir(context).mkdirs()
+            pidFile(context).writeText(Process.myPid().toString())
+        }
+        internal fun writeProgress(context: Context, text: String) = runCatching { progressFile(context).writeText(text) }
+        internal fun writeReport(context: Context, text: String) {
+            val tmp = File(dir(context), "report.tmp")
+            tmp.writeText(text)
+            tmp.renameTo(reportFile(context))
+        }
+    }
+}
+
+/** Runs [NpuBenchmark] in the ":npu" process, then ends that process. */
+class NpuBenchmarkService : Service() {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var running = false
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val model = intent?.getStringExtra(EXTRA_MODEL)
+        if (model == null || running) return START_NOT_STICKY
+        running = true
+        val name = intent.getStringExtra(EXTRA_NAME) ?: File(model).name
+        scope.launch {
+            NpuBenchmark.writePid(this@NpuBenchmarkService)
+            val report = try {
+                NpuBenchmark(this@NpuBenchmarkService, File(model), name).measure { NpuBenchmark.writeProgress(this@NpuBenchmarkService, it) }
+            } catch (t: Throwable) {
+                Log.e(NpuBenchmark.TAG, "NPU benchmark failed", t)
+                "NPU benchmark failed: ${t.message}"
+            }
+            NpuBenchmark.writeReport(this@NpuBenchmarkService, report)
+            stopSelf()
+            // The engine's native memory and the vendor libraries go with the process.
+            Process.killProcess(Process.myPid())
+        }
+        return START_NOT_STICKY
+    }
+
+    companion object {
+        const val EXTRA_MODEL = "model"
+        const val EXTRA_NAME = "name"
+    }
+}

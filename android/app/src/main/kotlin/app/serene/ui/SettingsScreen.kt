@@ -50,6 +50,7 @@ import app.serene.SereneApp
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
+import app.serene.model.NpuBenchmark
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -183,7 +184,7 @@ private fun BenchmarkSection(app: SereneApp) {
     if (progress != null) {
         Text("Running: $progress")
     } else {
-        OutlinedButton(onClick = app::runBenchmark) { Text(if (app.benchmarkReport == null) "Run benchmark" else "Run again") }
+        OutlinedButton(onClick = app::runBenchmark, enabled = app.npuBenchmarkProgress == null) { Text(if (app.benchmarkReport == null) "Run benchmark" else "Run again") }
     }
     app.benchmarkReport?.let { report ->
         Spacer(Modifier.height(6.dp))
@@ -192,6 +193,35 @@ private fun BenchmarkSection(app: SereneApp) {
         Button(onClick = {
             ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene model benchmark", report))
         }) { Text("Copy results") }
+    }
+    if (NpuBenchmark.supported) NpuBenchmarkRow(app)
+}
+
+// The same overlays on the Qualcomm NPU (NpuBenchmark), in a separate process.
+@Composable
+private fun NpuBenchmarkRow(app: SereneApp) {
+    val ctx = LocalContext.current
+    Spacer(Modifier.height(12.dp))
+    Text(
+        "Experimental: the same overlays on the NPU. The first run compiles the model for the NPU, which can take several minutes; a second run shows whether that is kept.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(6.dp))
+    val progress = app.npuBenchmarkProgress
+    if (progress != null) {
+        Text("Running: $progress")
+    } else {
+        OutlinedButton(onClick = app::runNpuBenchmark, enabled = app.benchmarkProgress == null) {
+            Text(if (app.npuBenchmarkReport == null) "Run NPU benchmark" else "Run NPU benchmark again")
+        }
+    }
+    app.npuBenchmarkReport?.let { report ->
+        Spacer(Modifier.height(6.dp))
+        Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+        Spacer(Modifier.height(6.dp))
+        Button(onClick = {
+            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene NPU benchmark", report))
+        }) { Text("Copy NPU results") }
     }
 }
 
