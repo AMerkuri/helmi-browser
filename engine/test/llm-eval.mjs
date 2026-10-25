@@ -24,7 +24,7 @@ const t0 = Date.now();
 await clf.classify(rows[0].features); // load + warm the system-prompt cache
 console.log(`load + first call: ${Date.now() - t0} ms\n`);
 
-let correct = 0, guarded = 0, engineOk = 0, annoyVsContent = 0, invalid = 0;
+let correct = 0, guarded = 0, engineOk = 0, annoyVsContent = 0, invalid = 0, contentHidden = 0;
 const ms = [], toks = [], confusion = {}, scored = [];
 for (const r of rows) {
   const out = await clf.classify(r.features);
@@ -34,6 +34,8 @@ for (const r of rows) {
   if (ok) correct++;
   // What the engine does: site headers and nav bars never reach the model (policy.looksLikeChrome).
   if ((looksLikeChrome(r.features) ? 'content' : out.label) === r.expected) guarded++;
+  // A false positive: real page content the engine would hide (guard included).
+  if (r.expected === 'content' && (looksLikeChrome(r.features) ? 'content' : out.label) !== 'content') contentHidden++;
   // ...and an unsure annoyance label is treated as content (policy.fromModel).
   if ((looksLikeChrome(r.features) ? 'content' : fromModel(out, r.features).label) === r.expected) engineOk++;
   if ((out.label === 'content') === (r.expected === 'content')) annoyVsContent++;
@@ -46,6 +48,7 @@ const pct = (n) => `${((100 * n) / rows.length).toFixed(0)}%`;
 const sorted = [...ms].sort((a, b) => a - b);
 console.log(`\nrecords: ${rows.length}`);
 console.log(`label accuracy: ${pct(correct)}  with the header guard: ${pct(guarded)}  with the guard and the confidence floor: ${pct(engineOk)}  annoyance-vs-content accuracy: ${pct(annoyVsContent)}  invalid replies: ${invalid}`);
+console.log(`content hidden (false positives, with the guard): ${contentHidden} of ${rows.filter((r) => r.expected === 'content').length}`);
 console.log(`mode: ${args.mode}`);
 console.log(`latency per call: median ${sorted[Math.floor(sorted.length / 2)]} ms, p95 ${sorted[Math.floor(sorted.length * 0.95)]} ms`);
 console.log(`prompt tokens (system + features): median ${toks.sort((a, b) => a - b)[Math.floor(toks.length / 2)]}`);

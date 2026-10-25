@@ -34,6 +34,8 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
         val firstChunk = mutableListOf<Long>()
         var correct = 0
         var guarded = 0
+        /** Content records the engine would hide: given an annoyance label, header guard included. */
+        var falsePositives = 0
         var invalid = 0
         val misses = mutableListOf<String>()
     }
@@ -61,6 +63,7 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
         val cpu = try { run("CPU, prepared", cpuOnly, rows, onProgress, prepare = true) } finally { cpuOnly.unload() }
         val runs = listOf(gpu, gpuPrepared, cpu)
         val n = rows.size
+        val contentRows = rows.count { it.expected == "content" }
         fun pct(k: Int) = "${(100 * k + n / 2) / n}%"
         fun med(xs: List<Long>) = xs.sorted().let { if (it.isEmpty()) "–" else "${it[it.size / 2]} ms" }
         fun p95(xs: List<Long>) = xs.sorted().let { if (it.isEmpty()) "–" else "${it[minOf(it.size - 1, (it.size * 95) / 100)]} ms" }
@@ -72,7 +75,7 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
             appendLine("Model: $modelName, free reply cut off after the label")
             appendLine("Records: $n")
             for (r in runs) {
-                appendLine("${r.name} (ran on ${r.backend.ifEmpty { "?" }}, loaded in ${r.loadMs} ms): median ${med(r.ms)}, p95 ${p95(r.ms)}, first chunk median ${med(r.firstChunk)}, invalid ${r.invalid}, accuracy ${pct(r.correct)}, with the header guard ${pct(r.guarded)}" +
+                appendLine("${r.name} (ran on ${r.backend.ifEmpty { "?" }}, loaded in ${r.loadMs} ms): median ${med(r.ms)}, p95 ${p95(r.ms)}, first chunk median ${med(r.firstChunk)}, invalid ${r.invalid}, accuracy ${pct(r.correct)}, with the header guard ${pct(r.guarded)}, content hidden ${r.falsePositives}/$contentRows" +
                     if (r.prepareMs.isNotEmpty()) ", prepared ${r.prepared}/$n (preparing took median ${med(r.prepareMs)})" else "")
             }
             for (r in runs) {
@@ -105,7 +108,9 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
             if (a.invalid) r.invalid++
             if (a.label == row.expected) r.correct++ else r.misses += "${row.id}: ${row.expected} → ${a.label}"
             // What the engine does: site headers never reach the model (Policy.looksLikeChrome).
-            if ((if (Policy.looksLikeChrome(row.features)) "content" else a.label) == row.expected) r.guarded++
+            val engineLabel = if (Policy.looksLikeChrome(row.features)) "content" else a.label
+            if (engineLabel == row.expected) r.guarded++
+            if (row.expected == "content" && engineLabel != "content") r.falsePositives++
             onProgress(Progress(name, i + 1, rows.size))
         }
         return r
