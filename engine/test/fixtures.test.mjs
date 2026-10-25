@@ -52,11 +52,11 @@ function stubClassifier(calls) {
   };
 }
 
-async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true } = {}) {
+async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0 } = {}) {
   const exp = expectOf(file);
   const events = [], llmCalls = [];
   const engine = new SereneEngine({ rules, classifier: stubClassifier(llmCalls), cache, autoconsent: withAutoconsent ? autoconsent : null });
-  const context = await newContext(browser, { engine, onEvent: (e) => events.push(e), probe: true });
+  const context = await newContext(browser, { engine, onEvent: (e) => events.push(e), probe: true, hostDelayMs });
   const page = await context.newPage();
   await page.goto(base + file + query);
   if (exp.tapFirst) { await page.waitForTimeout(300); await page.tap(exp.tapFirst); }
@@ -107,6 +107,13 @@ test('slow first bytes: the host replies before <html> exists, the detector stil
   const { state, events } = await runFixture('cookie-custom.html', { query: '?slow=1200' });
   assert.ok(state.gone, 'banner should be gone');
   assert.ok(events.some((e) => e.type === 'candidate' && e.verdict?.source === 'heuristic'), 'detector should have run');
+});
+
+test('a slow host reply: a consent banner in the page HTML stays hidden until the rules arrive', async () => {
+  const { state } = await runFixture('cookie-in-html.html', { hostDelayMs: 800 });
+  assert.ok(state.gone, 'banner should be gone');
+  const shown = Math.max(0, ...state.exposure.filter((o) => o.sig.includes('cookiebanner')).map((o) => o.visibleMs));
+  assert.ok(shown <= 100, `the banner was on screen for ${shown} ms before the host replied`);
 });
 
 test('without autoconsent a list-known banner in another language is only hidden', async () => {

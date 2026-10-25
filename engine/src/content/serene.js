@@ -65,7 +65,8 @@
       Object.assign(config, msg.config || {});
       state.siteRules = msg.siteRules || [];
       try {
-        if (!config.observeOnly) {
+        if (config.observeOnly) window.__sereneAutoconsent?.release?.();
+        else {
           startAutoconsent(msg.autoconsent);
           addCss(msg.css || '');
           addConsentSelectors(msg.consentSelectors);
@@ -150,7 +151,8 @@
 
   function startAutoconsent(ac) {
     const lib = window.__sereneAutoconsent;
-    if (!ac || !lib) return;
+    if (!lib) return;
+    if (!ac) { lib.release?.(); return; } // no autoconsent here: drop its document-start prehide
     state.consentParked = true;
     state.parkTimer = setTimeout(releaseConsent, config.consentParkMs);
     try { lib.start(ac, onAutoconsent); } catch (e) { releaseConsent(); send('log', { msg: 'autoconsent error: ' + e.message }); }

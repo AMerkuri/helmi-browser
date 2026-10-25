@@ -66,8 +66,12 @@ export async function launch({ headless = true } = {}) {
   return chromium.launch(opts);
 }
 
-/** New context emulating a phone. engine = SereneEngine or null (plain browser). */
-export async function newContext(browser, { engine = null, onEvent = () => {}, locale = 'en-GB', probe = false } = {}) {
+/**
+ * New context emulating a phone. engine = SereneEngine or null (plain browser). hostDelayMs
+ * holds every message to the host that long, like a phone whose main thread is busy loading
+ * the page while the reply should be on its way.
+ */
+export async function newContext(browser, { engine = null, onEvent = () => {}, locale = 'en-GB', probe = false, hostDelayMs = 0 } = {}) {
   const context = await browser.newContext({ ...devices['Pixel 7'], locale, ignoreHTTPSErrors: false });
   if (probe) await context.addInitScript({ content: PROBE });
   if (!engine) return context;
@@ -86,6 +90,7 @@ export async function newContext(browser, { engine = null, onEvent = () => {}, l
 
   await context.exposeBinding('__sereneHost', async (source, json) => {
     const msg = JSON.parse(json);
+    if (hostDelayMs) await new Promise((r) => setTimeout(r, hostDelayMs));
     const isTop = source.frame === source.page.mainFrame();
     // A new document in the main frame is a new navigation: fresh page session.
     if (msg.type === 'hello' && isTop) sessions.set(source.page, engine.newPage(onEvent));
