@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -121,22 +122,38 @@ object Reporter {
     private fun screenshot(tab: Tab, done: (Bitmap?, String) -> Unit) {
         val v = tab.webView
         if (v.width == 0 || v.height == 0) return done(null, "none: no WebView on screen")
-        val window = (v.context as? Activity)?.window ?: return drawn(v, done)
+        val window = activityOf(v.context)?.window ?: return drawn(v, "no activity window", done)
         val xy = IntArray(2).also { v.getLocationInWindow(it) }
         val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
         try {
             PixelCopy.request(window, Rect(xy[0], xy[1], xy[0] + v.width, xy[1] + v.height), bmp, { result ->
-                if (result == PixelCopy.SUCCESS && !isUniform(bmp)) done(bmp, "pixelcopy") else drawn(v, done)
+                when {
+                    result != PixelCopy.SUCCESS -> drawn(v, "pixelcopy failed ($result)", done)
+                    isUniform(bmp) -> drawn(v, "pixelcopy blank ${colour(bmp)}", done)
+                    else -> done(bmp, "pixelcopy")
+                }
             }, Handler(Looper.getMainLooper()))
         } catch (e: IllegalArgumentException) { // window not yet attached to a surface
-            drawn(v, done)
+            drawn(v, "pixelcopy unavailable", done)
         }
     }
 
-    private fun drawn(v: View, done: (Bitmap?, String) -> Unit) {
+    private fun drawn(v: View, why: String, done: (Bitmap?, String) -> Unit) {
         val bmp = runCatching { Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888).also { v.draw(Canvas(it)) } }.getOrNull()
-        if (bmp != null && !isUniform(bmp)) done(bmp, "draw") else done(null, "none: capture was a single colour")
+        when {
+            bmp == null -> done(null, "none: $why, draw failed")
+            isUniform(bmp) -> done(null, "none: $why, draw blank ${colour(bmp)}")
+            else -> done(bmp, "draw ($why)")
+        }
     }
+
+    private tailrec fun activityOf(c: Context?): Activity? = when (c) {
+        is Activity -> c
+        is ContextWrapper -> activityOf(c.baseContext)
+        else -> null
+    }
+
+    private fun colour(b: Bitmap) = "#%08x".format(b.getPixel(b.width / 2, b.height / 2))
 
     /** A blank capture: every pixel on a 16 x 16 grid has the same colour. */
     fun isUniform(b: Bitmap): Boolean {

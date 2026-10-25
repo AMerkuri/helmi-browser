@@ -25,7 +25,7 @@ import kotlin.concurrent.thread
 class ReportTest {
     @Test
     fun screenshotShowsThePage() {
-        val html = "<!doctype html><body style='margin:0;background:#c00'><h1 style='background:#fff'>Serene report test</h1><p style='height:2000px'>text</p></body>".toByteArray()
+        val html = "<!doctype html><title>Serene report test</title><body style='margin:0;background:#c00'><h1 style='background:#fff'>Serene report test</h1><p style='height:2000px'>text</p></body>".toByteArray()
         val server = ServerSocket(0)
         thread(isDaemon = true) {
             while (!server.isClosed) runCatching {
@@ -41,8 +41,13 @@ class ReportTest {
             }
         }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { it.tabs.open("http://127.0.0.1:${server.localPort}/report.html") }
-            SystemClock.sleep(4000)
+            var tab: app.serene.browser.Tab? = null
+            scenario.onActivity { tab = it.tabs.open("http://127.0.0.1:${server.localPort}/report.html") }
+            // Loaded and drawn: the title is set and a few frames have gone by.
+            val end = SystemClock.uptimeMillis() + 20_000
+            while (SystemClock.uptimeMillis() < end && !(tab?.title == "Serene report test" && tab?.progress == 100)) SystemClock.sleep(100)
+            assertEquals("page did not load", "Serene report test", tab?.title)
+            SystemClock.sleep(1500)
             val latch = CountDownLatch(1)
             var dir: File? = null
             scenario.onActivity { a ->
@@ -51,7 +56,8 @@ class ReportTest {
             }
             assertTrue("report did not finish", latch.await(15, TimeUnit.SECONDS))
             val report = EngineJson.parseToJsonElement(File(dir, "report.json").readText()).jsonObject
-            assertEquals("pixelcopy", report["screenshot"]?.jsonPrimitive?.content)
+            val size = scenario.let { var wh = ""; it.onActivity { a -> a.tabs.current!!.webView.let { v -> wh = "${v.width}x${v.height} shown=${v.isShown}" } }; wh }
+            assertEquals("WebView $size", "pixelcopy", report["screenshot"]?.jsonPrimitive?.content)
             val shot = BitmapFactory.decodeFile(File(dir, "screenshot.png").path)
             assertNotNull("no screenshot.png", shot)
             assertFalse("screenshot is a single colour", Reporter.isUniform(shot))
