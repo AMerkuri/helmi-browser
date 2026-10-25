@@ -4,7 +4,7 @@ A small browser shell around the hybrid annoyance engine from [`engine/`](../eng
 
 ## Install a build
 
-Every pull request and every push to `main` builds a debug APK in GitHub Actions (workflow `android`). Open the run, download the `serene-<run>-<sha>` artifact under **Artifacts**, unzip it on the phone and open the `.apk` (allow installs from your browser or file manager when Android asks). All builds are signed with the same debug key (`app/debug.keystore`, committed on purpose), so a newer build installs over the old one and keeps its settings.
+Every pull request and every push to `main` builds a debug APK in GitHub Actions (workflow `android`). On a pull request, the **Debug APK** section at the bottom of the PR description links straight to the latest build. Otherwise open the run and download the `serene-<run>-<sha>` artifact under **Artifacts**, unzip it on the phone and open the `.apk` (allow installs from your browser or file manager when Android asks). All builds are signed with the same debug key (`app/debug.keystore`, committed on purpose), so a newer build installs over the old one and keeps its settings.
 
 After the first start:
 - The filter lists download in the background (about 3 MB). Until they arrive, Serene runs on its heuristics alone.
@@ -32,7 +32,11 @@ The model is skipped in battery saver (a setting), when the system reports low m
 ## The app
 
 - **Shield** (left of the URL bar): what Serene did on this page (requests blocked, overlays handled and how), **Undo** for each action, the per-site switch, "Forget this site" and "Report missed popup".
-- **Report missed popup** (also in the menu): saves `report.json` (what the detector sees on screen right now, every candidate and verdict on the page, the engine log, app/WebView versions) and a screenshot, asks for an optional note, and opens the share sheet. Nothing leaves the phone unless you send it.
+- **Report missed popup** (also in the menu): saves `report.json` (what the detector sees on screen right now, every candidate and verdict on the page, the engine log, app/WebView versions) and a screenshot, and asks for an optional note. Then either:
+  - **GitHub issue**: opens the [missed-popup issue form](../.github/ISSUE_TEMPLATE/missed-popup.yml) in a new tab with every field filled in (page address without its query string, the verdicts, the log tail, a trimmed HTML snippet of what is on screen; trimmed to keep the URL under 8 KB). You submit it from your own GitHub login, so the app holds no token. A link cannot carry files, so the screenshot goes to the clipboard and to Pictures/Serene (Android 10+), to paste or attach in the form's Screenshot box.
+  - **Share files**: the share sheet with `report.json` and the screenshot.
+
+  Nothing leaves the phone unless you submit or send it.
 - **Settings**: Serene on/off, filter list status and update, forget learned site rules, model download/choice/delete, Wi-Fi-only, battery saver, sites where Serene is off, search engine.
 - Serene can be set as the default browser (it handles `http`/`https` links). Open tabs are restored on the next start.
 

@@ -17,6 +17,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # the APK link in the PR description
     defaults:
       run:
         working-directory: android
@@ -30,10 +33,16 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "ndk;$NDK_VERSION" > /dev/null
+      # cargo-ndk takes over a minute to compile; keep the binary between runs.
+      - uses: actions/cache@v4
+        id: cargo-ndk
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: cargo-ndk-4.1.2-${{ runner.os }}
       - name: Rust for Android (adblock-rust over JNI)
         run: |
           rustup target add aarch64-linux-android x86_64-linux-android
-          cargo install cargo-ndk --locked --version 4.1.2
+          if [ "${{ steps.cargo-ndk.outputs.cache-hit }}" != "true" ]; then cargo install cargo-ndk --locked --version 4.1.2; fi
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: android/rules-jni
@@ -54,10 +63,36 @@ jobs:
           echo "### Serene debug APK" >> "$GITHUB_STEP_SUMMARY"
           echo "Download **$name** under Artifacts below, unzip it on the phone and open the .apk. Builds share one debug key, so each one installs over the last." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
+        id: upload
         with:
           name: ${{ steps.apk.outputs.name }}
           path: android/out/*.apk
           retention-days: 30
+      # Keep a "Debug APK" section in the PR description pointing at this run's artifact.
+      # Fork PRs get a read-only token, so they skip it.
+      - name: Link the APK in the PR description
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        env:
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          APK_URL: ${{ steps.upload.outputs.artifact-url }}
+        with:
+          script: |
+            const start = '<!-- serene-apk -->', end = '<!-- /serene-apk -->';
+            const { APK_NAME: name, APK_URL: url } = process.env;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const section = [
+              start,
+              '### Debug APK',
+              `[Download ${name}](${url}) (built from ${sha}, kept 30 days). Unzip it on the phone and open the .apk; it installs over earlier builds.`,
+              end,
+            ].join('\n');
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
+            const body = pr.body || '';
+            // Markers on lines of their own, so a description that quotes them stays intact.
+            const re = new RegExp(`^${start}$[\\s\\S]*?^${end}$`, 'm');
+            const next = re.test(body) ? body.replace(re, () => section) : `${body.trimEnd()}\n\n${section}\n`;
+            if (next !== body) await github.rest.pulls.update({ ...context.repo, pull_number: pr.number, body: next });
       - uses: actions/upload-artifact@v4
         with:
           name: test-apks
@@ -86,13 +121,33 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # A booted emulator snapshot, so each run quick-boots instead of a minute-long cold boot.
+      - uses: actions/cache@v4
+        id: avd
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-google_apis-x86_64-v1
+      - name: Create the emulator snapshot
+        if: steps.avd.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: echo "Snapshot saved"
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
+          force-avd-creation: false
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
             adb install -r "$(find apks -name app-debug.apk)"
             adb install -r "$(find apks -name app-debug-androidTest.apk)"

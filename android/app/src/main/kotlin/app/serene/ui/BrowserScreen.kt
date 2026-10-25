@@ -112,7 +112,8 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
     reportDir?.let { dir ->
         ReportDialog(
             onDismiss = { reportDir = null },
-            onSend = { note -> reportDir = null; Reporter.share(context, dir, note, tab.url) },
+            onIssue = { note -> reportDir = null; Reporter.openIssue(context, dir, note) { tabs.open(it) } },
+            onShare = { note -> reportDir = null; Reporter.share(context, dir, note, tab.url) },
         )
     }
 }
@@ -237,19 +238,26 @@ private fun StartPage(app: SereneApp) {
 }
 
 @Composable
-private fun ReportDialog(onDismiss: () -> Unit, onSend: (String) -> Unit) {
+private fun ReportDialog(onDismiss: () -> Unit, onIssue: (String) -> Unit, onShare: (String) -> Unit) {
     var note by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Report missed popup") },
         text = {
             Column {
-                Text("Serene saved a screenshot and what its detector sees on this page. Add a note if it helps, then pick where to send it.", style = MaterialTheme.typography.bodyMedium)
+                Text("Serene saved a screenshot and what its detector sees on this page. Add a note if it helps.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(value = note, onValueChange = { note = it }, placeholder = { Text("e.g. newsletter box after scrolling") }, minLines = 2)
+                Spacer(Modifier.height(12.dp))
+                Text("GitHub issue opens a filled-in form in a new tab, with the screenshot on the clipboard to paste in. You submit it from your GitHub account, and it is public, so check it first. Share files sends the report and screenshot to any app.", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { TextButton(onClick = { onSend(note) }) { Text("Send") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onIssue(note) }) { Text("GitHub issue") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(onClick = { onShare(note) }) { Text("Share files") }
+            }
+        },
     )
 }

@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.URLUtil
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -92,6 +93,9 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
             override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: "" }
+            // <input type=file>: GitHub's attach button, upload forms. The activity shows the picker.
+            override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
+                (view.context as? FilePickerHost)?.pickFiles(params) { callback.onReceiveValue(it) } ?: false
             // Page errors go in the page log ("What Serene did here", reports, e2e failures).
             override fun onConsoleMessage(m: ConsoleMessage): Boolean {
                 if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR || m.messageLevel() == ConsoleMessage.MessageLevel.WARNING) {
@@ -253,6 +257,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
         private fun EMPTY_RESPONSE() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
     }
+}
+
+/** The activity behind the tabs: shows the system file picker for a page's file input. */
+interface FilePickerHost {
+    /** Returns false when no picker could be shown; [done] gets null when the user backs out. */
+    fun pickFiles(params: WebChromeClient.FileChooserParams, done: (Array<Uri>?) -> Unit): Boolean
 }
 
 /**
