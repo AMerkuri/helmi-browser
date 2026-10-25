@@ -17,6 +17,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # the APK link in the PR description
     defaults:
       run:
         working-directory: android
@@ -54,10 +57,35 @@ jobs:
           echo "### Serene debug APK" >> "$GITHUB_STEP_SUMMARY"
           echo "Download **$name** under Artifacts below, unzip it on the phone and open the .apk. Builds share one debug key, so each one installs over the last." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
+        id: upload
         with:
           name: ${{ steps.apk.outputs.name }}
           path: android/out/*.apk
           retention-days: 30
+      # Keep a "Debug APK" section in the PR description pointing at this run's artifact.
+      # Fork PRs get a read-only token, so they skip it.
+      - name: Link the APK in the PR description
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        env:
+          APK_NAME: ${{ steps.apk.outputs.name }}
+          APK_URL: ${{ steps.upload.outputs.artifact-url }}
+        with:
+          script: |
+            const start = '<!-- serene-apk -->', end = '<!-- /serene-apk -->';
+            const { APK_NAME: name, APK_URL: url } = process.env;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const section = [
+              start,
+              '### Debug APK',
+              `[Download ${name}](${url}) (built from ${sha}, kept 30 days). Unzip it on the phone and open the .apk; it installs over earlier builds.`,
+              end,
+            ].join('\n');
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
+            const body = pr.body || '';
+            const re = new RegExp(`${start}[\\s\\S]*?${end}`);
+            const next = re.test(body) ? body.replace(re, () => section) : `${body.trimEnd()}\n\n${section}\n`;
+            if (next !== body) await github.rest.pulls.update({ ...context.repo, pull_number: pr.number, body: next });
       - uses: actions/upload-artifact@v4
         with:
           name: test-apks

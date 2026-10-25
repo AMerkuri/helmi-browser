@@ -4,7 +4,7 @@ A small browser shell around the hybrid annoyance engine from [`engine/`](../eng
 
 ## Install a build
 
-Every pull request and every push to `main` builds a debug APK in GitHub Actions (workflow `android`). Open the run, download the `serene-<run>-<sha>` artifact under **Artifacts**, unzip it on the phone and open the `.apk` (allow installs from your browser or file manager when Android asks). All builds are signed with the same debug key (`app/debug.keystore`, committed on purpose), so a newer build installs over the old one and keeps its settings.
+Every pull request and every push to `main` builds a debug APK in GitHub Actions (workflow `android`). On a pull request, the **Debug APK** section at the bottom of the PR description links straight to the latest build. Otherwise open the run and download the `serene-<run>-<sha>` artifact under **Artifacts**, unzip it on the phone and open the `.apk` (allow installs from your browser or file manager when Android asks). All builds are signed with the same debug key (`app/debug.keystore`, committed on purpose), so a newer build installs over the old one and keeps its settings.
 
 After the first start:
 - The filter lists download in the background (about 3 MB). Until they arrive, Serene runs on its heuristics alone.
