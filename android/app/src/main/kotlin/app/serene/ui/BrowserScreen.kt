@@ -2,7 +2,6 @@ package app.serene.ui
 
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -84,27 +83,30 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
         Reporter.capture(context, app, tab) { reportDir = it }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding(),
-    ) {
-        UrlBar(app, tab, onShield = { showSite = true })
-        if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
-        else Spacer(Modifier.height(2.dp))
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            key(tab.id) {
-                AndroidView(
-                    factory = { (tab.webView.parent as? ViewGroup)?.removeView(tab.webView); tab.webView },
-                    modifier = Modifier.fillMaxSize(),
-                )
+    // A Surface, not a background modifier: it also sets the content colour, without which icons
+    // default to black and vanish on the dark theme's bars.
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding(),
+        ) {
+            UrlBar(app, tab, onShield = { showSite = true })
+            if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
+            else Spacer(Modifier.height(2.dp))
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                key(tab.id) {
+                    AndroidView(
+                        factory = { (tab.webView.parent as? ViewGroup)?.removeView(tab.webView); tab.webView },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                if (tab.url.isEmpty() || tab.url == "about:blank") StartPage(app)
             }
-            if (tab.url.isEmpty() || tab.url == "about:blank") StartPage(app)
+            BottomBar(app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true })
         }
-        BottomBar(app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true })
     }
 
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
