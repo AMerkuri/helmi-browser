@@ -30,6 +30,12 @@ origin, the way Chrome does. Without it, WebView hides WebAuthn and sites say so
     "Trust" and it adds Serene to the "Trusted by You" part of its privileged apps list. Make
     Bitwarden a passkey provider first, on the passwords and passkeys page of Android Settings
     (on Samsung: General management → Passwords, passkeys and autofill).
+  - **Dashlane** builds a fixed list of about 36 browsers into the app (a copy of Google's,
+    `PasskeyPrivilegedApplications.kt` in its
+    [open-source Android app](https://github.com/Dashlane/android-apps)) and answers any other
+    caller with "Unsupported origin". There is no way to trust a browser by hand, so GitHub shows
+    "Authentication failed". Tried on a Galaxy Fold 7 (WebView 155), 2026-10-25. Getting listed
+    needs the same release key, plus a request to Dashlane.
   - Other providers (Samsung Pass, 1Password, Proton Pass, KeePassDX) each decide this
     themselves; none has been tried yet.
 
