@@ -57,6 +57,8 @@ class PageSession {
       }
       case 'applied': return this.applied(msg);
       case 'autoconsent': return this.autoconsentEvent(msg, frame);
+      // A cookie banner the lists hid (the app counts it for its start page).
+      case 'listHit': this.emit({ type: 'listHit', label: msg.label, isTop: frame.isTop }); return;
       case 'log': this.emit({ type: 'log', msg: msg.msg }); return;
     }
   }

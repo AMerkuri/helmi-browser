@@ -95,6 +95,9 @@ for (const file of FIXTURES) {
     }
     const acted = events.filter((e) => e.type === 'candidate' && e.verdict && e.verdict.action !== 'ignore');
     if (exp.via === 'rules') assert.equal(acted.length, 0, 'rules should handle it before the detector');
+    // The start page's totals count a banner the lists hid only from this report.
+    if (exp.via === 'rules' && file.startsWith('cookie')) assert.ok(events.some((e) => e.type === 'listHit' && e.label === 'cookie_consent'), 'a list-hidden cookie banner should be reported');
+    if (!exp.gone) assert.ok(!events.some((e) => e.type === 'listHit'), 'nothing should be reported as a list-hidden banner');
     if (exp.via === 'heuristic') assert.ok(acted.some((e) => e.verdict.source === 'heuristic'), `heuristics should act: ${JSON.stringify(events.filter((e) => e.type === 'candidate').map((e) => [e.features.sig, e.features.heuristic, e.verdict]))}`);
     const optedOut = events.some((e) => e.type === 'autoconsent' && e.event === 'optOutResult' && e.result);
     if (exp.via === 'autoconsent') assert.ok(optedOut && acted.length === 0, `autoconsent should answer it: ${JSON.stringify(events.filter((e) => e.type === 'autoconsent'))}`);

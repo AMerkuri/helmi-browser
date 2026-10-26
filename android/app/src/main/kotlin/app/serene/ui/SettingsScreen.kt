@@ -82,13 +82,19 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             )
             ListItem(
                 headlineContent = { Text("Browsing data") },
-                supportingContent = { Text("Cookies and site storage for every site, including consent choices.") },
-                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { } }) { Text("Clear") } },
+                supportingContent = { Text("Cookies and site storage for every site, including consent choices, and the most cleaned-up sites on the new tab page.") },
+                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { }; app.stats.forgetSites() }) { Text("Clear") } },
             )
             ListItem(
                 headlineContent = { Text("Learned site rules") },
                 supportingContent = { Text("Decisions remembered for ${remember(tick) { app.engine.cache.siteCount() }} sites, so the model runs about once per site.") },
                 trailingContent = { OutlinedButton(onClick = { app.engine.cache.clear() }) { Text("Forget") } },
+            )
+
+            ListItem(
+                headlineContent = { Text("Statistics") },
+                supportingContent = { Text("The totals on the new tab page, counted since ${DateUtils.formatDateTime(ctx, app.stats.totals.since, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR)}.") },
+                trailingContent = { OutlinedButton(onClick = { app.stats.reset() }) { Text("Reset") } },
             )
 
             Section("On-device model")
