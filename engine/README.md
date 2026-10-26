@@ -5,6 +5,7 @@ The hybrid annoyance engine: filter lists → overlay detector + heuristics → 
 ```
 src/content/serene.js   content script (document start, every frame): rules CSS, detector, features, actions
 src/content/autoconsent-entry.js  entry for dist/autoconsent.js (npm run build): DuckDuckGo autoconsent, injected before serene.js
+src/content/reader-entry.js  entry for dist/reader.js: Mozilla Readability, run on demand for reader mode
 src/host/rules.mjs      adblock-rust (Brave) network + cosmetic rules
 src/host/lists.mjs      filter list download/refresh
 src/host/policy.mjs     cache → heuristics → LLM routing, safe-click rules
@@ -19,7 +20,7 @@ test/                   fixture e2e tests, unit tests, model eval + labelled see
 
 ```sh
 npm install && npx playwright install chromium
-npm run build            # dist/: autoconsent.js + its rules and config, also packaged by the app (npm test runs it first)
+npm run build            # dist/: autoconsent.js + its rules and config, reader.js, also packaged by the app (npm test runs it first)
 npm test
 npm run model && npm run llm-eval
 # a .litertlm build, the way the app runs it (pip install litert-lm==0.18.1):
