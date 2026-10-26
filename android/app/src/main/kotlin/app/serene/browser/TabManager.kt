@@ -58,7 +58,7 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     class Closed(val tab: Tab, val index: Int, val wasCurrent: Boolean, val standIn: Tab?)
 
     /**
-     * The tab closed last, while its "Tab closed" bar is up. It is kept whole, WebView and all, so
+     * The tab closed last, while its "Closed …" bar is up. It is kept whole, WebView and all, so
      * Undo brings it back with its history, scroll position and form fields; only one at a time.
      */
     var closed by mutableStateOf<Closed?>(null)

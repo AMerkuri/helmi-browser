@@ -25,7 +25,7 @@ import kotlin.concurrent.thread
 /**
  * The tab switcher: each tab's card shows its page, a tap at the side brings that card to the
  * middle, a tap in the middle opens its tab, and pushing the middle card up closes its tab, which
- * the "Tab closed" bar's Undo brings back. Three pages of one colour each, so the cards can be told apart on a screenshot.
+ * the "Closed …" bar's Undo brings back. Three pages of one colour each, so the cards can be told apart on a screenshot.
  */
 @RunWith(AndroidJUnit4::class)
 class CoverFlowTest {
@@ -100,9 +100,9 @@ class CoverFlowTest {
                 scenario.onActivity { a -> assertEquals(listOf("red", "blue"), a.tabs.tabs.map { it.title }) }
                 assertCards(scenario, "after closing green", middle = "blue", left = "red")
 
-                // "Tab closed" with Undo: green comes back in its place, with its history.
-                waitFor("the Tab closed bar") { closedBar(scenario) == "Tab closed" }
-                shot("Tab closed bar")
+                // "Closed green" with Undo: green comes back in its place, with its history.
+                waitFor("the Closed green bar") { closedBar(scenario) == "Closed green" }
+                shot("Closed bar")
                 scenario.onActivity { a -> a.snackbar.currentSnackbarData!!.performAction() }
                 waitFor("green comes back") { var n = 0; scenario.onActivity { n = it.tabs.tabs.size }; n == 3 }
                 SystemClock.sleep(1000)

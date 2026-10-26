@@ -262,7 +262,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         }
     }
 
-    /** Undo on "Tab closed": [tab]'s card drops back into its place, from [height] up, and the cards after it make room. */
+    /** Undo on the "Closed …" bar: [tab]'s card drops back into its place, from [height] up, and the cards after it make room. */
     fun reopened(tab: Tab, height: Float) {
         val k = tabs.tabs.indexOf(tab)
         if (k < 0 || leaving) return
@@ -603,7 +603,8 @@ private suspend fun awaitDrawn(tab: Tab) {
     }
 }
 
-private fun cardTitle(tab: Tab) = tab.title.ifBlank { host(tab) ?: "New tab" }
+/** What a tab is called on its card and in the "Closed …" bar: its title, else its site. */
+internal fun cardTitle(tab: Tab) = tab.title.ifBlank { host(tab) ?: "New tab" }
 
 private fun host(tab: Tab) = tab.url.takeIf { it.startsWith("http") }?.let { android.net.Uri.parse(it).host }
 

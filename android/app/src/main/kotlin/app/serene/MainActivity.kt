@@ -41,10 +41,12 @@ import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
 import app.serene.download.DownloadService
 import app.serene.ui.BrowserScreen
+import app.serene.ui.ClosedTabBar
 import app.serene.ui.CoverFlowTabs
 import app.serene.ui.DownloadsScreen
 import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
+import app.serene.ui.cardTitle
 import app.serene.ui.applyNightMode
 import app.serene.ui.nightUiMode
 import kotlinx.coroutines.flow.drop
@@ -60,7 +62,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting var pageBounds by mutableStateOf(Rect.Zero)
         private set
     private var openingTabs = false
-    /** "Tab closed", with Undo. */
+    /** "Closed <page>", with Undo. */
     @VisibleForTesting val snackbar = SnackbarHostState()
 
     // The Theme setting this activity was created with, for API < 31 (see attachBaseContext).
@@ -125,7 +127,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
             val closed = tabs.closed
             LaunchedEffect(closed) {
                 if (closed == null) return@LaunchedEffect
-                val r = snackbar.showSnackbar("Tab closed", actionLabel = "Undo", duration = SnackbarDuration.Short)
+                val r = snackbar.showSnackbar("Closed ${cardTitle(closed.tab)}", actionLabel = "Undo", duration = SnackbarDuration.Short)
                 if (r == SnackbarResult.ActionPerformed) tabs.reopen(closed) else tabs.forget(closed)
             }
             SereneTheme {
@@ -142,7 +144,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                         Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
                     }
                     // Over every screen, so its timer runs out (and the tab is let go) wherever you are.
-                    // Just above the bottom bar (with the snackbar's own 12 dp), and the tab switcher's buttons.
+                    // Just above the bottom bar (with the bar's own 12 dp), and the tab switcher's buttons.
                     SnackbarHost(
                         snackbar,
                         Modifier
@@ -150,7 +152,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                             .widthIn(max = 600.dp)
                             .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                             .padding(bottom = 52.dp),
-                    )
+                    ) { ClosedTabBar(it) }
                 }
             }
         }
