@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -148,6 +149,11 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     val scroll = remember { Motion(tabs.currentIndex.toFloat(), scope) }
     // 1: the card the switcher opens from or into is the page itself; 0: all cards in the flow.
     val zoom = remember { Animatable(1f) }
+    // How much the zooming card (and black under it, over the page) covers the page: it fades in
+    // at the start and out at the end, while it has the page's place and size. In between the
+    // live page stays hidden: seen through a fading background it showed as a second, full-size
+    // page behind the growing card.
+    val cover = remember { Animatable(0f) }
     var zoomId by remember { mutableLongStateOf(origin?.id ?: -1L) }
     // After a tab is closed, the cards after it move up into its place: [gap] goes from 1 to 0.
     val gap = remember { Animatable(0f) }
@@ -166,6 +172,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     val focus = LocalFocusManager.current
     LaunchedEffect(Unit) {
         focus.clearFocus() // the address bar, with its keyboard
+        launch { cover.animateTo(1f, tween(100)) }
         zoom.animateTo(0f, tween(380, easing = FastOutSlowInEasing))
     }
 
@@ -197,10 +204,17 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         scope.launch {
             val i = tabs.tabs.indexOf(tab)
             // Under the card, so the WebView has drawn by the time the card has grown.
-            tabs.select(tab)
             zoomId = tab.id
             if (i >= 0 && abs(scroll.value - i) > 0.01f) scroll.animateTo(i.toFloat(), spring(dampingRatio = 0.9f, stiffness = 400f)).join()
+            // Another tab's WebView takes a frame or more to attach: let that pass before the
+            // zoom starts, or its first frames are skipped.
+            if (tabs.current != tab) {
+                tabs.select(tab)
+                repeat(2) { withFrameNanos { } }
+            }
             zoom.animateTo(1f, tween(360, easing = FastOutSlowInEasing))
+            // The card is the page now; it fades into the live one.
+            cover.animateTo(0f, tween(140))
             onDone()
         }
     }
@@ -256,6 +270,14 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         val count = tabs.tabs.size
 
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - zoom.value }.background(Color.Black))
+        // The page's place stays black under the zooming card, while the bars around it fade in.
+        Box(
+            Modifier
+                .offset { IntOffset(page.left.roundToInt(), page.top.roundToInt()) }
+                .size(with(dens) { page.width.toDp() }, with(dens) { page.height.toDp() })
+                .graphicsLayer { alpha = cover.value }
+                .background(Color.Black),
+        )
 
         val drag = rememberDraggableState { dx ->
             val last = (tabs.tabs.size - 1).toFloat()
@@ -303,9 +325,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
                                     scaleX = lerp(sc, page.width / layout.cardWidth, z)
                                     scaleY = lerp(sc, page.height / layout.cardHeight, z)
                                     rot *= 1f - z
-                                    // A title card fades into the page under it (the start page),
-                                    // a picture only at the very end, in case the page moved on.
-                                    alpha = 1f - smoothstep(if (TabPreviews.get(tab) == null) 0.55f else 0.85f, 1f, z)
+                                    alpha = cover.value
                                 } else {
                                     // The others fly off to their side and fade.
                                     tx += (if (d < 0f) -1f else 1f) * z * width * 0.6f
@@ -529,7 +549,3 @@ private fun host(tab: Tab) = tab.url.takeIf { it.startsWith("http") }?.let { and
 
 private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
-private fun smoothstep(from: Float, to: Float, x: Float): Float {
-    val t = ((x - from) / (to - from)).coerceIn(0f, 1f)
-    return t * t * (3 - 2 * t)
-}
