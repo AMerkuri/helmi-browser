@@ -69,6 +69,7 @@ navigation
 - After a click, if the overlay is still there 900 ms later, it is hidden instead, and the cache is updated to `hide`.
 - After hiding, the engine removes the backdrop (an empty full-screen fixed sibling), unlocks `overflow`/`position: fixed` scroll locks (restoring the scroll offset), and removes `filter: blur`. A page that is still scroll-locked with nothing visible on top is unlocked too. That case is what list-hidden banners usually leave behind.
 - A hidden dialog's focus trap (listeners on the document that cancel every touch and click outside the dialog) outlives the dialog, so the page shows but won't scroll. The engine sends Escape, which is how such traps let go: once when it hides a modal, and again if a touch is cancelled later with a dialog hidden and no other modal up.
+- On a later visit a cached hide verdict hides the dialog with CSS before the detector sees it. Elements matched by cached hide rules count as hidden too, so the dialog's dimmed wrapper is still cleared at once (which also sends Escape and keeps the page unlocked), and a cancelled touch still lets go of the trap.
 
 **Cache.** Verdicts are keyed by `(eTLD+1, selector signature)`. Signatures skip hashed class names. Hide verdicts with a usable selector go out as CSS at document start, so the overlay never flashes. Click verdicts store the button *label*, not its index. `undo()` stores an `ignore` rule. On the second visit to a fixture site, the model is not called again (tested).
 

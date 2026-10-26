@@ -138,3 +138,23 @@ test('second visit uses the site cache, not the model', async () => {
   assert.equal(second.llmCalls.length, 0, 'model should not run again');
   assert.ok(second.state.gone);
 });
+
+// On a reload the cached CSS hides the dialog before the detector ever sees it (techspot, #24).
+test('a cached hide: on the next visit the dimmed wrapper still goes while the user touches it', async () => {
+  const cache = new VerdictCache();
+  await runFixture('cookie-dim-wrapper-lock.html', { cache });
+  const { state } = await runFixture('cookie-dim-wrapper-lock.html', { cache });
+  assert.ok(state.gone, '.pv-shell should be gone');
+  assert.ok(state.scrollable, 'page scrolling should be restored');
+  const shown = Math.max(0, ...state.exposure.filter((o) => o.sig.includes('pv-shell')).map((o) => o.visibleMs));
+  assert.ok(shown <= 600, `.pv-shell was on screen for ${shown} ms (at most 600)`);
+});
+
+test('a cached hide: on the next visit a focus trap still lets go', async () => {
+  const cache = new VerdictCache();
+  await runFixture('cookie-focus-trap-late.html', { cache });
+  const { state } = await runFixture('cookie-focus-trap-late.html', { cache });
+  assert.ok(state.gone, '#pv-ui should be gone');
+  assert.ok(state.clicked.includes('story'), `should click "story", clicked ${JSON.stringify(state.clicked)}`);
+  assert.equal(state.touchPrevented, false, 'the last tap should reach the page');
+});

@@ -68,7 +68,7 @@
   for (const t of ['touchstart', 'mousedown']) {
     addEventListener(t, (e) => {
       if (!e.isTrusted || !e.defaultPrevented || config.observeOnly || performance.now() - state.trapsReleasedAt < 1000) return;
-      if ([...state.candidates.values()].some((c) => c.hidden) && !otherModal()) releaseTraps();
+      if (hiddenEls().length && !otherModal()) releaseTraps();
     }, { passive: true });
   }
 
@@ -400,13 +400,18 @@
     // dims the page and swallows taps. Give a modal 2 s to show up on it first, unless the
     // layer wraps a modal we already hid (a consent tool's dimmed wrapper that faded in late).
     const modalUp = [...state.candidates.values()].some((c) => c.modalish && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
-    const hidden = [...state.candidates.values()].filter((c) => c.hidden);
-    const wrapsHidden = (b) => hidden.some((c) => b.el.contains(c.el));
+    const hidden = hiddenEls();
+    const wrapsHidden = (b) => hidden.some((el) => b.el.contains(el));
     const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000 || wrapsHidden(b));
     // Other strays wait for the user to be idle (a tap may have opened them). A wrapper of a modal
     // we hid does not: the user is touching it to scroll past it, and each touch put it off (#24).
     const clear = idle ? stray : stray.filter(wrapsHidden);
-    if (!config.observeOnly && !blocking && clear.length) { for (const b of clear) hideEl(b.el, 'backdrop'); fixScroll(); }
+    if (!config.observeOnly && !blocking && clear.length) {
+      for (const b of clear) hideEl(b.el, 'backdrop');
+      // Clearing the wrapper of a modal we hid is the hide's own cleanup, which a modal hidden by
+      // a cached verdict never got: let go of its focus trap and keep its page unlocked.
+      if (clear.some(wrapsHidden)) { releaseTraps(); restorePage(); } else fixScroll();
+    }
     else if (!config.observeOnly && !blocking && idle && scrollLocked()) fixScroll();
     else if (state.scrollFixed) restorePage();
     return out;
@@ -713,6 +718,17 @@
     if (otherModal()) return;
     state.scrollFixed = true;
     fixScroll();
+  }
+
+  // What Serene hid: candidates it hid, and elements a cached hide verdict hides with CSS before
+  // the detector ever sees them (a reload, techspot #24).
+  function hiddenEls() {
+    const els = [...state.candidates.values()].filter((c) => c.hidden).map((c) => c.el);
+    for (const r of state.siteRules) {
+      if (r.action !== 'hide') continue;
+      try { els.push(...document.querySelectorAll(r.sig)); } catch {}
+    }
+    return els;
   }
 
   function otherModal() {
