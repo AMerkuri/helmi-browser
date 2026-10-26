@@ -71,6 +71,7 @@ def main() -> None:
     stages.npu_quantize(cfg=cfg, input_litertlm=str(exported), output_litertlm=str(quantized), calibration_dir=str(calib_out))
   if "compile" in todo:
     compiled.parent.mkdir(parents=True, exist_ok=True)
+    log_partitions()
     try:
       stages.npu_compile(cfg=cfg, input_litertlm=str(quantized), output_litertlm=str(compiled))
     except ValueError as e:
@@ -80,6 +81,24 @@ def main() -> None:
           print(f"--- {log} ---\n" + pathlib.Path(log).read_text(errors="replace")[-20000:])
       raise
     print(f"NPU model: {compiled} ({os.path.getsize(compiled) / 1e6:.0f} MB)")
+
+
+def log_partitions() -> None:
+  """Prints how many ops of each section the Qualcomm plugin took, which the compiler doesn't."""
+  from absl import logging
+  from ai_edge_litert.aot.core import apply_plugin
+  import ai_edge_litert
+
+  logging.set_verbosity(logging.INFO)
+  print(f"ai_edge_litert {getattr(ai_edge_litert, '__version__', '?')} from {ai_edge_litert.__file__}")
+  call = apply_plugin.ApplyPlugin.__call__
+
+  def logged(self, input_model, output_model, *args, **kwargs):
+    result = call(self, input_model, output_model, *args, **kwargs)
+    print(f"Partition of {input_model.path}: {output_model.partition_stats}")
+    return result
+
+  apply_plugin.ApplyPlugin.__call__ = logged
 
 
 if __name__ == "__main__":

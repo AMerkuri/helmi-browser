@@ -91,8 +91,14 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
                 appendLine("NPU misses:")
                 misses.forEach { appendLine("  $it") }
             }
-            // How much of the graph the compiler plugin put on the NPU, and any QNN errors.
-            val npuLines = logLines(Process.myPid()).filter { l -> NPU_LOG_WORDS.any { l.contains(it, ignoreCase = true) } }.takeLast(40)
+            // How much of the graph the compiler plugin put on the NPU, and every warning or error from
+            // the native libraries (QNN's and FastRPC's come under their own tags). Our own lines are
+            // left out: the error above already has them, and a stack trace would crowd out the rest.
+            val npuLines = logLines(Process.myPid(), last = 5000).filter { l ->
+                val m = LOG_LINE.find(l) ?: return@filter false
+                val (level, tag) = m.destructured
+                !tag.startsWith("Serene") && (level in "WEF" || NPU_LOG_WORDS.any { l.contains(it, ignoreCase = true) })
+            }.takeLast(120)
             if (npuLines.isNotEmpty()) {
                 appendLine("NPU log lines:")
                 npuLines.forEach { appendLine("  $it") }
@@ -104,6 +110,8 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         const val TAG = "SereneNpu"
         private const val PROCESS = ":npu"
         private val NPU_LOG_WORDS = listOf("npu", "qnn", "htp", "dispatch", "partition", "compil", "accelerator", "delegate")
+        /** A `logcat -v threadtime` line: date, time, pid, tid, level, tag. */
+        private val LOG_LINE = Regex("""^\S+ \S+\s+\d+\s+\d+ ([VDIWEF]) (\S+?)\s*:""")
 
         /** A Qualcomm SoC on Android 12+, where LiteRT's NPU support starts. */
         val supported: Boolean
@@ -206,12 +214,12 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         private fun File.readTextOrNull() = takeIf { it.exists() }?.readText()
 
         /** The last lines a process logged, plus the crash buffer (abort message and backtrace). */
-        private fun logLines(pid: Int): List<String> {
+        private fun logLines(pid: Int, last: Int = 80): List<String> {
             fun logcat(vararg args: String) = runCatching {
                 val p = ProcessBuilder(listOf("logcat", "-d", "-v", "threadtime") + args).redirectErrorStream(true).start()
                 p.inputStream.bufferedReader().readLines().also { p.waitFor() }
             }.getOrElse { listOf("(logcat failed: ${it.message})") }
-            val own = logcat("--pid=$pid").takeLast(80)
+            val own = logcat("--pid=$pid").takeLast(last)
             val crash = logcat("-b", "crash").filter { " $pid " in it }.takeLast(40)
             return own + crash.filter { it !in own }
         }

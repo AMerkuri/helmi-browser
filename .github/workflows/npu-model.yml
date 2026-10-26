@@ -62,8 +62,13 @@ jobs:
         with:
           path: ${{ runner.temp }}/npu/quantized
           key: ${{ steps.quantized.outputs.cache-primary-key }}
+      # The app's dispatch library is LiteRT 2.3.0's (litert-npu-runtime-qualcomm), and a model
+      # compiled by the nightly's plugin failed to allocate its tensors on the phone, so the compile
+      # uses the 2.3.0 release's plugin. litert-torch still imports with it. Both use QAIRT 2.50.
       - name: Compile
-        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages compile
+        run: |
+          pip install --no-deps --target "$RUNNER_TEMP/litert-2.3.0" ai-edge-litert==2.3.0
+          PYTHONPATH="$RUNNER_TEMP/litert-2.3.0" python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages compile
       - name: Checksum
         run: |
           cd "$RUNNER_TEMP/npu/npu"
