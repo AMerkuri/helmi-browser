@@ -7,6 +7,9 @@ import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -52,6 +55,14 @@ class BottomBarTest {
                 var tab: Tab? = null
                 scenario.onActivity { a -> tab = a.tabs.current!!.apply { load("http://127.0.0.1:${server.localPort}/red") } }
                 waitFor("the page loads") { tab?.title == "red" && tab?.progress == 100 }
+                // The blank tab the test started on focused the address bar: put the keyboard away,
+                // so the bar is back at the bottom.
+                scenario.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
+                waitFor("the keyboard closes") {
+                    var ime = true
+                    scenario.onActivity { a -> ime = ViewCompat.getRootWindowInsets(a.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: true }
+                    !ime
+                }
                 SystemClock.sleep(1500) // drawn
 
                 val bar = bar(scenario)
@@ -62,15 +73,15 @@ class BottomBarTest {
                 assertTrue("page should show above the bar", near(shot("menu closed").at(underMenu, above), red))
 
                 tap(underMenu, bar.top + bar.dp * 26)
-                SystemClock.sleep(800) // opened
-                val open = shot("menu open")
-                val menu = open.at(underMenu, above)
-                assertTrue("gap between the menu and the bar: %08x is the page".format(menu), !near(menu, red))
+                // The emulator draws slowly: wait for the menu rather than guess how long it takes.
+                // Should it float with a gap, the page stays there and this times out.
+                val open = shotWhen("menu open") { !near(it.at(underMenu, above), red) }
+                assertTrue("gap between the menu and the bar: %08x is the page".format(open.at(underMenu, above)), !near(open.at(underMenu, above), red))
                 assertTrue("the menu should only cover its end of the page", near(open.at(clear, above), red))
 
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-                SystemClock.sleep(800) // closed
-                assertTrue("back should close the menu", near(shot("menu closed by back").at(underMenu, above), red))
+                val closed = shotWhen("menu closed by back") { near(it.at(underMenu, above), red) }
+                assertTrue("back should close the menu", near(closed.at(underMenu, above), red))
                 scenario.onActivity { a -> assertEquals("back should only close the menu", 1, a.tabs.tabs.size) }
 
                 // New tab is the middle of five.
@@ -101,13 +112,30 @@ class BottomBarTest {
         fun at(x: Float, y: Float) = bitmap.getPixel(x.toInt(), y.toInt())
     }
 
+    /** The first screenshot that is [ok], or the last one after [timeoutMs]; logged either way. */
+    private fun shotWhen(label: String, timeoutMs: Long = 5_000, ok: (Shot) -> Boolean): Shot {
+        val end = SystemClock.uptimeMillis() + timeoutMs
+        var s = Shot(screenshot())
+        while (!ok(s) && SystemClock.uptimeMillis() < end) {
+            SystemClock.sleep(200)
+            s = Shot(screenshot())
+        }
+        log(s.bitmap, label)
+        return s
+    }
+
     /** A screenshot of the display, also logged as base64 PNG (the e2e-output artifact) to look at. */
-    private fun shot(label: String): Shot {
+    private fun shot(label: String) = Shot(screenshot()).also { log(it.bitmap, label) }
+
+    private fun screenshot(): Bitmap {
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
         assertNotNull("no screenshot", bitmap)
-        val png = ByteArrayOutputStream().also { bitmap!!.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        return bitmap!!
+    }
+
+    private fun log(bitmap: Bitmap, label: String) {
+        val png = ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
         Base64.encodeToString(png, Base64.NO_WRAP).chunked(3000).forEachIndexed { i, chunk -> Log.i("BottomBarShot", "$label #$i $chunk") }
-        return Shot(bitmap!!)
     }
 
     private fun tap(x: Float, y: Float) {
