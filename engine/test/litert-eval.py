@@ -54,6 +54,9 @@ def main():
                   help='load the model again for each record (Qwen3.5: a new conversation keeps the last one\'s recurrent state, LiteRT-LM issue 3165)')
   ap.add_argument('--chatml', action='store_true',
                   help='use a plain Qwen ChatML template with an empty think block (for builds whose own template fails)')
+  ap.add_argument('--preface-turn', action='store_true',
+                  help='send the instructions as a first user turn answered "OK" instead of a system message '
+                       '(Gemma has no system turn, so only this layout can be prefilled ahead of the overlay)')
   ap.add_argument('--limit', type=int, default=0)
   args = ap.parse_args()
 
@@ -74,8 +77,10 @@ def main():
     if args.fresh_engine and r is not rows[0]:
       engine.close()
       engine = litert_lm.Engine(args.model, backend=backend, cache_dir=str(pathlib.Path(args.model).parent))
+    preface = [{'role': 'user', 'content': data['system']}, {'role': 'model', 'content': 'OK'}] if args.preface_turn else None
     conv = engine.create_conversation(
-        system_message=data['system'],
+        messages=preface,
+        system_message=None if args.preface_turn else data['system'],
         sampler_config=litert_lm.SamplerConfig(top_k=1, top_p=1.0, temperature=0.0),
         thinking_config=litert_lm.ThinkingConfig(enable_thinking=False),
         max_output_tokens=32,
