@@ -204,7 +204,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                     }
                     // What covers the WebView moves with it.
                     Box(Modifier.fillMaxSize().offset { IntOffset(swipe.pageOffset.roundToInt(), 0) }) {
-                        if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab) })
+                        if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab, undo = false) })
                         else if (startPage) StartPage(app)
                         else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
                             DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))

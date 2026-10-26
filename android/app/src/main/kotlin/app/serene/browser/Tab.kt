@@ -354,6 +354,15 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
     /** Pages left are kept in WebView's back/forward cache, and swipes show snapshots of them. */
     val backForwardCache get() = backForwardCacheSupported && app.settings.backForwardCache
 
+    /** Closed, but Undo may still bring it back: what plays stops, and what can wait does. */
+    fun pause() {
+        webView.evaluateJavascript(PAUSE_MEDIA, null)
+        webView.onPause()
+    }
+
+    /** Back from [pause]. What was playing stays paused, as after a stop. */
+    fun resume() = webView.onResume()
+
     fun destroy() {
         if (destroyed) return
         destroyed = true
@@ -621,6 +630,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
          * for icons or drawings (few colors: logos, diagrams, scans); `color-scheme: only light`
          * opts an element out of forced darkening, and does nothing otherwise.
          */
+        private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
+
         private const val KEEP_PICTURES = """(() => {
             try {
                 const sheet = new CSSStyleSheet();
