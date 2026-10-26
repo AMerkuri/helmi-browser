@@ -56,6 +56,12 @@
   for (const t of ['pointerdown', 'keydown', 'touchstart']) {
     addEventListener(t, (e) => { if (e.isTrusted) state.lastInput = performance.now(); }, true);
   }
+  // A page we unlocked can lock itself again with no DOM change for the observer to see (a
+  // CSS-in-JS rule added through the CSSOM) and no scan coming. The user trying to scroll it is
+  // the cue to look again (techspot, #24).
+  for (const t of ['touchstart', 'wheel']) {
+    addEventListener(t, (e) => { if (e.isTrusted && state.scrollFixed && !config.observeOnly && document.body && scrollLocked()) restorePage(); }, { capture: true, passive: true });
+  }
 
   // ---------------------------------------------------------------- host messages
 
@@ -386,8 +392,12 @@
     // layer wraps a modal we already hid (a consent tool's dimmed wrapper that faded in late).
     const modalUp = [...state.candidates.values()].some((c) => c.modalish && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
     const hidden = [...state.candidates.values()].filter((c) => c.hidden);
-    const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000 || hidden.some((c) => b.el.contains(c.el)));
-    if (!config.observeOnly && !blocking && idle && stray.length) { for (const b of stray) hideEl(b.el, 'backdrop'); fixScroll(); }
+    const wrapsHidden = (b) => hidden.some((c) => b.el.contains(c.el));
+    const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000 || wrapsHidden(b));
+    // Other strays wait for the user to be idle (a tap may have opened them). A wrapper of a modal
+    // we hid does not: the user is touching it to scroll past it, and each touch put it off (#24).
+    const clear = idle ? stray : stray.filter(wrapsHidden);
+    if (!config.observeOnly && !blocking && clear.length) { for (const b of clear) hideEl(b.el, 'backdrop'); fixScroll(); }
     else if (!config.observeOnly && !blocking && idle && scrollLocked()) fixScroll();
     else if (state.scrollFixed) restorePage();
     return out;
