@@ -111,6 +111,14 @@ class TabCubeTest {
                 assertEquals("green", current(scenario))
                 assertPage(scenario, "after a short drag", "green")
 
+                // A second drag straight after a turn takes the cube on from there: to blue and
+                // straight back to green, with no pause between them.
+                drag(scenario, from = 0.7f, by = -0.5f)
+                drag(scenario, from = 0.3f, by = 0.5f)
+                SystemClock.sleep(1500)
+                assertEquals("the second drag should count", "green", current(scenario))
+                assertPage(scenario, "after two quick turns", "green")
+
                 // A tap on the bar is a tap: the tabs button opens the switcher.
                 tapBar(scenario, 0.68f)
                 waitFor("the switcher opens") { screen(scenario) == Screen.Tabs }

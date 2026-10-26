@@ -67,8 +67,11 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
     /** The tab the drag started on, until the turn ends. */
     var from by mutableStateOf<Tab?>(null)
         private set
-    /** The page as the drag started. The cube is drawn once there is one. */
+    /** The page as the drag started, at full resolution; null for the switcher's picture of [from]. */
     var picture by mutableStateOf<Bitmap?>(null)
+        private set
+    /** The cube is drawn: from when the page's picture is taken until the page it ends on shows. */
+    var showing by mutableStateOf(false)
         private set
     /** The turn has ended on [arrived]: its face covers its page until the page has drawn. */
     var covering by mutableStateOf(false)
@@ -89,6 +92,8 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
     private var dragging = false
     private var dx = 0f
     private var job: Job? = null
+    // Where the cube is turning to after the finger let go: 1, -1, or 0 back.
+    private var target = 0
     // Whether the cube counts in TabPreviews.covered now.
     private var covers = false
     private val main = Handler(Looper.getMainLooper())
@@ -99,10 +104,14 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         return if (i < 0 || dir == 0) null else tabs.tabs.getOrNull(i + dir)
     }
 
-    /** A drag has started on the bar. Takes the page's picture; the cube shows once it is taken. */
+    /**
+     * A drag has started on the bar. Takes the page's picture; the cube shows once it is taken.
+     * During a turn the finger takes the cube where it is, so tabs can be flicked through quickly.
+     */
     fun start(window: Window?) {
+        if (from != null) return resume()
         val tab = tabs.current
-        if (from != null || tab == null || width <= 0f || window == null || tab.swipe.active || tab.pull.active) return
+        if (tab == null || width <= 0f || window == null || tab.swipe.active || tab.pull.active) return
         from = tab
         dragging = true
         dx = 0f
@@ -112,9 +121,39 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         copy(window, bounds) { bmp ->
             if (from !== tab || bmp == null) return@copy
             picture = bmp
+            showing = true
             TabPreviews.cover(true)
             covers = true
         }
+    }
+
+    /**
+     * A drag during a turn. Turning back, the finger catches the cube. Turning on, or once
+     * there, the tab turned to is the one dragged from now, its face as the switcher's picture
+     * (what the face showed), and the cube stays where it is.
+     */
+    private fun resume() {
+        if (dragging || !showing) return
+        job?.cancel()
+        job = null
+        if (covering || target != 0) {
+            val to = (if (covering) arrived else beside(target)) ?: return clear()
+            if (covering) {
+                turn = 0f
+            } else {
+                if (tabs.current !== from || to !in tabs.tabs) return clear()
+                arrived = to
+                tabs.select(to)
+                turn -= target
+            }
+            covering = false
+            from = to
+            picture = null
+            target = 0
+        }
+        dragging = true
+        val back = if (beside(turn.sign.toInt()) == null) RESIST else 1f
+        dx = -turn * width / back
     }
 
     /** The finger moved [delta] px sideways. */
@@ -133,11 +172,11 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         val dir = turn.sign.toInt()
         val to = beside(dir)
         val v = -velocity
-        val go = to != null && picture != null && if (abs(v) > flingVelocity) v.sign.toInt() == dir else abs(turn) > COMMIT
-        val target = if (go) dir.toFloat() else 0f
+        val go = to != null && showing && if (abs(v) > flingVelocity) v.sign.toInt() == dir else abs(turn) > COMMIT
+        target = if (go) dir else 0
         job = scope.launch {
             // Critically damped: no swing past the face, and a fling keeps its speed.
-            animate(turn, target, (v / width).coerceIn(-6f, 6f), spring(dampingRatio = 1f, stiffness = 320f, visibilityThreshold = 0.001f)) { t, _ ->
+            animate(turn, target.toFloat(), (v / width).coerceIn(-6f, 6f), spring(dampingRatio = 1f, stiffness = 320f, visibilityThreshold = 0.001f)) { t, _ ->
                 turn = t.coerceIn(-1f, 1f)
             }
             if (go) arrive(to) else clear()
@@ -150,6 +189,7 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         arrived = to
         coverAlpha = 1f
         covering = true
+        target = 0
         tabs.select(to)
         val page = to.hasPage && !to.downloadPage && to.url.isNotEmpty() && to.url != "about:blank"
         if (page) awaitDrawn(to) else repeat(2) { withFrameNanos { } }
@@ -168,6 +208,8 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         dragging = false
         from = null
         picture = null
+        showing = false
+        target = 0
         covering = false
         turn = 0f
         if (covers) TabPreviews.cover(false)
@@ -194,8 +236,9 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
  */
 @Composable
 fun TabCubeFaces(cube: TabCube, app: SereneApp) {
-    val picture = cube.picture ?: return
-    val image = remember(picture) { picture.asImageBitmap() }
+    if (!cube.showing) return
+    val picture = cube.picture
+    val image = remember(picture) { picture?.asImageBitmap() }
     val from = cube.from ?: return
     val arrived = cube.arrived
     if (cube.covering && arrived != null) {
