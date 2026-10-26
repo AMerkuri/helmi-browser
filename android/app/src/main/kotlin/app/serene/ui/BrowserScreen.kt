@@ -176,6 +176,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
         }
     }
 
+    // A new tab from a link or picture opens behind this one, as in Chrome: the tab count goes up.
+    tab.contextMenu?.let { p -> ContextMenu(app, tab, p, onDismiss = { tab.contextMenu = null }, onNewTab = { tabs.open(it, select = false) }) }
+
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
 
     reportDir?.let { dir ->
