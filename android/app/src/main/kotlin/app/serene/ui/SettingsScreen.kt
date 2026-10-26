@@ -109,6 +109,20 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 }
             }
 
+            Section("Flags")
+            Text(
+                "Features to try out. They may change or go away.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            SwitchRow(
+                "Back/forward cache",
+                if (Tab.backForwardCacheSupported) "Going back or forward resumes the page as it was, and swipes show a picture of it. Off: the page loads again, and swipes show its title."
+                else "Not supported by this WebView: pages load again, and swipes show the page's title.",
+                s.backForwardCache && Tab.backForwardCacheSupported,
+                enabled = Tab.backForwardCacheSupported,
+            ) { s.backForwardCache = it }
+
             Section("About")
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)
             ListItem(
@@ -202,11 +216,11 @@ private fun Section(title: String) {
 }
 
 @Composable
-private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
-        modifier = Modifier.clickable { onChange(!checked) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
+        modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) },
     )
 }

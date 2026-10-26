@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import app.serene.browser.HistorySwipe.Companion.BACK
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebMessageCompat
@@ -36,6 +37,9 @@ import app.serene.download.Download
 import app.serene.engine.EngineJson
 import app.serene.engine.FrameRef
 import app.serene.engine.PageSession
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -101,6 +105,9 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         onScrolled = ::snapshotSoon
     }
 
+    // Follows the Settings flags while the tab is open.
+    private val flags: Job
+
     init {
         with(webView.settings) {
             javaScriptEnabled = true
@@ -119,8 +126,13 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             }
             // Back/forward cache, as Chrome has: a page left is kept paused for a while, and back or
             // forward to it resumes it as it was instead of loading it again (no reload, no jump).
-            // The page's engine session goes with it, see onDocMessage.
-            if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(this, true)
+            // The page's engine session goes with it, see onDocMessage. A flag in Settings.
+        }
+        flags = app.scope.launch(Dispatchers.Main.immediate) {
+            snapshotFlow { backForwardCache }.collect {
+                if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, it)
+                if (!it) Snapshots.clear(id)
+            }
         }
         installEngine()
         webView.webViewClient = Client()
@@ -255,10 +267,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
     @Volatile private var destroyed = false
 
+    /** Pages left are kept in WebView's back/forward cache, and swipes show snapshots of them. */
+    val backForwardCache get() = backForwardCacheSupported && app.settings.backForwardCache
+
     fun destroy() {
         if (destroyed) return
         destroyed = true
         main.removeCallbacksAndMessages(null)
+        flags.cancel()
         swipe.reset()
         pull.reset()
         Snapshots.clear(id)
@@ -317,7 +333,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
      * it shows, so a swipe shows the plain title card instead.
      */
     fun snapshot() {
-        if (!backForwardCacheSupported) return
+        if (!backForwardCache) return
         if (destroyed || swipe.active || pull.active || painting || !webView.isAttachedToWindow) return
         val w = webView.width
         val h = webView.height

@@ -61,7 +61,7 @@ class HistorySwipe(private val tab: Tab) {
         val item = list.getItemAtIndex(list.currentIndex + dir) ?: return false
         direction = dir
         fingerSign = if (dir == FORWARD || fromRight) -1 else 1
-        target = Snapshots.get(tab.id, list.currentIndex + dir, item.url)
+        target = if (tab.backForwardCache) Snapshots.get(tab.id, list.currentIndex + dir, item.url) else null
         targetLabel = item.title?.takeIf { it.isNotBlank() } ?: android.net.Uri.parse(item.url).host ?: item.url
         covering = false
         coverAlpha = 1f

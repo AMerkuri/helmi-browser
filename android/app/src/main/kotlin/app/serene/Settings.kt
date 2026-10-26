@@ -34,6 +34,10 @@ class Settings(context: Context) {
     private val wifiOnlyPref = bool("wifi_only_downloads", true)
     var wifiOnlyDownloads: Boolean get() = wifiOnlyPref.state; set(v) = wifiOnlyPref.set(v)
 
+    private val backForwardCachePref = bool("flag_back_forward_cache", true)
+    /** Flag: WebView's back/forward cache, and swipe previews with it (off: a title card, and back reloads). */
+    var backForwardCache: Boolean get() = backForwardCachePref.state; set(v) = backForwardCachePref.set(v)
+
     private val searchPref = string("search_engine", SearchEngine.DUCKDUCKGO.name)
     var searchEngine: SearchEngine
         get() = runCatching { SearchEngine.valueOf(searchPref.state) }.getOrDefault(SearchEngine.DUCKDUCKGO)
