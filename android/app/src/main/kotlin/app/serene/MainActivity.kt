@@ -1,9 +1,11 @@
 package app.serene
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
@@ -12,9 +14,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import app.serene.browser.FilePickerHost
 import app.serene.browser.TabManager
 import app.serene.download.DownloadService
@@ -23,6 +27,9 @@ import app.serene.ui.DownloadsScreen
 import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
 import app.serene.ui.TabsScreen
+import app.serene.ui.applyNightMode
+import app.serene.ui.nightUiMode
+import kotlinx.coroutines.flow.drop
 
 enum class Screen { Browser, Tabs, Settings, Downloads }
 
@@ -30,6 +37,9 @@ class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting lateinit var tabs: TabManager
         private set
     private var screen by mutableStateOf(Screen.Browser)
+
+    // The Theme setting this activity was created with, for API < 31 (see attachBaseContext).
+    private var startTheme = ThemeMode.SYSTEM
 
     private var pickDone: ((Array<Uri>?) -> Unit)? = null
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -56,6 +66,17 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         }
     }
 
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(newBase)
+        startTheme = (newBase.applicationContext as SereneApp).settings.theme
+        // Before API 31 there is no per-app night mode: override this activity's own configuration.
+        if (Build.VERSION.SDK_INT < 31) {
+            val night = nightUiMode(startTheme) ?: return
+            val uiMode = newBase.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv() or night
+            applyOverrideConfiguration(Configuration().also { it.uiMode = uiMode })
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -65,6 +86,15 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         handleIntent(intent)
 
         setContent {
+            // Changes only: SereneApp applied the setting at start.
+            LaunchedEffect(Unit) {
+                snapshotFlow { app.settings.theme }.drop(1).collect { theme ->
+                    if (Build.VERSION.SDK_INT >= 31) applyNightMode(this@MainActivity, theme)
+                    else if (theme != startTheme) recreate()
+                }
+            }
+            val darkSites = app.settings.darkSites
+            LaunchedEffect(darkSites) { tabs.tabs.forEach { it.applyDarkening() } }
             SereneTheme {
                 BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
                 when (screen) {
@@ -104,6 +134,8 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         // uiMode is handled in place (see the manifest), so the system bar icons picked in onCreate
         // keep the old theme when the system switches to dark: dark icons on a dark bar. Pick again.
         enableEdgeToEdge()
+        // Pages follow the theme too; a WebView that isn't on screen misses the change.
+        tabs.tabs.forEach { it.applyDarkening() }
     }
 
     override fun onStop() {
