@@ -203,6 +203,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             "serene-doc" -> current?.let { docSessions[id] = it }
             "serene-doc-restored" -> {
                 docSessions[id]?.let { s ->
+                    s.note("resumed from the back/forward cache")
                     pending = null
                     current = s
                     session = s
