@@ -69,7 +69,7 @@ object ModelCatalog {
         url = "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.litertlm",
         sizeBytes = 584_417_280,
         sha256 = "1325ae366d31950f137c9c357b9fa89448b176d76998180c08ceaca78bba98be",
-        gatedPage = "https://huggingface.co/litert-community/Gemma3-1B-IT/blob/main/gemma3-1b-it-int4.litertlm",
+        gatedPage = "https://huggingface.co/litert-community/Gemma3-1B-IT",
     )
     val all = listOf(DEFAULT, SMALL, GEMMA)
     fun byId(id: String) = all.firstOrNull { it.id == id } ?: DEFAULT

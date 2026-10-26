@@ -183,8 +183,9 @@ private fun GatedImport(app: SereneApp) {
     val m = app.models
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(m::import) }
     Text(
-        "Hugging Face only lets signed-in accounts download this model. Open its page, sign in, accept the terms and download " +
-            "${m.spec.file} (${Formatter.formatShortFileSize(ctx, m.spec.sizeBytes)}), then import it here.",
+        "Hugging Face only lets signed-in accounts that accepted its terms download this model. Open its page, sign in, tap " +
+            "\"Agree and access repository\", then download ${m.spec.file} (${Formatter.formatShortFileSize(ctx, m.spec.sizeBytes)}) " +
+            "from Files and versions and import it here.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(6.dp))
