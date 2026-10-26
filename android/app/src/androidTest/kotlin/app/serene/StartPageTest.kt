@@ -67,12 +67,18 @@ class StartPageTest {
                 SystemClock.sleep(1000)
                 scenario.onActivity { WindowCompat.getInsetsController(it.window, it.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
                 SystemClock.sleep(1000)
-                val found = inst.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText("annoyances cleared")
+                // Compose builds its accessibility tree once something asks for it, so ask until it answers.
+                var found = false
+                val end = SystemClock.uptimeMillis() + 10_000
+                while (!found && SystemClock.uptimeMillis() < end) {
+                    found = inst.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText("annoyances cleared")?.isNotEmpty() == true
+                    if (!found) SystemClock.sleep(250)
+                }
                 val shot = inst.uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
                 assertNotNull(shot)
                 val png = ByteArrayOutputStream().also { shot!!.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
                 Base64.encodeToString(png, Base64.NO_WRAP).chunked(3000).forEachIndexed { i, chunk -> Log.i("StartPageShot", "start #$i $chunk") }
-                assertTrue("the start page shows the totals", !found.isNullOrEmpty())
+                assertTrue("the start page shows the totals", found)
             }
         } finally {
             server.close()
