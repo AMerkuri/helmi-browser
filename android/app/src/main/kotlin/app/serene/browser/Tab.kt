@@ -44,6 +44,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.net.URLEncoder
@@ -84,6 +85,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         private set
     /** The latest download from this tab; a bar over the page shows it until dismissed. */
     var downloadBar by mutableStateOf<Download?>(null)
+    /** The link or picture the user long-pressed: the context menu shows it until dismissed. */
+    var contextMenu by mutableStateOf<Pressed?>(null)
 
     // The user agent of a blob: download while its data comes back from the page.
     @Volatile private var blobUserAgent: String? = null
@@ -154,6 +157,55 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         }
         webView.setDownloadListener { dlUrl, userAgent, contentDisposition, mimeType, _ ->
             onDownload(dlUrl, userAgent, contentDisposition, mimeType)
+        }
+        webView.setOnLongClickListener { onLongPress() }
+    }
+
+    // The long-pressed link's address and text, from WebView's last hit test. what is the hit
+    // test's type, obj its address: the link's, or for a picture link the picture's.
+    private val linkHref = Handler(Looper.getMainLooper()) { m ->
+        val picture = m.what == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+        val href = (m.data.getString("url")?.takeIf { it.isNotBlank() } ?: (m.obj as? String).takeIf { !picture })?.takeIf { isWebLink(it) }
+        val image = (m.obj as? String)?.takeIf { picture && isImageSrc(it) }
+        if ((href != null || image != null) && !destroyed) {
+            contextMenu = Pressed(href, m.data.getString("title").orEmpty().trim().replace(Regex("\\s+"), " "), image)
+            image?.let(::lookUpAlt)
+        }
+        true
+    }
+
+    /**
+     * A long press on a link or a picture opens the context menu, as in Chrome. Anything else
+     * (text to select) stays WebView's. Web links only: a javascript: or mailto: link has nothing
+     * to open in a tab. Pictures from the web or data: URLs; a blob: one only exists in its page.
+     */
+    private fun onLongPress(): Boolean {
+        val hit = webView.hitTestResult
+        val src = hit.extra ?: return false
+        when (hit.type) {
+            WebView.HitTestResult.SRC_ANCHOR_TYPE -> if (!isWebLink(src)) return false
+            WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> Unit
+            WebView.HitTestResult.IMAGE_TYPE -> {
+                if (!isImageSrc(src)) return false
+                contextMenu = Pressed(null, "", src)
+                lookUpAlt(src)
+                return true
+            }
+            else -> return false
+        }
+        // For a picture link the hit test has the picture's address; the link's comes with the message.
+        webView.requestFocusNodeHref(linkHref.obtainMessage(hit.type, src))
+        return true
+    }
+
+    /** The picture's alt text (or title) for the top of the menu. Pictures in the top frame only. */
+    private fun lookUpAlt(src: String) {
+        val js = "(() => { const s = ${JSONObject.quote(src)}; const i = [...document.images].find(i => i.currentSrc === s || i.src === s);" +
+            " return i ? (i.alt || i.title || '').trim() : ''; })()"
+        webView.evaluateJavascript(js) { json ->
+            val alt = runCatching { JSONArray("[$json]").optString(0) }.getOrNull().orEmpty().replace(Regex("\\s+"), " ")
+            val p = contextMenu
+            if (alt.isNotEmpty() && p != null && p.image == src) contextMenu = p.copy(alt = alt)
         }
     }
 
@@ -289,6 +341,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         if (destroyed) return
         destroyed = true
         main.removeCallbacksAndMessages(null)
+        linkHref.removeCallbacksAndMessages(null)
         flags.cancel()
         swipe.reset()
         pull.reset()
@@ -460,8 +513,17 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         if (blank) downloadPage = true
         progress = 100
         if (dlUrl.startsWith("blob:")) return fetchBlob(dlUrl, userAgent)
-        val referer = if (blank) null else Uri.parse(url).let { u -> if (u.scheme?.startsWith("http") == true) "${u.scheme}://${u.authority}/" else null }
-        downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, referer, id)
+        downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, if (blank) null else referrer, id)
+    }
+
+    /** What requests from this page send as Referer: its origin, as Chrome does across sites. */
+    val referrer: String? get() = Uri.parse(url).let { u -> if (u.scheme?.startsWith("http") == true) "${u.scheme}://${u.authority}/" else null }
+
+    val userAgent: String get() = webView.settings.userAgentString
+
+    /** Saves a picture from the page (the context menu's Download image), as a download from this tab. */
+    fun downloadImage(src: String) {
+        downloadBar = app.downloads.start(src, userAgent, null, null, referrer, id)
     }
 
     /** A blob: URL only exists inside the page, so the page reads it and sends it back as data:. */
@@ -579,6 +641,16 @@ fun requestType(request: WebResourceRequest): String {
         else -> "other"
     }
 }
+
+/**
+ * What a long press was on: a [link] with its [text] ("" for a picture link), a picture
+ * ([image], its address, and [alt], its alt text), or a picture that is a link (both).
+ */
+data class Pressed(val link: String?, val text: String, val image: String?, val alt: String = "")
+
+fun isWebLink(url: String) = url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)
+
+fun isImageSrc(url: String) = isWebLink(url) || url.startsWith("data:image/", ignoreCase = true)
 
 /** URL bar input: a URL as typed, a host without scheme, or a search. */
 fun resolveInput(input: String, searchTemplate: String): String {

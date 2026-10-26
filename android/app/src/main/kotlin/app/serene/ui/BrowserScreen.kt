@@ -1,6 +1,8 @@
 package app.serene.ui
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Build
 import android.view.View
@@ -9,22 +11,29 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.setTextAndSelectAll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -74,7 +83,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -171,6 +179,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
         }
     }
 
+    // A new tab from a link or picture opens behind this one, as in Chrome: the tab count goes up.
+    tab.contextMenu?.let { p -> ContextMenu(app, tab, p, onDismiss = { tab.contextMenu = null }, onNewTab = { tabs.open(it, select = false) }) }
+
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
 
     reportDir?.let { dir ->
@@ -182,47 +193,97 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    var value by remember(tab.id) { mutableStateOf(TextFieldValue(tab.url)) }
+    // The state-based field: dragging the cursor handle past the edge keeps scrolling the text,
+    // where the TextFieldValue one stopped a character past what was on screen.
+    val state = remember(tab.id) { TextFieldState(displayUrl(tab.url)) }
+    val scroll = rememberScrollState()
+    // The address the edit started from, while the field is focused.
+    var original by remember { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     val focus = remember { FocusRequester() }
-    LaunchedEffect(tab.url, focused) { if (!focused) value = TextFieldValue(displayUrl(tab.url)) }
+    val context = LocalContext.current
+    LaunchedEffect(tab.url, focused) {
+        if (focused) {
+            // The whole address, selected, as in Samsung Internet. After the tap that focused the
+            // field has placed its cursor, which would otherwise undo the selection.
+            if (original == null) {
+                val url = if (tab.url == "about:blank") "" else tab.url
+                original = url
+                state.setTextAndSelectAll(url)
+            }
+        } else {
+            original = null
+            state.edit { replace(0, length, displayUrl(tab.url)); selection = TextRange.Zero }
+            // An unfocused field doesn't follow the cursor, so show the start of the address.
+            scroll.scrollTo(0)
+        }
+    }
     LaunchedEffect(tab.id) { if (tab.url.isEmpty()) focus.requestFocus() }
+    // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome.
+    val imeVisible = WindowInsets.isImeVisible
+    var imeWasVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(imeVisible) {
+        if (imeVisible) imeWasVisible = true
+        else if (imeWasVisible) {
+            imeWasVisible = false
+            if (focused) focusManager.clearFocus()
+        }
+    }
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         ShieldButton(app, tab, onShield)
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.weight(1f).height(44.dp)) {
-            Box(Modifier.padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
-                    keyboardActions = KeyboardActions(onGo = {
-                        tab.load(value.text)
-                        focusManager.clearFocus()
-                    }),
-                    modifier = Modifier.fillMaxWidth().focusRequester(focus).onFocusChanged {
-                        if (it.isFocused && !focused) value = TextFieldValue(tab.url, TextRange(0, tab.url.length))
-                        focused = it.isFocused
-                    },
-                    decorationBox = { inner ->
-                        if (value.text.isEmpty()) Text("Search or type a URL", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        inner()
-                    },
-                )
-            }
+            BasicTextField(
+                state = state,
+                lineLimits = TextFieldLineLimits.SingleLine,
+                scrollState = scroll,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
+                onKeyboardAction = {
+                    tab.load(state.text.toString())
+                    focusManager.clearFocus()
+                },
+                modifier = Modifier.fillMaxSize().focusRequester(focus).onFocusChanged {
+                    focused = it.isFocused
+                },
+                decorator = { inner ->
+                    // Chrome's inline clear button: inside the field, at its end, while there is
+                    // something to clear. Reload stays where it is. Copy sits next to it until
+                    // the address is edited, as in Samsung Internet.
+                    val showClear = focused && state.text.isNotEmpty()
+                    val showCopy = showClear && original != null && state.text.contentEquals(original)
+                    Row(
+                        Modifier.fillMaxSize().padding(start = 16.dp, end = if (showClear) 2.dp else 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            if (state.text.isEmpty()) Text("Search or type a URL", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            inner()
+                        }
+                        if (showCopy) {
+                            IconButton(onClick = {
+                                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Address", original))
+                                focusManager.clearFocus()
+                            }, modifier = Modifier.size(40.dp)) {
+                                Icon(painterResource(R.drawable.ic_copy), "Copy address", Modifier.size(20.dp))
+                            }
+                        }
+                        if (showClear) {
+                            IconButton(onClick = { state.clearText() }, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Filled.Clear, "Clear", Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                },
+            )
         }
-        if (focused) {
-            IconButton(onClick = { value = TextFieldValue("") }) { Icon(Icons.Filled.Clear, "Clear") }
-        } else {
-            IconButton(onClick = { if (tab.progress < 100) tab.stop() else tab.reload() }) {
-                Icon(if (tab.progress < 100) Icons.Filled.Clear else Icons.Filled.Refresh, if (tab.progress < 100) "Stop" else "Reload")
-            }
+        IconButton(onClick = { if (tab.progress < 100) tab.stop() else tab.reload() }) {
+            Icon(if (tab.progress < 100) Icons.Filled.Clear else Icons.Filled.Refresh, if (tab.progress < 100) "Stop" else "Reload")
         }
     }
 }
