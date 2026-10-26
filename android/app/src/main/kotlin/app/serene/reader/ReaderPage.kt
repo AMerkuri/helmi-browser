@@ -7,13 +7,13 @@ import kotlinx.serialization.Serializable
 
 /**
  * A page's article, as engine/dist/reader.js (Mozilla Readability + src/content/reader-entry.js)
- * returns it: clean HTML for the reader view and plain paragraphs for summaries. Page content,
- * so untrusted: the reader view shows it with scripts off.
+ * returns it: clean HTML for the reader view. Page content, so untrusted: the reader view shows
+ * it with scripts off.
  */
 @Serializable
 data class ReaderPage(
     val url: String = "",
-    /** Readability thinks the page is an article. Otherwise [text] is the page's visible text. */
+    /** Readability thinks the page is an article. Otherwise [html] is its best guess. */
     val article: Boolean = false,
     val title: String = "",
     val byline: String = "",
@@ -23,8 +23,6 @@ data class ReaderPage(
     val lang: String = "",
     val dir: String = "",
     val html: String = "",
-    /** Paragraphs separated by blank lines, headings as "## ...". */
-    val text: String = "",
     val words: Int = 0,
     val error: String? = null,
 ) {
@@ -48,7 +46,7 @@ data class ReaderPage(
         fun parse(json: String?): ReaderPage? {
             if (json.isNullOrEmpty() || json == "null") return null
             val page = runCatching { EngineJson.decodeFromString(serializer(), json) }.getOrNull() ?: return null
-            return page.takeIf { it.error == null && it.text.isNotBlank() }
+            return page.takeIf { it.error == null && it.html.isNotBlank() }
         }
     }
 }

@@ -76,7 +76,7 @@ import kotlin.math.roundToInt
  */
 @SuppressLint("ClickableViewAccessibility")
 @Composable
-fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpenLink: (String) -> Unit, onSummarize: () -> Unit) {
+fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpenLink: (String) -> Unit) {
     val context = LocalContext.current
     // Auto follows the app's theme (light, dark or the system's).
     val style = prefs.style(appDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f)
@@ -188,7 +188,6 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
                             style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = onSummarize) { Text("Summary", color = Color(theme.accent)) }
                         TextButton(onClick = { showStyle = true }) { Text("Aa", color = Color(theme.accent), fontFamily = FontFamily.Serif, fontSize = 18.sp) }
                     }
                 }

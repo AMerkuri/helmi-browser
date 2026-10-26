@@ -2,7 +2,7 @@
 //   dist/autoconsent.js          DuckDuckGo autoconsent + src/content/autoconsent-entry.js
 //   dist/autoconsent-rules.json  its compact rule set (the app filters it per frame URL)
 //   dist/autoconsent-config.json the config the host sends with the rules (src/host/autoconsent.mjs)
-//   dist/reader.js               Mozilla Readability + src/content/reader-entry.js (reader mode, summaries)
+//   dist/reader.js               Mozilla Readability + src/content/reader-entry.js (reader mode)
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';

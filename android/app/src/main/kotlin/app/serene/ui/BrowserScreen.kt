@@ -88,10 +88,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
     val context = LocalContext.current
     var showSite by remember { mutableStateOf(false) }
     var reportDir by remember { mutableStateOf<File?>(null) }
-    // Reader mode and the summary sheet, for the current tab's page.
+    // Reader mode, for the current tab's page.
     var reader by remember { mutableStateOf<ReaderPage?>(null) }
-    var summary by remember { mutableStateOf<ReaderPage?>(null) }
-    LaunchedEffect(tab.id) { reader = null; summary = null }
+    LaunchedEffect(tab.id) { reader = null }
 
     BackHandler(enabled = tab.canGoBack) { tab.goBack() }
 
@@ -110,11 +109,11 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
         Reporter.capture(context, app, tab) { reportDir = it }
     }
 
-    // The page's article from engine/dist/reader.js, then what to do with it.
-    val withArticle = { then: (ReaderPage) -> Unit ->
+    // The page's article from engine/dist/reader.js.
+    val openReader = {
         ReaderPage.extract(tab.webView) { page ->
-            if (page == null) Toast.makeText(context, "Serene found no text on this page", Toast.LENGTH_SHORT).show()
-            else then(page)
+            if (page == null) Toast.makeText(context, "Serene found no article on this page", Toast.LENGTH_SHORT).show()
+            else reader = page
         }
     }
 
@@ -156,7 +155,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                 }
                 BottomBar(
                     app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
-                    onReader = { withArticle { reader = it } }, onSummarize = { withArticle { summary = it } },
+                    onReader = openReader,
                 )
             }
             reader?.let { page ->
@@ -164,19 +163,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                     page, app.readerPrefs,
                     onClose = { reader = null },
                     onOpenLink = { url -> reader = null; tab.load(url) },
-                    onSummarize = { summary = page },
                 )
             }
         }
-    }
-
-    summary?.let { page ->
-        SummarySheet(
-            app, page,
-            onDismiss = { summary = null },
-            onOpenSettings = { summary = null; reader = null; onOpen(Screen.Settings) },
-            onReader = if (reader == null && page.html.isNotEmpty()) ({ summary = null; reader = page }) else null,
-        )
     }
 
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
@@ -257,7 +246,7 @@ private fun ShieldButton(app: SereneApp, tab: Tab, onClick: () -> Unit) {
 @Composable
 private fun BottomBar(
     app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Screen) -> Unit, onReport: () -> Unit, onSite: () -> Unit,
-    onReader: () -> Unit, onSummarize: () -> Unit,
+    onReader: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     HorizontalDivider()
@@ -276,7 +265,6 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { menu = false; onOpen(Screen.Downloads) })
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { menu = false; onReader() })
-                DropdownMenuItem(text = { Text("Summarize page") }, enabled = onPage, onClick = { menu = false; onSummarize() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { menu = false; onReport() })
                 val site = tab.session?.site()
                 if (site != null) {

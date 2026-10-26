@@ -15,7 +15,6 @@ class ReaderHtmlTest {
         siteName = "The Coastal Gazette",
         lang = "en",
         html = "<p>The harbour ferry resumed its timetable.</p>",
-        text = "The harbour ferry resumed its timetable.",
         words = 690,
     )
 
@@ -53,11 +52,11 @@ class ReaderHtmlTest {
 
     @Test
     fun parsesWhatTheExtractorReturns() {
-        val p = ReaderPage.parse("""{"url":"https://a.example/","article":true,"title":"T","html":"<p>x</p>","text":"x y z","words":3,"extra":1}""")!!
+        val p = ReaderPage.parse("""{"url":"https://a.example/","article":true,"title":"T","html":"<p>x</p>","words":3,"extra":1}""")!!
         assertEquals("T", p.title)
         assertEquals(1, p.minutes)
         assertNull(ReaderPage.parse("null"))
         assertNull(ReaderPage.parse("""{"error":"boom"}"""))
-        assertNull(ReaderPage.parse("""{"text":"  "}"""))
+        assertNull(ReaderPage.parse("""{"html":"  "}"""))
     }
 }

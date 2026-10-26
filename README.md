@@ -4,4 +4,4 @@ An Android browser that uses a small on-device language model, together with com
 
 Status: MVP Android app. Stack decisions: [docs/decisions.md](docs/decisions.md). Engine design and results: [docs/engine.md](docs/engine.md), code in [engine/](engine). The app is in [android/](android): every PR and every push to `main` builds a debug APK you can download from the `android` workflow run and sideload.
 
-Reader mode and page summaries (with the same on-device model): [docs/reader.md](docs/reader.md).
+Reader mode: [docs/reader.md](docs/reader.md).

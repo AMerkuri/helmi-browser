@@ -67,8 +67,8 @@ class ReaderTest {
         assertTrue(p.article)
         assertEquals("Harbour ferry returns after storm repairs", p.title)
         assertEquals("https://news.example/ferry", p.url)
-        assertTrue(p.text.contains("Paragraph 6."))
-        assertFalse(p.text.contains("We use cookies"))
+        assertTrue(p.html.contains("Paragraph 6."))
+        assertFalse(p.html.contains("We use cookies"))
         assertFalse(p.html.contains("onerror"))
 
         // Even with scripts on, the reader document's policy stops an inline handler.
