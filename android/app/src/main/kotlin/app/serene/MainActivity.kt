@@ -12,24 +12,34 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import app.serene.browser.FilePickerHost
 import app.serene.browser.TabManager
+import app.serene.browser.TabPreviews
 import app.serene.download.DownloadService
 import app.serene.ui.BrowserScreen
+import app.serene.ui.CoverFlowTabs
 import app.serene.ui.DownloadsScreen
 import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
-import app.serene.ui.TabsScreen
 
 enum class Screen { Browser, Tabs, Settings, Downloads }
 
 class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting lateinit var tabs: TabManager
         private set
-    private var screen by mutableStateOf(Screen.Browser)
+    @VisibleForTesting var screen by mutableStateOf(Screen.Browser)
+        private set
+    /** Where the page is on screen, in the root's coordinates: the tab switcher's cards grow from and into it. */
+    @VisibleForTesting var pageBounds by mutableStateOf(Rect.Zero)
+        private set
+    private var openingTabs = false
 
     private var pickDone: ((Array<Uri>?) -> Unit)? = null
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -62,18 +72,38 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         val app = application as SereneApp
         tabs = TabManager(this, app)
         tabs.restore()
+        TabPreviews.restore(this, tabs.tabs)
         handleIntent(intent)
 
         setContent {
             SereneTheme {
                 BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
                 when (screen) {
-                    Screen.Browser -> BrowserScreen(app, tabs, onOpen = { screen = it })
-                    Screen.Tabs -> TabsScreen(tabs, onDone = { screen = Screen.Browser })
+                    // The tab switcher is drawn over the browser, which shows through as a card
+                    // grows into its page.
+                    Screen.Browser, Screen.Tabs -> Box(Modifier.fillMaxSize()) {
+                        BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it })
+                        if (screen == Screen.Tabs) CoverFlowTabs(tabs, pageBounds, onDone = { screen = Screen.Browser })
+                    }
                     Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
                     Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
                 }
             }
+        }
+    }
+
+    /** Opens [to]. The tab switcher once the page's picture is taken, so its card starts as the page. */
+    @VisibleForTesting fun open(to: Screen) {
+        val tab = tabs.current
+        if (to != Screen.Tabs || screen != Screen.Browser || tab == null) {
+            screen = to
+            return
+        }
+        if (openingTabs) return
+        openingTabs = true
+        TabPreviews.capture(tab) {
+            openingTabs = false
+            if (screen == Screen.Browser) screen = Screen.Tabs
         }
     }
 
@@ -106,9 +136,16 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         enableEdgeToEdge()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // The page as it was left, for its card after a restart.
+        if (screen == Screen.Browser) tabs.current?.let { TabPreviews.capture(it) }
+    }
+
     override fun onStop() {
         super.onStop()
         tabs.save()
+        TabPreviews.save(this, tabs.tabs)
     }
 
     override fun onDestroy() {

@@ -60,7 +60,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -81,7 +84,7 @@ import app.serene.report.Reporter
 import java.io.File
 
 @Composable
-fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
+fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, onPageBounds: (Rect) -> Unit = {}) {
     val tab = tabs.current ?: return
     val context = LocalContext.current
     var showSite by remember { mutableStateOf(false) }
@@ -119,7 +122,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
             UrlBar(app, tab, onShield = { showSite = true })
             if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
             else Spacer(Modifier.height(2.dp))
-            Box(Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { onPageBounds(it.boundsInRoot()) }) {
                 val startPage = tab.url.isEmpty() || tab.url == "about:blank"
                 val downloadPage = tab.downloadPage
                 key(tab.id) {
