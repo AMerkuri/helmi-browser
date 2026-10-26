@@ -1,0 +1,193 @@
+load + first call: 10431 ms
+
+✓ fixture/app-install                expected=app_install          got=app_install          p=0.76 1360 ms
+✓ fixture/cookie-custom              expected=cookie_consent       got=cookie_consent       p=0.92 1244 ms
+✓ fixture/cookie-de-modal            expected=cookie_consent       got=cookie_consent       p=0.76 1212 ms
+✓ fixture/cookie-onetrust            expected=cookie_consent       got=cookie_consent       p=0.89 295 ms
+✓ fixture/cookie-shadow              expected=cookie_consent       got=cookie_consent       p=0.76 346 ms
+✓ fixture/neg-article-mentions       expected=content              got=content              p=0.67 257 ms
+✓ fixture/neg-sticky-header          expected=content              got=content              p=0.43 280 ms
+✗ fixture/newsletter-body-lock       expected=newsletter           got=login_wall           p=0.46 282 ms
+✓ fixture/newsletter-delayed         expected=newsletter           got=newsletter           p=0.53 328 ms
+✓ fixture/notification-prompt        expected=notification_prompt  got=notification_prompt  p=0.58 309 ms
+✓ fixture/paywall-sheet              expected=paywall_teaser       got=paywall_teaser       p=0.91 494 ms
+✓ fixture/unknown-language           expected=cookie_consent       got=cookie_consent       p=0.88 371 ms
+✓ synthetic/fr-cookie                expected=cookie_consent       got=cookie_consent       p=0.74 308 ms
+✓ synthetic/it-cookie                expected=cookie_consent       got=cookie_consent       p=0.66 303 ms
+✓ synthetic/pl-cookie                expected=cookie_consent       got=cookie_consent       p=0.96 357 ms
+✓ synthetic/sourcepoint-iframe       expected=cookie_consent       got=cookie_consent       p=0.90 364 ms
+✗ synthetic/discount-modal           expected=newsletter           got=paywall_teaser       p=0.75 371 ms
+✗ synthetic/push-prompt              expected=notification_prompt  got=paywall_teaser       p=0.61 255 ms
+✓ synthetic/app-banner               expected=app_install          got=app_install          p=0.43 436 ms
+✓ synthetic/login-wall               expected=login_wall           got=login_wall           p=0.95 366 ms
+✓ synthetic/meter-paywall            expected=paywall_teaser       got=paywall_teaser       p=0.95 326 ms
+✓ synthetic/survey                   expected=survey               got=survey               p=0.70 274 ms
+✓ synthetic/chat                     expected=chat_widget          got=chat_widget          p=0.92 193 ms
+✗ synthetic/cart-drawer              expected=content              got=paywall_teaser       p=0.60 462 ms
+✗ synthetic/audio-player             expected=content              got=app_install          p=0.46 307 ms
+✗ synthetic/site-menu                expected=content              got=login_wall           p=0.76 398 ms
+✓ synthetic/filter-sheet             expected=content              got=content              p=0.49 363 ms
+✓ synthetic/es-newsletter            expected=newsletter           got=newsletter           p=0.86 342 ms
+✗ synthetic/ja-app                   expected=app_install          got=paywall_teaser       p=0.44 271 ms
+✗ synthetic/cmp-tcf-de               expected=cookie_consent       got=login_wall           p=0.38 352 ms
+✗ crawl/bbc/header#bbc-header        expected=content              got=login_wall           p=0.62 308 ms
+✗ crawl/spiegel/header.-mt-8.pointer-eve expected=content              got=login_wall           p=0.90 405 ms
+✓ crawl/lemonde/div.gdpr-lmd-standard.gd expected=cookie_consent       got=cookie_consent       p=0.84 546 ms
+✓ crawl/elpais/div#pmConsentWall     expected=cookie_consent       got=cookie_consent       p=0.63 694 ms
+✓ crawl/corriere/header.header       expected=content              got=content              p=0.49 341 ms
+✓ crawl/corriere/div.privacy-cp-wall expected=cookie_consent       got=cookie_consent       p=0.50 564 ms
+✗ crawl/onet/header.Header_headerWrap expected=content              got=login_wall           p=0.48 376 ms
+✗ crawl/onet/div > nav               expected=content              got=paywall_teaser       p=0.38 322 ms
+✓ crawl/onet/div.cmp-popup_popup.show expected=cookie_consent       got=cookie_consent       p=0.33 735 ms
+✓ crawl/idnes/a.cookie-info          expected=cookie_consent       got=cookie_consent       p=0.75 272 ms
+✗ crawl/yahoo/header#module-uh       expected=content              got=login_wall           p=0.72 527 ms
+✓ crawl/cnn/div > div[role="dialog"] expected=cookie_consent       got=cookie_consent       p=0.58 563 ms
+✗ crawl/forbes/div.GuKkQ.header.univers expected=content              got=login_wall           p=0.66 248 ms
+✓ crawl/forbes/div#ketch-banner      expected=cookie_consent       got=cookie_consent       p=0.55 741 ms
+✗ crawl/medium/div.ac.aj.ak          expected=content              got=login_wall           p=0.39 278 ms
+✗ crawl/reddit/reddit-header-small.end- expected=content              got=login_wall           p=0.62 471 ms
+✓ crawl/pinterest/div.box_k.elevation_k.fi expected=login_wall           got=login_wall           p=0.42 617 ms
+✗ crawl/stackoverflow/header.js-top-bar.l0.ps- expected=content              got=login_wall           p=0.85 446 ms
+✓ crawl/stackoverflow/div#onetrust-banner-sdk expected=cookie_consent       got=cookie_consent       p=0.60 628 ms
+✗ crawl/healthline/div#sticky-nav    expected=content              got=login_wall           p=0.55 303 ms
+✓ crawl/gymshark/div#onetrust-banner-sdk expected=cookie_consent       got=cookie_consent       p=0.80 474 ms
+✗ crawl/allbirds/section.shopify-section. expected=content              got=paywall_teaser       p=0.57 413 ms
+✓ crawl/allbirds/section#shopify-pc__bann expected=cookie_consent       got=cookie_consent       p=0.91 508 ms
+✗ crawl/weather.com/nav.bg-white.bottom-0.fi expected=content              got=paywall_teaser       p=0.36 364 ms
+✓ crawl/weather.com/div.-translate-x-1\/2.fi expected=app_install          got=app_install          p=0.97 280 ms
+✗ crawl/github/div.header-wrapper.js-he expected=content              got=login_wall           p=0.82 370 ms
+✗ crawl/duckduckgo/div > div         expected=app_install          got=cookie_consent       p=0.41 414 ms
+✗ crawl/err/div.fade.in.modal        expected=cookie_consent       got=login_wall           p=0.73 754 ms
+✗ crawl/ohtuleht/div.bottom-0.sticky.z-50 expected=content              got=paywall_teaser       p=0.33 338 ms
+✗ crawl/ohtuleht/div#qc-cmp2-usp     expected=cookie_consent       got=login_wall           p=0.55 619 ms
+✗ crawl/delfi.lv/nav.align-items-center.d expected=content              got=login_wall           p=0.51 408 ms
+✗ crawl/lrt/header#the-header        expected=content              got=login_wall           p=0.67 297 ms
+✗ crawl/yle/div#app > header[role="b expected=content              got=login_wall           p=0.74 300 ms
+✗ crawl/yle/div.ycd-background.yds-t expected=cookie_consent       got=login_wall           p=0.40 696 ms
+✗ crawl/hs/article.ab-test-app-down  expected=app_install          got=paywall_teaser       p=0.45 516 ms
+✗ crawl/aftonbladet/div.masthead-top-extensi expected=content              got=login_wall           p=0.84 360 ms
+✗ crawl/vg/div#masthead              expected=content              got=login_wall           p=0.78 376 ms
+✓ crawl/theverge/div > div           expected=content              got=content              p=0.72 343 ms
+✓ crawl/theverge/aside.duet--navigation-- expected=cookie_consent       got=cookie_consent       p=0.73 528 ms
+✗ crawl/arstechnica/header#site-header expected=content              got=login_wall           p=0.65 439 ms
+✗ crawl/lefigaro/div.fh-wrapper      expected=content              got=login_wall           p=0.83 731 ms
+✗ crawl/lefigaro/div#tabbar          expected=content              got=paywall_teaser       p=0.58 348 ms
+✗ crawl/bild/header.page-header      expected=content              got=login_wall           p=0.61 517 ms
+✗ crawl/repubblica/div#rep-slim-header expected=content              got=paywall_teaser       p=0.31 355 ms
+✓ crawl/repubblica/div#iubenda-cs-banner expected=cookie_consent       got=cookie_consent       p=0.47 603 ms
+✓ crawl/elmundo/div.didomi-popup-contain expected=cookie_consent       got=cookie_consent       p=0.82 700 ms
+✗ crawl/nos/nav.jbygbA               expected=content              got=login_wall           p=0.57 526 ms
+✗ crawl/wp.pl/div.wp-header          expected=content              got=login_wall           p=0.94 200 ms
+✗ crawl/wp.pl/div#wp-bottom-bar      expected=content              got=paywall_teaser       p=0.42 291 ms
+✗ crawl/wp.pl/div.z4twj24            expected=cookie_consent       got=login_wall           p=0.87 713 ms
+✗ crawl/novinky/header.ribbon.ribbon--ba expected=content              got=login_wall           p=0.66 292 ms
+✗ crawl/usatoday/header.gnt_n        expected=content              got=login_wall           p=0.35 355 ms
+✗ crawl/foxnews/header.site-header   expected=content              got=login_wall           p=0.44 230 ms
+✓ crawl/foxnews/div.responsive-wrapper expected=app_install          got=app_install          p=0.39 289 ms
+✗ crawl/nbcnews/div.navs-container   expected=content              got=login_wall           p=0.46 633 ms
+✗ crawl/bloomberg/div#cmp-consent-modal >  expected=cookie_consent       got=login_wall           p=0.43 458 ms
+✓ crawl/ikea/div#onetrust-banner-sdk expected=cookie_consent       got=cookie_consent       p=0.86 671 ms
+✗ crawl/booking/div > nav[role="navigati expected=content              got=login_wall           p=0.88 274 ms
+✗ crawl/nike/nav.nav-css-gyxam0.no-pe expected=content              got=login_wall           p=0.75 395 ms
+✗ crawl/nike/div#singular-banner     expected=app_install          got=paywall_teaser       p=0.70 276 ms
+✗ crawl/allrecipes/header#header_1-0 expected=content              got=login_wall           p=0.43 386 ms
+✗ crawl/webmd/nav.vn-wrapper         expected=content              got=login_wall           p=0.60 657 ms
+✗ crawl/investopedia/header#header_1-0 expected=content              got=login_wall           p=0.47 366 ms
+✗ crawl/twitch/div.gvNWWY            expected=content              got=login_wall           p=0.52 329 ms
+✓ crawl/twitch/div.bMKZft.hPLcMa.tw-tra expected=content              got=content              p=0.37 365 ms
+✗ crawl/twitch/div.ReactModal__Content. expected=app_install          got=login_wall           p=0.74 460 ms
+✓ crawl/nature/dialog.cc-banner      expected=cookie_consent       got=cookie_consent       p=0.98 515 ms
+✗ crawl/espn/header#global-header    expected=content              got=login_wall           p=0.40 321 ms
+✗ crawl/nu.nl/header.app-header      expected=content              got=login_wall           p=0.62 641 ms
+✓ synthetic/neg-cookie-recipe        expected=content              got=content              p=0.30 390 ms
+✗ synthetic/neg-privacy-article      expected=content              got=paywall_teaser       p=0.33 401 ms
+✗ synthetic/neg-video-dock           expected=content              got=paywall_teaser       p=0.24 490 ms
+✗ synthetic/neg-bottom-nav           expected=content              got=login_wall           p=0.86 293 ms
+✓ synthetic/neg-toc                  expected=content              got=content              p=0.82 318 ms
+✗ synthetic/neg-search-overlay       expected=content              got=paywall_teaser       p=0.32 333 ms
+✗ synthetic/neg-live-blog-bar        expected=content              got=paywall_teaser       p=0.44 336 ms
+✗ synthetic/neg-breaking-news        expected=content              got=paywall_teaser       p=0.87 329 ms
+✗ synthetic/neg-add-to-cart          expected=content              got=paywall_teaser       p=0.64 331 ms
+✓ synthetic/neg-size-guide           expected=content              got=content              p=0.32 365 ms
+✗ synthetic/neg-image-lightbox       expected=content              got=app_install          p=0.61 351 ms
+✓ synthetic/neg-language-picker      expected=content              got=content              p=0.30 305 ms
+✗ synthetic/neg-accessibility        expected=content              got=login_wall           p=0.34 368 ms
+✓ synthetic/neg-comments-drawer      expected=content              got=content              p=0.42 341 ms
+✗ synthetic/neg-share-sheet          expected=content              got=paywall_teaser       p=0.48 338 ms
+✗ synthetic/neg-delivery-picker      expected=content              got=login_wall           p=0.40 336 ms
+✓ synthetic/neg-quiz                 expected=content              got=content              p=0.39 401 ms
+✓ synthetic/neg-score-ticker         expected=content              got=content              p=0.85 359 ms
+✗ synthetic/neg-mini-cart-et         expected=content              got=paywall_teaser       p=0.53 397 ms
+✗ synthetic/neg-header-de            expected=content              got=login_wall           p=0.69 341 ms
+✗ synthetic/neg-cookie-shop-header   expected=content              got=cookie_consent       p=0.52 347 ms
+✓ synthetic/neg-app-review           expected=content              got=content              p=0.71 336 ms
+✗ synthetic/neg-newsletter-archive   expected=content              got=paywall_teaser       p=0.50 307 ms
+✗ synthetic/neg-map-panel            expected=content              got=paywall_teaser       p=0.35 427 ms
+✗ synthetic/neg-checkout-steps       expected=content              got=paywall_teaser       p=0.62 325 ms
+✓ synthetic/neg-chapter-nav          expected=content              got=content              p=0.42 249 ms
+✓ synthetic/neg-reading-progress     expected=content              got=content              p=0.60 218 ms
+✓ synthetic/neg-forum-composer       expected=content              got=content              p=0.41 242 ms
+✗ synthetic/neg-ticket-seat          expected=content              got=paywall_teaser       p=0.51 338 ms
+✓ synthetic/neg-calculator           expected=content              got=content              p=0.58 297 ms
+✗ synthetic/neg-fi-header            expected=content              got=login_wall           p=0.50 286 ms
+✗ synthetic/neg-weather-alert        expected=content              got=paywall_teaser       p=0.55 323 ms
+✗ synthetic/et-cookie                expected=cookie_consent       got=paywall_teaser       p=0.77 369 ms
+✓ synthetic/fi-cookie                expected=cookie_consent       got=cookie_consent       p=0.55 355 ms
+✗ synthetic/sv-cookie                expected=cookie_consent       got=paywall_teaser       p=0.49 320 ms
+✗ synthetic/lv-cookie                expected=cookie_consent       got=paywall_teaser       p=0.44 371 ms
+✗ synthetic/nl-cookie-wall           expected=cookie_consent       got=paywall_teaser       p=0.47 294 ms
+✓ synthetic/pt-cookie                expected=cookie_consent       got=cookie_consent       p=0.82 291 ms
+✓ synthetic/cookie-minimal           expected=cookie_consent       got=cookie_consent       p=0.75 301 ms
+✓ synthetic/cookie-iframe-only       expected=cookie_consent       got=cookie_consent       p=0.58 304 ms
+✓ synthetic/privacy-choices-us       expected=cookie_consent       got=cookie_consent       p=0.77 333 ms
+✓ synthetic/et-newsletter            expected=newsletter           got=newsletter           p=0.45 323 ms
+✓ synthetic/de-newsletter-discount   expected=newsletter           got=newsletter           p=0.53 344 ms
+✓ synthetic/newsletter-no-field      expected=newsletter           got=newsletter           p=0.49 226 ms
+✗ synthetic/spin-wheel               expected=newsletter           got=paywall_teaser       p=0.88 339 ms
+✗ synthetic/et-notifications         expected=notification_prompt  got=paywall_teaser       p=0.22 282 ms
+✓ synthetic/notifications-bell       expected=notification_prompt  got=notification_prompt  p=0.77 244 ms
+✓ synthetic/fr-notifications         expected=notification_prompt  got=notification_prompt  p=0.95 244 ms
+✓ synthetic/et-paywall               expected=paywall_teaser       got=paywall_teaser       p=0.75 305 ms
+✓ synthetic/paywall-hard             expected=paywall_teaser       got=paywall_teaser       p=0.82 300 ms
+✓ synthetic/it-paywall               expected=paywall_teaser       got=paywall_teaser       p=0.83 271 ms
+✗ synthetic/et-app                   expected=app_install          got=paywall_teaser       p=0.43 308 ms
+✓ synthetic/app-smart-banner         expected=app_install          got=app_install          p=0.73 219 ms
+✓ synthetic/app-interstitial         expected=app_install          got=app_install          p=0.63 242 ms
+✓ synthetic/login-wall-de            expected=login_wall           got=login_wall           p=0.98 359 ms
+✓ synthetic/login-sheet              expected=login_wall           got=login_wall           p=0.94 299 ms
+✓ synthetic/survey-stars             expected=survey               got=survey               p=0.71 371 ms
+✗ synthetic/survey-et                expected=survey               got=paywall_teaser       p=0.63 206 ms
+✓ synthetic/chat-bubble              expected=chat_widget          got=chat_widget          p=0.48 172 ms
+✗ synthetic/chat-bot-et              expected=chat_widget          got=paywall_teaser       p=0.55 181 ms
+
+records: 159
+label accuracy: 47%  with the header guard: 64%  with the guard and the confidence floor: 67%  annoyance-vs-content accuracy: 61%  invalid replies: 0
+content hidden (false positives, with the guard): 32 of 80
+mode: score
+latency per call: median 344 ms, p95 713 ms
+prompt tokens (system + features): median 294
+
+confidence (single-pass scores): bucket → records, accuracy
+  0.0–0.5   53  36%
+  0.5–0.7   46  33%
+  0.7–0.9   45  60%
+  0.9–1.0   15  87%
+  probability on non-label tokens: median 0.000, max 0.000
+
+confusion (expected → got):
+  app_install          app_install:6 paywall_teaser:4 cookie_consent:1 login_wall:1
+  cookie_consent       cookie_consent:29 login_wall:6 paywall_teaser:4
+  content              content:18 paywall_teaser:21 app_install:2 login_wall:38 cookie_consent:1
+  newsletter           login_wall:1 newsletter:5 paywall_teaser:2
+  notification_prompt  notification_prompt:3 paywall_teaser:2
+  paywall_teaser       paywall_teaser:5
+  login_wall           login_wall:4
+  survey               survey:2 paywall_teaser:1
+  chat_widget          chat_widget:2 paywall_teaser:1
+
+example prompt:
+Overlay: banner at the bottom, 14% of screen
+Element: <div> app-cta
+Text: "Reading is better in the app. Open in app for a faster experience. Open in app Not now"
+Buttons: [0] Open in app [1] Not now
+/no_think
