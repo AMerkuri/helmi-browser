@@ -218,7 +218,8 @@ fun TabCubeFaces(cube: TabCube, app: SereneApp) {
 private fun Modifier.cubeFace(pos: () -> Float) = graphicsLayer {
     val p = pos()
     translationX = p * size.width
-    rotationY = -90f * p
+    // Positive turns the left edge towards you (Cover Flow's cards show it): the far edge goes back.
+    rotationY = 90f * p
     transformOrigin = TransformOrigin(if (p < 0f) 1f else 0f, 0.5f)
     // RenderNode's camera distance is in units of 72 px.
     cameraDistance = CAMERA * size.width / 72f
