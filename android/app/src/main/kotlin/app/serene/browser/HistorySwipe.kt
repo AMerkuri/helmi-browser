@@ -176,15 +176,15 @@ class HistorySwipe(private val tab: Tab) {
     /** The target is on top: going forward, or covering the WebView after the navigation. */
     val targetOnTop get() = direction == FORWARD || covering
 
-    /** The dimming over the page underneath. */
+    /** The dimming over the page coming in (back or forward, as Chrome does): it brightens as it arrives. */
     val scrim: Float
-        get() = if (covering) 0f else SCRIM * if (direction == BACK) 1 - progress else progress
+        get() = if (covering) 0f else SCRIM * (1 - progress)
 
     companion object {
         const val BACK = -1
         const val FORWARD = 1
         private const val PARALLAX = 0.3f
-        // As dark as Chrome's: the page underneath starts at about a third of its brightness and
+        // As dark as Chrome's: the page coming in starts at about a third of its brightness and
         // brightens as it comes in (measured from Chrome screenshots on the Fold).
         private const val SCRIM = 0.64f
     }

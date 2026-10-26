@@ -162,10 +162,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                 if (swipe.active) {
                     // Going forward, the next page slides in over this one; after the step, the
                     // target covers the WebView until the new page has drawn.
-                    if (swipe.targetOnTop) {
-                        if (!swipe.covering) SwipeScrim(swipe)
-                        SwipeTarget(swipe)
-                    }
+                    if (swipe.targetOnTop) SwipeTarget(swipe)
                     SwipeShadow(swipe)
                 }
                 PullIndicator(tab)

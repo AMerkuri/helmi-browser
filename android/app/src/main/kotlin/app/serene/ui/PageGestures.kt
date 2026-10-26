@@ -92,15 +92,9 @@ fun SwipeTarget(swipe: HistorySwipe) {
                 modifier = Modifier.align(Alignment.Center).padding(32.dp),
             )
         }
-        // Dimmed while it is underneath.
-        if (!swipe.targetOnTop) Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black, alpha = swipe.scrim) })
+        // Dimmed while it comes in, either way.
+        if (!swipe.covering) Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black, alpha = swipe.scrim) })
     }
-}
-
-/** Dims the current page while the next one slides in over it. */
-@Composable
-fun SwipeScrim(swipe: HistorySwipe) {
-    Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black, alpha = swipe.scrim) })
 }
 
 /** A soft shadow along the edge of the page on top, where it meets the one underneath. */
