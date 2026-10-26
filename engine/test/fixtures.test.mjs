@@ -77,6 +77,7 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
       gone: exp.gone ? !shown(exp.gone) : null,
       visible: (exp.visible || []).map((s) => [s, shown(s)]),
       clicked: window.__clicked || [],
+      touchPrevented: window.__touchPrevented,
       scrollable: ![h.overflow, h.overflowY, b.overflow, b.overflowY].includes('hidden') && b.position !== 'fixed',
     };
   }, exp);
@@ -93,6 +94,8 @@ for (const file of FIXTURES) {
     for (const c of exp.clicked || []) assert.ok(state.clicked.includes(c), `should click "${c}", clicked ${JSON.stringify(state.clicked)}`);
     for (const c of exp.notClicked || []) assert.ok(!state.clicked.includes(c), `must not click "${c}"`);
     if (exp.scroll) assert.ok(state.scrollable, 'page scrolling should be restored');
+    // touchable: the fixture records whether the page cancelled the last tap (a focus trap).
+    if (exp.touchable) assert.equal(state.touchPrevented, false, 'the last tap should reach the page');
     if (exp.maxVisibleMs != null) {
       const shown = Math.max(0, ...state.exposure.filter((o) => o.sig.includes(exp.gone.slice(1))).map((o) => o.visibleMs));
       assert.ok(shown <= exp.maxVisibleMs, `${exp.gone} was on screen for ${shown} ms (at most ${exp.maxVisibleMs})`);

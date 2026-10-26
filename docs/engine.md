@@ -68,6 +68,7 @@ navigation
 - "Reject and subscribe" buttons on pay-or-consent walls are not declines.
 - After a click, if the overlay is still there 900 ms later, it is hidden instead, and the cache is updated to `hide`.
 - After hiding, the engine removes the backdrop (an empty full-screen fixed sibling), unlocks `overflow`/`position: fixed` scroll locks (restoring the scroll offset), and removes `filter: blur`. A page that is still scroll-locked with nothing visible on top is unlocked too. That case is what list-hidden banners usually leave behind.
+- A hidden dialog's focus trap (listeners on the document that cancel every touch and click outside the dialog) outlives the dialog, so the page shows but won't scroll. The engine sends Escape, which is how such traps let go: once when it hides a modal, and again if a touch is cancelled later with a dialog hidden and no other modal up.
 
 **Cache.** Verdicts are keyed by `(eTLD+1, selector signature)`. Signatures skip hashed class names. Hide verdicts with a usable selector go out as CSS at document start, so the overlay never flashes. Click verdicts store the button *label*, not its index. `undo()` stores an `ignore` rule. On the second visit to a fixture site, the model is not called again (tested).
 
@@ -85,6 +86,7 @@ Hand-written pages that imitate common patterns. They are not copies of real sit
 | German consent modal + backdrop + scroll lock | heuristics | clicked "Nur notwendige Cookies", backdrop gone, scrolling restored |
 | consent dialog in a dimmed wrapper that fades in after it (no decline button) | heuristics | dialog hidden, then the empty wrapper as soon as it shows; nothing clicked |
 | the same while the user keeps touching the page, then a scroll lock added through the CSSOM | heuristics | wrapper hidden despite the touches; the next touch unlocks scrolling |
+| consent dialog with a focus trap that cancels touches outside it, also one that starts after the dialog is hidden | heuristics | dialog hidden, nothing clicked; the trap lets go, so a tap on the page reaches it (the late trap: the second tap) |
 | consent in a cross-origin iframe | heuristics (on the frame's own text) | clicked "Reject" inside the iframe |
 | consent banner in shadow DOM | heuristics | clicked "Reject all" |
 | Japanese cookie modal (no keyword hit) | model | hidden, scroll restored; second visit from cache, no model call |

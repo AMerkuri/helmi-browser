@@ -41,6 +41,7 @@
     consentParked: false,  // list-matched cookie banners: parked for autoconsent, or hidden
     consent: { lifecycle: null, busySince: 0 }, // this frame's autoconsent progress
     scrollFixed: false,
+    trapsReleasedAt: -Infinity,
     pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
     scanMs: [],
   };
@@ -61,6 +62,14 @@
   // the cue to look again (techspot, #24).
   for (const t of ['touchstart', 'wheel']) {
     addEventListener(t, (e) => { if (e.isTrusted && state.scrollFixed && !config.observeOnly && document.body && scrollLocked()) restorePage(); }, { capture: true, passive: true });
+  }
+  // A focus trap that started after we hid its dialog cancels touches from a document listener.
+  // Seen here, after the page's listeners: let it go, unless a modal is still up (#24).
+  for (const t of ['touchstart', 'mousedown']) {
+    addEventListener(t, (e) => {
+      if (!e.isTrusted || !e.defaultPrevented || config.observeOnly || performance.now() - state.trapsReleasedAt < 1000) return;
+      if ([...state.candidates.values()].some((c) => c.hidden) && !otherModal()) releaseTraps();
+    }, { passive: true });
   }
 
   // ---------------------------------------------------------------- host messages
@@ -669,7 +678,18 @@
     // Backdrops that are not siblings of the modal (pinterest nests them apart) were seen as
     // their own candidates; with the modal gone they only lock the page.
     for (const b of state.candidates.values()) if (b.backdrop && b.el.isConnected && !b.el.hasAttribute(ATTR)) hideEl(b.el, 'backdrop');
+    if (c.modalish) releaseTraps();
     restorePage();
+  }
+
+  // Focus traps (the focus-trap library and the like) cancel every touch and click outside their
+  // dialog from listeners on the document, which outlive the dialog we hid: the page shows but
+  // won't scroll or follow links (techspot's consent tool, #24). Escape is how they let go. Sent
+  // to the body, not the dialog, so the dialog's own key handlers don't take it as an answer.
+  function releaseTraps() {
+    if (!document.body) return;
+    state.trapsReleasedAt = performance.now();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true, composed: true }));
   }
 
   // Full-viewport fixed elements without content next to the modal are its backdrop.
@@ -690,10 +710,13 @@
 
   // Undo scroll locks and blur that modals leave behind, unless another modal is still up.
   function restorePage() {
-    const otherModal = [...state.candidates.values()].some((c) => !c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el) && coverage(c.el.getBoundingClientRect()) > 0.5);
-    if (otherModal) return;
+    if (otherModal()) return;
     state.scrollFixed = true;
     fixScroll();
+  }
+
+  function otherModal() {
+    return [...state.candidates.values()].some((c) => !c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el) && coverage(c.el.getBoundingClientRect()) > 0.5);
   }
 
   function fixScroll() {

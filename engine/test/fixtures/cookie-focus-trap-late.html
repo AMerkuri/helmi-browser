@@ -1,0 +1,23 @@
+<!doctype html><title>Consent dialog whose focus trap starts after the dialog is hidden</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px} #more{position:fixed;left:0;right:0;bottom:0;height:56px;background:#eef;padding:16px}</style><script>window.__clicked=[];addEventListener('touchstart',(e)=>{window.__touchPrevented=e.defaultPrevented});function clk(n,el){__clicked.push(n);document.getElementById('pv-root').remove()}</script>
+<script type="application/json" id="expect">{"gone":"#pv-ui","visible":["#article","#masthead"],"clicked":["story"],"notClicked":["agree","options"],"touchable":true,"via":"heuristic","taps":[2000,2600],"waitMs":3000}</script>
+<header id="masthead" style="position:sticky;top:0;background:#223;color:#fff;padding:12px;z-index:10">Gadget Digest <a href="#" style="color:#fff">Reviews</a> <a href="#" style="color:#fff">Downloads</a></header>
+<article id="article"><h1>Five ways to tidy up a cluttered taskbar</h1><p>Most of the icons pinned to a new laptop's taskbar are never opened. A few minutes in the settings can clear them out.</p><p>Start by unpinning the apps you do not use, then turn off the widgets button and the search box.</p><p style="height:1500px">Long content.</p></article>
+<a id="more" href="#next" onclick="__clicked.push('story');return false">Next story: why your laptop fan is so loud</a>
+<script>
+// A consent dialog whose script traps focus the way the focus-trap library does: listeners on
+// the document cancel every touch and click outside the dialog, until Escape lets go. They stay
+// after the dialog is hidden, so the page shows but won't scroll or follow links. Here the trap
+// starts late (with the tool's fade-in), after the dialog is already hidden, so only the user's
+// first blocked touch shows it: that touch is lost, the next one works.
+function trap(box){
+  const out=(e)=>!box.contains(e.target);
+  const down=(e)=>{if(out(e))e.preventDefault()};
+  const click=(e)=>{if(out(e)){e.preventDefault();e.stopImmediatePropagation()}};
+  const key=(e)=>{if(e.key==='Escape'){e.preventDefault();off()}};
+  const opts={capture:true,passive:false};
+  const off=()=>{for(const t of ['touchstart','mousedown'])document.removeEventListener(t,down,opts);document.removeEventListener('click',click,opts);document.removeEventListener('keydown',key,opts)};
+  for(const t of ['touchstart','mousedown'])document.addEventListener(t,down,opts);
+  document.addEventListener('click',click,opts);document.addEventListener('keydown',key,opts);
+}
+setTimeout(()=>{document.body.insertAdjacentHTML('beforeend',`<div id="pv-root"><div id="pv-ui" role="dialog" aria-modal="true" style="position:fixed;left:7%;right:7%;top:15vh;height:70vh;background:#fff;overflow:auto;padding:16px;z-index:2147483647;box-shadow:0 0 0 100vmax rgba(0,0,0,.4)"><h2>We value your privacy</h2><p>We and our partners store and access information on your device, such as cookies and device identifiers, and process personal data for personalised advertising, content measurement and audience insights. You can review and manage your choices at any time.</p><button onclick="clk('options',this)">More options</button> <button onclick="clk('agree',this)">Agree</button></div></div>`);setTimeout(()=>trap(document.getElementById('pv-ui')),1500)},400);
+</script>
