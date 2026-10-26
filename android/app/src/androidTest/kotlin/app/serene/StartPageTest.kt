@@ -1,9 +1,11 @@
 package app.serene
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
@@ -21,7 +23,7 @@ import kotlin.concurrent.thread
 /**
  * The totals on the start page: two fixture pages with a cookie banner each, one cleared by the
  * detector and one hidden by the lists, count as two cookie banners on two pages, and a new tab
- * shows them. The start page goes to logcat as base64 'StartPageShot' lines.
+ * shows them where the empty start page had only a line of text.
  */
 @RunWith(AndroidJUnit4::class)
 class StartPageTest {
@@ -55,6 +57,10 @@ class StartPageTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val base = "http://127.0.0.1:${server.localPort}"
+                // Before anything is counted, the start page has only a line of text under its header.
+                hideKeyboard(scenario)
+                val empty = shot("empty")
+
                 scenario.onActivity { it.tabs.current!!.load("$base/cookie-custom.html") }
                 waitFor("the detector's cookie banner") { app.stats.totals.cleared["cookie_consent"] == 1L }
                 scenario.onActivity { it.tabs.current!!.load("$base/cookie-in-html.html") }
@@ -62,28 +68,46 @@ class StartPageTest {
                 assertEquals(2L, app.stats.totals.pages)
                 assertEquals(listOf("127.0.0.1" to 2L), app.stats.totals.busiestSites(3))
 
-                // A blank tab focuses the address bar; the keyboard would cover the totals.
                 scenario.onActivity { it.tabs.open() }
-                SystemClock.sleep(1000)
-                scenario.onActivity { WindowCompat.getInsetsController(it.window, it.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
-                SystemClock.sleep(1000)
-                // Compose builds its accessibility tree once something asks for it, so ask until it answers.
-                var found = false
-                val end = SystemClock.uptimeMillis() + 10_000
-                while (!found && SystemClock.uptimeMillis() < end) {
-                    found = inst.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText("annoyances cleared")?.isNotEmpty() == true
-                    if (!found) SystemClock.sleep(250)
+                hideKeyboard(scenario)
+                val totals = shot("totals")
+                // Where the line was, the tiles are now: much of that part of the screen changed.
+                var changed = 0
+                var all = 0
+                for (y in (empty.height * 45 / 100) until (empty.height * 80 / 100) step 4) {
+                    for (x in 0 until empty.width step 4) {
+                        all++
+                        val a = empty.getPixel(x, y)
+                        val b = totals.getPixel(x, y)
+                        if (Math.abs(Color.red(a) - Color.red(b)) + Math.abs(Color.green(a) - Color.green(b)) + Math.abs(Color.blue(a) - Color.blue(b)) > 30) changed++
+                    }
                 }
-                val shot = inst.uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
-                assertNotNull(shot)
-                val png = ByteArrayOutputStream().also { shot!!.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
-                Base64.encodeToString(png, Base64.NO_WRAP).chunked(3000).forEachIndexed { i, chunk -> Log.i("StartPageShot", "start #$i $chunk") }
-                assertTrue("the start page shows the totals", found)
+                assertTrue("the start page should show the totals: $changed of $all pixels changed", changed > all / 10)
             }
         } finally {
             server.close()
             app.stats.reset()
         }
+    }
+
+    private fun hideKeyboard(scenario: ActivityScenario<MainActivity>) {
+        SystemClock.sleep(500) // a blank tab focuses the address bar, and the keyboard comes up
+        scenario.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
+        waitFor("the keyboard closes") {
+            var ime = true
+            scenario.onActivity { a -> ime = ViewCompat.getRootWindowInsets(a.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: true }
+            !ime
+        }
+        SystemClock.sleep(1500) // drawn
+    }
+
+    /** The display, also as a base64 PNG in logcat ('StartPageShot' lines in the e2e-output artifact). */
+    private fun shot(label: String): Bitmap {
+        val bmp = inst.uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
+        assertNotNull("no screenshot", bmp)
+        val png = ByteArrayOutputStream().also { bmp!!.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        Base64.encodeToString(png, Base64.NO_WRAP).chunked(3000).forEachIndexed { i, chunk -> Log.i("StartPageShot", "$label #$i $chunk") }
+        return bmp!!
     }
 
     private fun waitFor(what: String, timeoutMs: Long = 20_000, ok: () -> Boolean) {
