@@ -45,4 +45,16 @@ class CoverFlowLayoutTest {
         // The middle card's centre is clear of its neighbours'.
         assertTrue(l.centerGap > l.cardWidth / 2)
     }
+
+    @Test
+    fun aFlickMovesOneCardOnlyAFastOneMore() {
+        assertEquals("let go still: nearest card", 2, settleOn(2.4f, 0f))
+        assertEquals(3, settleOn(2.6f, 0.5f))
+        assertEquals("slight flick on", 3, settleOn(2.1f, 2f))
+        assertEquals("slight flick back", 1, settleOn(1.9f, -2f))
+        assertEquals("from a card exactly", 3, settleOn(2f, 4f))
+        assertEquals("fast flick", 4, settleOn(2f, 7f))
+        assertEquals("very fast flick: 4 extra at most", 7, settleOn(2f, 100f))
+        assertEquals(-5, settleOn(0f, -100f)) // the caller keeps it within the tabs
+    }
 }

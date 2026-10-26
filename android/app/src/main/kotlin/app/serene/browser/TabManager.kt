@@ -1,6 +1,7 @@
 package app.serene.browser
 
 import android.content.Context
+import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -32,6 +33,21 @@ class TabManager(private val context: Context, private val app: SereneApp) {
         if (i < 0 || i == currentIndex) return
         leave()
         currentIndex = i
+    }
+
+    /**
+     * Gives the WebViews of tabs not on screen the page's size, so their pages are laid out for it
+     * before they are shown: a WebView never on screen (tabs restored after a restart) is 0 x 0,
+     * and laying its page out the first time it was shown stuttered the tab switcher's zoom.
+     */
+    fun sizeHidden(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        for (t in tabs) {
+            val v = t.webView
+            if (v.parent != null || (v.width == width && v.height == height)) continue
+            v.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            v.layout(0, 0, width, height)
+        }
     }
 
     // The tab being left, as it was last on screen, for its card in the tab switcher.

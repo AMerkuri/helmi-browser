@@ -142,7 +142,7 @@ class CoverFlowTest {
     /** Drags sideways by [cards] (to the right is positive), slowly, then holds still before letting go: no fling. */
     private fun drag(scenario: ActivityScenario<MainActivity>, cards: Float) {
         val (l, o) = layout(scenario)
-        val dx = cards * l.cardWidth * 0.5f // as far as one card moves per CoverFlowTabs' perCard
+        val dx = cards * l.perCard
         val x0 = o[0] + l.centerX - dx / 2
         val py = o[1] + l.centerY + l.cardHeight * 0.4f
         val t = SystemClock.uptimeMillis()

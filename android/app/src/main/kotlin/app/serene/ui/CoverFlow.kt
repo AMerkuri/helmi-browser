@@ -79,6 +79,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
@@ -86,6 +88,9 @@ import app.serene.browser.TabPreviews
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -115,6 +120,9 @@ data class CoverFlowLayout(
     /** Between the cards further out, which stack up behind each other. */
     val sideGap: Float,
 ) {
+    /** A drag across this much moves one card. */
+    val perCard get() = cardWidth * 0.7f
+
     /** The horizontal distance from the centre of a card [d] places from the centre one. */
     fun x(d: Float): Float {
         val a = abs(d)
@@ -202,14 +210,14 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         leaving = true
         scope.launch {
             val i = tabs.tabs.indexOf(tab)
-            // Under the card, so the WebView has drawn by the time the card has grown.
             zoomId = tab.id
             if (i >= 0 && abs(scroll.value - i) > 0.01f) scroll.animateTo(i.toFloat(), spring(dampingRatio = 0.9f, stiffness = 400f)).join()
-            // Another tab's WebView takes a frame or more to attach: let that pass before the
-            // zoom starts, or its first frames are skipped.
+            // Another tab's WebView goes on screen under the card. Its first frame can hold the
+            // main thread for a few hundred ms (a tab not shown since a restart), which skipped
+            // the zoom: start it only once the page has drawn.
             if (tabs.current != tab) {
                 tabs.select(tab)
-                repeat(2) { withFrameNanos { } }
+                awaitDrawn(tab)
             }
             zoom.animateTo(1f, tween(360, easing = FastOutSlowInEasing))
             // The card is the page now; it fades into the live one.
@@ -264,8 +272,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         val cardW = with(dens) { layout.cardWidth.toDp() }
         val cardH = with(dens) { layout.cardHeight.toDp() }
         val reflH = cardH * REFLECTION
-        // A drag across this much moves one card.
-        val perCard = layout.cardWidth * 0.5f
+        val perCard = layout.perCard
         val count = tabs.tabs.size
 
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - zoom.value }.background(Color.Black))
@@ -295,8 +302,8 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
                 enabled = !leaving,
                 onDragStopped = { velocity ->
                     val v = -velocity / perCard // cards a second
-                    val to = (scroll.value + v * 0.3f).roundToInt().coerceIn(0, tabs.tabs.lastIndex)
-                    scroll.animateTo(to.toFloat(), spring(dampingRatio = 0.85f, stiffness = 260f), velocity = v)
+                    val to = settleOn(scroll.value, v).coerceIn(0, tabs.tabs.lastIndex)
+                    scroll.animateTo(to.toFloat(), spring(dampingRatio = 0.85f, stiffness = 260f), velocity = v.coerceIn(-8f, 8f))
                 },
             ),
         ) {
@@ -542,6 +549,31 @@ private class Motion(initial: Float, private val scope: CoroutineScope) {
     fun animateTo(target: Float, spec: AnimationSpec<Float>, velocity: Float = 0f): Job {
         job?.cancel()
         return scope.launch { animate(value, target, velocity, spec) { v, _ -> value = v } }.also { job = it }
+    }
+}
+
+/**
+ * The card a drag let go at [at] with [velocity] (cards a second) settles on. A flick moves one
+ * card on, as a pager does; only a fast one goes further, a card for each 6 cards a second,
+ * 4 at most. (Projecting the fling's distance skipped several cards on a slight flick.)
+ */
+fun settleOn(at: Float, velocity: Float): Int = when {
+    abs(velocity) < 1f -> at.roundToInt()
+    velocity > 0f -> floor(at).toInt() + 1 + min((velocity / 6f).toInt(), 4)
+    else -> ceil(at).toInt() - 1 - min((-velocity / 6f).toInt(), 4)
+}
+
+/**
+ * Waits until [tab]'s WebView, just put on screen, has drawn its page: a frame for it to be
+ * attached, then until its content is ready to draw, then that frame. At most 800 ms.
+ */
+private suspend fun awaitDrawn(tab: Tab) {
+    withTimeoutOrNull(800) {
+        withFrameNanos { }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.VISUAL_STATE_CALLBACK) && tab.webView.isAttachedToWindow) {
+            suspendCancellableCoroutine { c -> WebViewCompat.postVisualStateCallback(tab.webView, 0) { if (c.isActive) c.resume(Unit) } }
+        }
+        withFrameNanos { }
     }
 }
 
