@@ -96,15 +96,19 @@ class HistorySwipe(private val tab: Tab) {
 
     private fun navigate() {
         covering = true
-        tab.webView.translationX = 0f
         tab.go(direction)
         tab.whenShown(::uncover)
+        // The cover is drawn from the next frame on. Moving the WebView back into place now would
+        // show the page being left there for a frame (going back, the cover was underneath it).
+        val view = tab.webView
+        view.postOnAnimation { view.postOnAnimation { if (covering) view.translationX = 0f } }
     }
 
     /** Fades the cover out: the new page has loaded, or the user touches it. */
     fun uncover() {
         if (!covering || fading) return
         fading = true
+        tab.webView.translationX = 0f
         animator = ValueAnimator.ofFloat(coverAlpha, 0f).apply {
             duration = 200
             addUpdateListener { coverAlpha = it.animatedValue as Float }

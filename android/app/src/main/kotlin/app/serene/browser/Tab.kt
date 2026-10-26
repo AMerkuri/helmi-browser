@@ -314,7 +314,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         val then = onShown ?: return
         onShown = null
         main.removeCallbacks(shownTimeout)
-        then()
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.VISUAL_STATE_CALLBACK)) return then()
+        // The page is ready, but its pixels may be a frame or more behind (a page resumed from the
+        // back/forward cache is the old page on screen until its first new frame): wait until what
+        // the page is now has been drawn. Not forever: a WebView that does not draw never calls back.
+        var done = false
+        val once = { if (!done) { done = true; then() } }
+        WebViewCompat.postVisualStateCallback(webView, 0) { webView.postOnAnimation(once) }
+        main.postDelayed(once, 500)
     }
 
     private val snapshotLater = Runnable { snapshot() }
