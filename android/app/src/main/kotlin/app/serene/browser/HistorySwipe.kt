@@ -14,8 +14,9 @@ import kotlin.math.abs
  * Swiping between pages of a tab's history, as Safari does. Going back, the page slides away
  * with the finger and the previous page shows underneath, coming in from a little to the side.
  * Going forward, the next page slides in over the current one. The pages that are not on screen
- * are snapshots ([Snapshots]); once the swipe lets go, the snapshot stays over the WebView until
- * the real page has drawn.
+ * are snapshots ([Snapshots]), taken only when WebView keeps pages in its back/forward cache;
+ * without it they show as a plain card with the page's title. Once the swipe lets go, the
+ * snapshot or card stays over the WebView until the real page has drawn.
  *
  * Driven by the in-page swipe ([SereneWebView]) and by Android's back gesture (predictive back,
  * in BrowserScreen). The screen draws the layers from [direction], [progress] and [target]; the

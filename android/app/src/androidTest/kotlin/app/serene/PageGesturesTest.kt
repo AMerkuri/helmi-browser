@@ -133,10 +133,12 @@ class PageGesturesTest {
 
     /**
      * A page that is still loading (an image never arrives) gets its snapshot when it is left,
-     * so the swipe back to it shows the page, not a plain title card.
+     * so the swipe back to it shows the page, not a plain title card. Snapshots are only taken
+     * with the back/forward cache.
      */
     @Test
     fun snapshotOfAPageStillLoading() {
+        assumeTrue("this WebView has no back/forward cache", Tab.backForwardCacheSupported)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             var tab: Tab? = null
             scenario.onActivity { a -> tab = a.tabs.open("$base/slow") }
