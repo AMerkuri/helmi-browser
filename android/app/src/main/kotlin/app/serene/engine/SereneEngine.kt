@@ -20,12 +20,25 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /** One frame's end of the bridge: a WebMessageListener reply proxy in the app. */
 interface FrameRef {
     val isTop: Boolean
     fun send(json: String)
+}
+
+/** What the engine did, for the app's lifetime totals (app.serene.stats). Sites are eTLD+1. */
+interface EngineEvents {
+    /** A page loaded with Serene on. */
+    fun page(site: String) {}
+    fun blocked(site: String, type: String) {}
+    /** An annoyance clicked away or hidden, once per page and element; cookie banners once per page. */
+    fun cleared(site: String, label: String) {}
+    /** Autoconsent answered a cookie pop-up "no" for the user. */
+    fun consentRejected(site: String) {}
+    fun modelCall(ms: Long) {}
 }
 
 /**
@@ -44,6 +57,7 @@ class SereneEngine(
     @Volatile var autoconsent: AutoconsentRules? = null,
     /** With autoconsent on, consent tools' scripts get through the lists so it can opt out (see [ConsentTools]). */
     val allowConsentTools: Boolean = true,
+    @Volatile var events: EngineEvents? = null,
 ) {
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -76,6 +90,8 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     private val consent = ConcurrentHashMap<String, Consent>()               // origin -> autoconsent progress in that frame
     private var exceptions: List<String> = emptyList()
     private var generichide = false
+    private val cleared = ConcurrentHashMap.newKeySet<String>()             // sigs counted, and "cookie_consent" once a banner is
+    private val consentCounted = AtomicBoolean(false)
 
     @Volatile var topUrl: String? = null
     @Volatile var enabled = true
@@ -107,6 +123,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         val blocked = rules.shouldBlock(url, sourceUrl, type)
         if (blocked) {
             blockedRequests.incrementAndGet()
+            e.events?.blocked(siteOf(sourceUrl), type)
             log("blocked $type ${url.take(120)}")
             onChange()
         }
@@ -140,6 +157,11 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             }
             "applied" -> applied(msg)
             "autoconsent" -> autoconsentEvent(msg, frame)
+            // A cookie banner the lists hid; the content script saw it on the page first.
+            "listHit" -> {
+                log("lists hid a ${msg.str("label")} in ${if (frame.isTop) "top" else "a frame"}")
+                countCleared(msg.str("label") ?: return, null)
+            }
             "log" -> log("page: ${msg.str("msg")}")
         }
     }
@@ -150,6 +172,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         if (frame.isTop) {
             topUrl = url
             enabled = e.enabledFor(url)
+            if (enabled) e.events?.page(siteOf(url))
         }
         val rules = e.rules
         var css = ""
@@ -202,6 +225,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         if (cached) {
             val rule = e.cache.rulesFor(topUrl ?: f.url).firstOrNull { it.sig == f.sig }
             update(CandidateRecord(id, f, cached = true, label = rule?.label, action = rule?.action, source = "cache", buttonLabel = rule?.buttonLabel))
+            if (rule != null && rule.action != "ignore") countCleared(rule.label, f.sig)
             log("candidate #$id ${f.sig}: cached ${rule?.action}")
             return
         }
@@ -236,6 +260,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             v = try {
                 val r = classifier.classify(feats)
                 llmMs = r.ms
+                e.events?.modelCall(r.ms)
                 log("llm #$id: ${r.label}${r.confidence?.let { " p=%.2f".format(it) } ?: ""} ${r.ms} ms ${r.backend}${if (r.invalid) " INVALID: ${r.raw}" else ""}")
                 // The model only names the label; which button to press is the policy's call.
                 Policy.fromModel(r.label, r.confidence, feats, e.policy)
@@ -245,6 +270,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             }
         }
         v = v.copy(inFrame = inFrame)
+        if (v.action == "click" || v.action == "hide") countCleared(v.label, f.sig)
         val decidedMs = (System.nanoTime() - t0) / 1_000_000
         update(CandidateRecord(id, f, label = v.label, action = v.action, source = v.source, buttonLabel = v.buttonLabel, inFrame = inFrame, decidedMs = decidedMs, llmMs = llmMs))
         log("candidate #$id ${f.sig} → ${v.label}/${v.action} via ${v.source}${v.buttonLabel?.let { " \"$it\"" } ?: ""} in $decidedMs ms")
@@ -299,6 +325,10 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             }
         }
         log("autoconsent ${if (frame.isTop) "top" else origin}: $event ${cmp ?: ""}${result?.let { " → $it" } ?: ""}")
+        if (event == "optOutResult" && result == true && consentCounted.compareAndSet(false, true)) {
+            site()?.let { e.events?.consentRejected(it) }
+            countCleared("cookie_consent", null)
+        }
         onChange()
     }
 
@@ -321,6 +351,17 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             if (o != null || System.currentTimeMillis() > end) return o
             delay(100)
         }
+    }
+
+    /**
+     * For the totals: an element counts once per page however often it comes back, and a page
+     * has one cookie banner, whether the lists, autoconsent or the detector dealt with it.
+     */
+    private fun countCleared(label: String, sig: String?) {
+        if (sig != null && !cleared.add(sig)) return
+        if (label == "cookie_consent" && !cleared.add(label)) return
+        val site = site() ?: return
+        e.events?.cleared(site, label)
     }
 
     private fun update(rec: CandidateRecord) {

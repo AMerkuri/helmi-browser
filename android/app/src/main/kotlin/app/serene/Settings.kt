@@ -12,6 +12,7 @@ class Settings(context: Context) {
 
     private fun bool(key: String, default: Boolean) = Pref(key, prefs.getBoolean(key, default)) { putBoolean(key, it) }
     private fun string(key: String, default: String) = Pref(key, prefs.getString(key, default) ?: default) { putString(key, it) }
+    private fun stringSet(key: String) = Pref(key, prefs.getStringSet(key, emptySet())!!.toSet()) { putStringSet(key, it) }
 
     private inner class Pref<T>(val key: String, initial: T, val write: android.content.SharedPreferences.Editor.(T) -> Unit) {
         var state by mutableStateOf(initial)
@@ -52,7 +53,30 @@ class Settings(context: Context) {
     /** In the dark theme, darken sites that have no dark theme of their own. */
     var darkSites: Boolean get() = darkSitesPref.state; set(v) = darkSitesPref.set(v)
 
-    private val disabledSitesPref = Pref("disabled_sites", prefs.getStringSet("disabled_sites", emptySet())!!.toSet()) { putStringSet("disabled_sites", it) }
+    // ⋮ › Dark theme: sites (eTLD+1) that differ from darkSites. A site switched back to what
+    // darkSites says loses its entry, so it follows the setting again.
+    private val darkSitesOnPref = stringSet("dark_sites_on")
+    private val darkSitesOffPref = stringSet("dark_sites_off")
+    /** Sites with their own dark theme choice: site to on. */
+    val darkSiteChoices: Map<String, Boolean>
+        get() = darkSitesOffPref.state.associateWith { false } + darkSitesOnPref.state.associateWith { true }
+
+    /** Whether [site] is darkened in the dark theme: its own choice, else [darkSites]. */
+    fun darkSite(site: String) = when (site) {
+        in darkSitesOnPref.state -> true
+        in darkSitesOffPref.state -> false
+        else -> darkSites
+    }
+
+    fun setDarkSite(site: String, on: Boolean) {
+        darkSitesOnPref.set(darkSitesOnPref.state - site + listOfNotNull(site.takeIf { on && !darkSites }))
+        darkSitesOffPref.set(darkSitesOffPref.state - site + listOfNotNull(site.takeIf { !on && darkSites }))
+    }
+
+    /** Drops [site]'s own choice: it follows [darkSites]. */
+    fun resetDarkSite(site: String) = setDarkSite(site, darkSites)
+
+    private val disabledSitesPref = stringSet("disabled_sites")
     /** Sites (eTLD+1) where the user switched Serene off. */
     val disabledSites: Set<String> get() = disabledSitesPref.state
 

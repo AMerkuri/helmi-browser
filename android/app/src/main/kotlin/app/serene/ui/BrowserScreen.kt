@@ -21,6 +21,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -107,7 +108,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -118,11 +118,13 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
+import app.serene.engine.siteOf
 import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
 import java.io.File
@@ -422,6 +424,17 @@ private fun BottomBar(
                         onClick = { close(); app.settings.setSiteEnabled(site, !enabled); tab.reload() },
                     )
                 }
+                // Chrome's ⋮ › Dark theme: this site darkened or not, the setting until switched here.
+                // Only in the dark theme: WebView darkens nothing in the light one.
+                if (onPage && isSystemInDarkTheme() && WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                    val darkSite = siteOf(tab.url)
+                    val dark = app.settings.darkSite(darkSite)
+                    DropdownMenuItem(
+                        text = { Text("Dark theme") },
+                        trailingIcon = { Switch(checked = dark, onCheckedChange = null) },
+                        onClick = { close(); app.settings.setDarkSite(darkSite, !dark) },
+                    )
+                }
                 DropdownMenuItem(text = { Text("What Serene did here") }, onClick = { close(); onSite() })
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { close(); onOpen(Screen.Settings) })
             }
@@ -466,27 +479,6 @@ private object AboveAnchor : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val x = if (layoutDirection == LayoutDirection.Ltr) anchorBounds.right - popupContentSize.width else anchorBounds.left
         return IntOffset(x.coerceAtLeast(0), anchorBounds.top - popupContentSize.height)
-    }
-}
-
-@Composable
-internal fun StartPage(app: SereneApp) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(64.dp))
-            Icon(painterResource(R.drawable.ic_shield), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
-            Spacer(Modifier.height(12.dp))
-            Text("Serene", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Cookie banners, newsletter pop-ups and other overlays are cleared for you.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(24.dp))
-            val model = if (app.models.readyFile() != null && app.settings.modelEnabled) "on-device model ready" else "filter lists and heuristics (no model)"
-            Text("Engine: $model", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
     }
 }
 

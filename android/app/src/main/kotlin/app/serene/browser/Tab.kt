@@ -37,6 +37,7 @@ import app.serene.download.Download
 import app.serene.engine.EngineJson
 import app.serene.engine.FrameRef
 import app.serene.engine.PageSession
+import app.serene.engine.siteOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -132,10 +133,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             // The page's engine session goes with it, see onDocMessage. A flag in Settings.
         }
         flags = app.scope.launch(Dispatchers.Main.immediate) {
-            snapshotFlow { backForwardCache }.collect {
-                if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, it)
-                if (!it) Snapshots.clear(id)
+            launch {
+                snapshotFlow { backForwardCache }.collect {
+                    if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, it)
+                    if (!it) Snapshots.clear(id)
+                }
             }
+            // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
+            snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
         }
         applyDarkening()
         if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, KEEP_PICTURES, setOf("*"))
@@ -309,12 +314,24 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
      * pages that have no dark theme of their own (Chrome's auto dark mode); a page with one keeps
      * it, through prefers-color-scheme. Call again when the theme changes: setting it makes WebView
      * read the app theme again, which a WebView that isn't on screen would otherwise miss.
+     * A site can differ from the setting (⋮ › Dark theme, Settings.darkSite).
      */
     fun applyDarkening() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
-        val on = app.settings.darkSites
+        val on = app.settings.darkSite(siteOf(url))
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, !on)
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
+    }
+
+    /**
+     * Darkening for the page that started at [pageUrl]. The setting is one per WebView, so it is
+     * set as the new page starts: not before, when the page being left would change with it.
+     */
+    private fun darkenFor(pageUrl: String) = setDarkening(app.settings.darkSite(siteOf(pageUrl)))
+
+    private fun setDarkening(on: Boolean) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
+        if (WebSettingsCompat.isAlgorithmicDarkeningAllowed(webView.settings) != on) WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
     }
 
     fun load(input: String) {
@@ -466,6 +483,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
+            darkenFor(pageUrl)
             docLoading = true
             painting = true
             // A new page: the download goes on in the notification and the downloads screen.
