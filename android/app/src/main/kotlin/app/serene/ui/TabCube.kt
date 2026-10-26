@@ -24,11 +24,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import app.serene.SereneApp
 import app.serene.browser.Tab
@@ -37,9 +39,14 @@ import app.serene.browser.TabPreviews
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
+import kotlin.math.sin
 
 /** A drag past this share of the width turns to the next tab when let go; less turns back. */
 private const val COMMIT = 0.3f
@@ -49,11 +56,14 @@ private const val RESIST = 0.15f
 private const val SHADE = 0.55f
 /** The camera, in face widths in front of the page: the further, the flatter the cube looks. */
 private const val CAMERA = 2f
+/** Half way through a turn, the cube is this much smaller again than just fitting the page, so it stands clear of the edges. */
+private const val MARGIN = 0.05f
 
 /**
  * Turning to the tab beside this one, with a sideways drag on the bottom bar (as Chrome does with
- * its toolbar), drawn as a cube, as Instagram turns between stories: the page turns away about
- * one edge and the next tab's page turns in on the cube's next face. A drag to the left turns to
+ * its toolbar), drawn as a cube, as Instagram turns between stories: the cube turns about its
+ * middle, the page going round one side as the next tab's page comes round on the next face,
+ * and the cube shrinks while it turns so all of it stays in view. A drag to the left turns to
  * the next tab in the switcher's order, to the right to the one before it.
  *
  * The faces are pictures: the current page is taken (PixelCopy) as the drag starts, and the tab
@@ -189,8 +199,9 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
 
 /**
  * The cube over the page: the page the drag started on and the tab beside it on the next face,
- * turned about the edge they share, on black. After the turn, the tab turned to, flat, fading
- * into its page.
+ * the cube turning about its middle, on black. Turning, its front edge comes towards you, so it
+ * shrinks to keep all of it on the page, and grows back as the next face comes to the front.
+ * After the turn, the tab turned to, flat, fading into its page.
  */
 @Composable
 fun TabCubeFaces(cube: TabCube, app: SereneApp) {
@@ -203,26 +214,74 @@ fun TabCubeFaces(cube: TabCube, app: SereneApp) {
         return
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Face(from, image, app, Modifier.cubeFace { -cube.turn }, shade = { SHADE * abs(cube.turn) })
         val dir by remember { derivedStateOf { cube.turn.sign.toInt() } }
-        cube.beside(dir)?.let { tab ->
-            key(tab.id) { Face(tab, null, app, Modifier.cubeFace { dir - cube.turn }, shade = { SHADE * (1f - abs(cube.turn)) }) }
+        // The tab beside only while there is one: at the end of the tabs the page turns alone.
+        val beside = cube.beside(dir)
+        val faces = { if (beside != null) intArrayOf(0, dir) else intArrayOf(0) }
+        Face(from, image, app, Modifier.onCube(0, { cube.turn }, faces), shade = { SHADE * abs(cube.turn) })
+        beside?.let { tab ->
+            key(tab.id) { Face(tab, null, app, Modifier.onCube(dir, { cube.turn }, faces), shade = { SHADE * (1f - abs(cube.turn)) }) }
         }
     }
 }
 
 /**
- * A face [pos] faces from the front: 0 facing you, 1 the face to the right, -1 to the left. It
- * turns about the edge it shares with the face in front, away from you, as the outside of a cube.
+ * Draws this as face [k] of the cube (0 the page the drag started on, 1 the next tab's, -1 the
+ * one before), the cube [turn]ed: a perspective transform from the page's rectangle onto where
+ * the face's corners are on screen. [faces] are the faces drawn, which the cube is sized to fit.
  */
-private fun Modifier.cubeFace(pos: () -> Float) = graphicsLayer {
-    val p = pos()
-    translationX = p * size.width
-    // Positive turns the left edge towards you (Cover Flow's cards show it): the far edge goes back.
-    rotationY = 90f * p
-    transformOrigin = TransformOrigin(if (p < 0f) 1f else 0f, 0.5f)
-    // RenderNode's camera distance is in units of 72 px.
-    cameraDistance = CAMERA * size.width / 72f
+private fun Modifier.onCube(k: Int, turn: () -> Float, faces: () -> IntArray) = drawWithContent {
+    val t = turn()
+    val w = size.width
+    val h = size.height
+    val corners = cubeCorners((k - t) * 90f, w, h) ?: return@drawWithContent
+    // Scaled about the page's centre until every face drawn is inside the page, and a little
+    // more half way.
+    var reachX = w / 2
+    var reachY = h / 2
+    for (f in faces()) {
+        val c = cubeCorners((f - t) * 90f, w, h) ?: continue
+        for (i in 0 until 4) {
+            reachX = max(reachX, abs(c[2 * i] - w / 2))
+            reachY = max(reachY, abs(c[2 * i + 1] - h / 2))
+        }
+    }
+    val s = min(w / 2 / reachX, h / 2 / reachY) * (1f - MARGIN * sin(PI.toFloat() * abs(t)))
+    for (i in 0 until 4) {
+        corners[2 * i] = w / 2 + (corners[2 * i] - w / 2) * s
+        corners[2 * i + 1] = h / 2 + (corners[2 * i + 1] - h / 2) * s
+    }
+    val m = android.graphics.Matrix()
+    m.setPolyToPoly(floatArrayOf(0f, 0f, w, 0f, w, h, 0f, h), 0, corners, 0, 4)
+    drawIntoCanvas { it.nativeCanvas.save(); it.nativeCanvas.concat(m) }
+    drawContent()
+    drawIntoCanvas { it.nativeCanvas.restore() }
+}
+
+/**
+ * Where the corners of a face [angle] degrees round the cube from the front are on screen
+ * (top left, top right, bottom right, bottom left), for faces [w] x [h]; null when it faces away.
+ * The cube's axis is upright, half a face behind the page's middle; positive angles are to the
+ * right. The camera is [CAMERA] face widths in front of the page, over its middle.
+ */
+private fun cubeCorners(angle: Float, w: Float, h: Float): FloatArray? {
+    if (abs(angle) >= 89.9f) return null
+    val a = Math.toRadians(angle.toDouble())
+    val cos = cos(a).toFloat()
+    val sin = sin(a).toFloat()
+    val camera = CAMERA * w
+    val out = FloatArray(8)
+    for (i in 0 until 4) {
+        val u = if (i == 0 || i == 3) -w / 2 else w / 2
+        val v = if (i < 2) -h / 2 else h / 2
+        // Across the face from its middle (u), turned round the axis; z is away from you.
+        val x = u * cos + w / 2 * sin
+        val z = w / 2 - w / 2 * cos + u * sin
+        val p = camera / (camera + z)
+        out[2 * i] = w / 2 + x * p
+        out[2 * i + 1] = h / 2 + v * p
+    }
+    return out
 }
 
 /** A tab's page on a face: [image], else its switcher picture, else its start page or title. */

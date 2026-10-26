@@ -26,9 +26,10 @@ import kotlin.concurrent.thread
 
 /**
  * A sideways drag on the bottom bar turns a cube to the tab beside the current one: left to the
- * next tab, right to the one before. Half way, the page turned away and the tab coming in share
- * the screen, each turned away from you about the edge between them. A short drag turns back, and
- * a tap on the bar is still a tap. Three pages of one colour each, to tell them apart.
+ * next tab, right to the one before. Half way, the page and the tab coming in share the screen
+ * as two sides of a cube seen from outside, shrunk to stay clear of the page's edges. A short
+ * drag turns back, and a tap on the bar is still a tap. Three pages of one colour each, to tell
+ * them apart.
  */
 @RunWith(AndroidJUnit4::class)
 class TabCubeTest {
@@ -78,7 +79,7 @@ class TabCubeTest {
                 SystemClock.sleep(1500)
                 assertEquals("green", current(scenario))
 
-                // Half way to the left: green turns away on the left, blue comes in on the right.
+                // Half way to the left: green goes round on the left, blue comes round on the right.
                 // The drag starts on the tabs button, which must not open the switcher.
                 drag(scenario, from = 0.68f, by = -0.5f) { shot, page ->
                     val y = page.center.y
@@ -88,6 +89,10 @@ class TabCubeTest {
                     // above it; turned towards you it would fill the page's height there.
                     val top = shot.at(page.left + page.width * 0.25f, page.top + page.height * 0.02f)
                     assertTrue("above the far side of the face should be black, is %08x".format(top), top.isDark())
+                    // The cube shrinks to stay in view: none of it is cut off at the sides.
+                    for (x in listOf(page.left + 3f, page.right - 4f)) {
+                        assertTrue("the cube should clear the page's sides, at $x is %08x".format(shot.at(x, y)), shot.at(x, y).isDark())
+                    }
                 }
                 waitFor("the cube turns to blue") { current(scenario) == "blue" }
                 assertEquals(Screen.Browser, screen(scenario))
