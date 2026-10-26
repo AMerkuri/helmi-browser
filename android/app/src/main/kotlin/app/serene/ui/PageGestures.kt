@@ -11,10 +11,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -81,8 +78,7 @@ fun SwipeTarget(swipe: HistorySwipe) {
             Image(
                 shot.bitmap.asImageBitmap(),
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
+                contentScale = ContentScale.FillBounds,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -158,12 +154,6 @@ fun BoxScope.PullIndicator(tab: Tab) {
                     modifier = Modifier.size(22.dp),
                     strokeWidth = 2.5.dp,
                     trackColor = Color.Transparent,
-                )
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = null,
-                    tint = if (frac >= 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = frac * 270f },
                 )
             }
         }

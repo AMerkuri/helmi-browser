@@ -220,16 +220,20 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         webView.destroy()
     }
 
-    // Between a new document's start and its first paint: the old page is still on screen.
+    // Between a new document's start and its load: the old page, or a half-built new one, is on screen.
     private var docLoading = false
     private var onShown: (() -> Unit)? = null
     private val shownTimeout = Runnable { shown() }
 
-    /** Calls [then] once the page a history step went to has drawn (or after a while, regardless). */
+    /**
+     * Calls [then] once the page a history step went to has loaded and settled (or after a while,
+     * regardless). Not at its first paint: a page that renders in script (GitHub) first draws a
+     * half-built page, which flickered between the snapshot and the finished page.
+     */
     fun whenShown(then: () -> Unit) {
         onShown = then
         main.removeCallbacks(shownTimeout)
-        main.postDelayed(shownTimeout, 2500)
+        main.postDelayed(shownTimeout, 3000)
     }
 
     private fun shown() {
@@ -319,15 +323,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             if (!documentStartSupported) view.evaluateJavascript(contentScript(view.context), null)
         }
 
-        override fun onPageCommitVisible(view: WebView, pageUrl: String) {
-            docLoading = false
-            shown()
-        }
-
         override fun onPageFinished(view: WebView, pageUrl: String) {
             updateNav(pageUrl)
             docLoading = false
-            shown()
+            // A moment for what the page's scripts draw after the load.
+            main.postDelayed(::shown, 300)
             pull.done()
             snapshotSoon()
         }

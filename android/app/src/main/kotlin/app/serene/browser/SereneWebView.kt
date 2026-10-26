@@ -37,8 +37,10 @@ class SereneWebView(context: Context, private val swipe: HistorySwipe, private v
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // The snapshot still covering the new page: the page is in place, so show it.
+                if (swipe.covering) swipe.uncover()
                 // A transition still settling: its page is not where the finger thinks it is.
-                if (swipe.active) {
+                else if (swipe.active) {
                     mode = Mode.Blocked
                     return true
                 }

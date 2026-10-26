@@ -97,18 +97,26 @@ class HistorySwipe(private val tab: Tab) {
         covering = true
         tab.webView.translationX = 0f
         tab.go(direction)
-        tab.whenShown {
-            animator = ValueAnimator.ofFloat(1f, 0f).apply {
-                duration = 150
-                addUpdateListener { coverAlpha = it.animatedValue as Float }
-                doOnEnd { clear() }
-                start()
-            }
+        tab.whenShown(::uncover)
+    }
+
+    /** Fades the cover out: the new page has loaded, or the user touches it. */
+    fun uncover() {
+        if (!covering || fading) return
+        fading = true
+        animator = ValueAnimator.ofFloat(coverAlpha, 0f).apply {
+            duration = 200
+            addUpdateListener { coverAlpha = it.animatedValue as Float }
+            doOnEnd { clear() }
+            start()
         }
     }
 
+    private var fading = false
+
     private fun clear() {
         animator = null
+        fading = false
         direction = 0
         covering = false
         target = null
