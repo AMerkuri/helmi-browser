@@ -79,10 +79,19 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: engine/package-lock.json
+      # Same node_modules cache as the engine workflow: adblock-rs compiles on install.
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: |
+            engine/node_modules
+            !engine/node_modules/@node-llama-cpp/linux-x64-cuda*
+            !engine/node_modules/adblock-rs/target
+          key: engine-node-modules-${{ runner.os }}-node22-${{ hashFiles('engine/package-lock.json') }}
       - name: Engine dependencies
         working-directory: engine
         run: |
-          npm ci
+          if [ "${{ steps.node-modules.outputs.cache-hit }}" != "true" ]; then npm ci; fi
           npx playwright install --with-deps chromium
       - uses: anthropics/claude-code-action@v1
         with:

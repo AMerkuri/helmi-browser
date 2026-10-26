@@ -14,4 +14,4 @@ Android browser that removes page annoyances (cookie banners, newsletter boxes, 
 - A change to `engine/src/host` gets the same change in the Kotlin port, in the same PR.
 - Fixtures are hand-written imitations of an overlay pattern, never copies of a real site.
 - A false positive (hiding real page content) is worse than a missed popup.
-- The Android build needs the SDK, NDK and Rust; leave it to the `android` workflow, which builds a debug APK on every PR and links it in the PR description.
+- The Android build needs the SDK, NDK and Rust; leave it to the `android` workflow, which builds a debug APK on every PR that touches the app (or the engine files it packages) and links it in the PR description.
