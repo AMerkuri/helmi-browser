@@ -6,7 +6,6 @@ import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -58,11 +59,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
@@ -70,6 +74,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -81,6 +86,7 @@ import app.serene.browser.TabManager
 import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
 import java.io.File
+import kotlin.math.roundToInt
 
 @Composable
 fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
@@ -92,7 +98,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
     var reader by remember { mutableStateOf<ReaderPage?>(null) }
     LaunchedEffect(tab.id) { reader = null }
 
-    BackHandler(enabled = tab.canGoBack) { tab.goBack() }
+    HistoryBackHandler(tab)
+    // A swipe or pull left half way (another tab, another screen) puts its page back.
+    DisposableEffect(tab) { onDispose { tab.swipe.reset(); tab.pull.reset() } }
 
     // Android 13+: the download notification needs permission. Ask once, at the first download.
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -133,9 +141,19 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                 UrlBar(app, tab, onShield = { showSite = true })
                 if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
                 else Spacer(Modifier.height(2.dp))
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                val density = LocalDensity.current
+                Box(
+                    Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged {
+                        tab.swipe.width = it.width.toFloat()
+                        tab.swipe.flingVelocity = with(density) { 800.dp.toPx() }
+                        tab.pull.trigger = with(density) { 72.dp.toPx() }
+                    },
+                ) {
                     val startPage = tab.url.isEmpty() || tab.url == "about:blank"
                     val downloadPage = tab.downloadPage
+                    val swipe = tab.swipe
+                    // Swiping back, the previous page is underneath; the WebView moves itself.
+                    if (swipe.active && !swipe.targetOnTop) SwipeTarget(swipe)
                     key(tab.id) {
                         AndroidView(
                             factory = { (tab.webView.parent as? ViewGroup)?.removeView(tab.webView); tab.webView },
@@ -147,11 +165,18 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                             update = { it.visibility = if (startPage || downloadPage || !tab.hasPage) View.INVISIBLE else View.VISIBLE },
                         )
                     }
-                    if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab) })
-                    else if (startPage) StartPage(app)
-                    else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
-                        DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
+                    // What covers the WebView moves with it.
+                    Box(Modifier.fillMaxSize().offset { IntOffset(swipe.pageOffset.roundToInt(), 0) }) {
+                        if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab) })
+                        else if (startPage) StartPage(app)
+                        else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
+                            DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
+                        }
                     }
+                    // Going forward, the next page slides in over this one; after the step, the
+                    // target covers the WebView until the new page has drawn.
+                    if (swipe.active && swipe.targetOnTop) SwipeTarget(swipe)
+                    PullIndicator(tab)
                 }
                 BottomBar(
                     app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },

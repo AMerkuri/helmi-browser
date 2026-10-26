@@ -34,10 +34,23 @@ class Settings(context: Context) {
     private val wifiOnlyPref = bool("wifi_only_downloads", true)
     var wifiOnlyDownloads: Boolean get() = wifiOnlyPref.state; set(v) = wifiOnlyPref.set(v)
 
+    private val backForwardCachePref = bool("flag_back_forward_cache", true)
+    /** Flag: WebView's back/forward cache, and swipe previews with it (off: a title card, and back reloads). */
+    var backForwardCache: Boolean get() = backForwardCachePref.state; set(v) = backForwardCachePref.set(v)
+
     private val searchPref = string("search_engine", SearchEngine.DUCKDUCKGO.name)
     var searchEngine: SearchEngine
         get() = runCatching { SearchEngine.valueOf(searchPref.state) }.getOrDefault(SearchEngine.DUCKDUCKGO)
         set(v) = searchPref.set(v.name)
+
+    private val themePref = string("theme", ThemeMode.SYSTEM.name)
+    var theme: ThemeMode
+        get() = runCatching { ThemeMode.valueOf(themePref.state) }.getOrDefault(ThemeMode.SYSTEM)
+        set(v) = themePref.set(v.name)
+
+    private val darkSitesPref = bool("dark_sites", true)
+    /** In the dark theme, darken sites that have no dark theme of their own. */
+    var darkSites: Boolean get() = darkSitesPref.state; set(v) = darkSitesPref.set(v)
 
     private val disabledSitesPref = Pref("disabled_sites", prefs.getStringSet("disabled_sites", emptySet())!!.toSet()) { putStringSet("disabled_sites", it) }
     /** Sites (eTLD+1) where the user switched Serene off. */
@@ -64,6 +77,12 @@ class Settings(context: Context) {
     var modelDownloadId: Long
         get() = prefs.getLong("model_download_id", -1)
         set(v) = prefs.edit { putLong("model_download_id", v) }
+}
+
+enum class ThemeMode(val label: String) {
+    SYSTEM("System default"),
+    LIGHT("Light"),
+    DARK("Dark"),
 }
 
 enum class SearchEngine(val label: String, val template: String) {

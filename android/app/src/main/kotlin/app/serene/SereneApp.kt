@@ -18,6 +18,7 @@ import app.serene.engine.VerdictCache
 import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
 import app.serene.reader.ReaderPrefs
+import app.serene.ui.applyNightMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -79,6 +80,7 @@ class SereneApp : Application() {
     override fun onCreate() {
         super.onCreate()
         settings = Settings(this)
+        applyNightMode(this, settings.theme)
         models = ModelManager(this, settings, scope)
         models.refresh()
         downloads = Downloads(this)
