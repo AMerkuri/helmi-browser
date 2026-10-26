@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                     // The tab switcher is drawn over the browser, which shows through as a card
                     // grows into its page.
                     Screen.Browser, Screen.Tabs -> Box(Modifier.fillMaxSize()) {
-                        BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it; tabs.sizeHidden(it.width.toInt(), it.height.toInt()) })
+                        BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it; tabs.sizeHidden(it.width.toInt(), it.height.toInt()) }, covered = screen == Screen.Tabs)
                         if (screen == Screen.Tabs) CoverFlowTabs(tabs, pageBounds, onDone = { screen = Screen.Browser })
                     }
                     Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })

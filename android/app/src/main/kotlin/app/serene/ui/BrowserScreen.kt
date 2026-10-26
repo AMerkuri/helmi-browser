@@ -97,8 +97,9 @@ import app.serene.report.Reporter
 import java.io.File
 import kotlin.math.roundToInt
 
+/** [covered]: the tab switcher is drawn over this screen, so a new tab doesn't open the keyboard under it. */
 @Composable
-fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, onPageBounds: (Rect) -> Unit = {}) {
+fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, onPageBounds: (Rect) -> Unit = {}, covered: Boolean = false) {
     val tab = tabs.current ?: return
     val context = LocalContext.current
     var showSite by remember { mutableStateOf(false) }
@@ -135,7 +136,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                 .navigationBarsPadding()
                 .imePadding(),
         ) {
-            UrlBar(app, tab, onShield = { showSite = true })
+            UrlBar(app, tab, covered, onShield = { showSite = true })
             if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
             else Spacer(Modifier.height(2.dp))
             val density = LocalDensity.current
@@ -195,7 +196,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
+private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, onShield: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     // The state-based field: dragging the cursor handle past the edge keeps scrolling the text,
     // where the TextFieldValue one stopped a character past what was on screen.
@@ -222,7 +223,8 @@ private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
             scroll.scrollTo(0)
         }
     }
-    LaunchedEffect(tab.id) { if (tab.url.isEmpty()) focus.requestFocus() }
+    // A new tab starts with the keyboard up, once the switcher (if any) is gone.
+    LaunchedEffect(tab.id, covered) { if (!covered && tab.url.isEmpty()) focus.requestFocus() }
     // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome.
     val imeVisible = WindowInsets.isImeVisible
     var imeWasVisible by remember { mutableStateOf(false) }
