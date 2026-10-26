@@ -7,6 +7,9 @@ import android.util.Base64
 import android.util.Log
 import android.view.MotionEvent
 import androidx.compose.ui.geometry.Rect
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -61,6 +64,14 @@ class TabCubeTest {
                     }
                     waitFor("$name loads") { tab?.title == name && tab?.progress == 100 }
                     SystemClock.sleep(1500) // drawn
+                }
+                // The blank tab the test started on focused the address bar: put the keyboard away,
+                // so the bar is back at the bottom.
+                scenario.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
+                waitFor("the keyboard closes") {
+                    var ime = true
+                    scenario.onActivity { a -> ime = ViewCompat.getRootWindowInsets(a.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: true }
+                    !ime
                 }
                 // Green, in the middle, so there is a tab either side.
                 scenario.onActivity { a -> a.tabs.select(a.tabs.tabs[1]) }
@@ -147,11 +158,7 @@ class TabCubeTest {
         inst.sendPointerSync(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x0, y, 0))
         for (step in 1..30) inst.sendPointerSync(MotionEvent.obtain(t, t + step * 20L, MotionEvent.ACTION_MOVE, x0 + dx * step / 30f, y, 0))
         for (step in 31..40) inst.sendPointerSync(MotionEvent.obtain(t, t + step * 20L, MotionEvent.ACTION_MOVE, x0 + dx, y, 0))
-        if (held != null) {
-            SystemClock.sleep(300)
-            val shot = screenshot("held: from $from by $by")
-            held(shot, page)
-        }
+        if (held != null) settled("held: from $from by $by") { held(it, page) }
         val up = SystemClock.uptimeMillis().coerceAtLeast(t + 41 * 20L)
         inst.sendPointerSync(MotionEvent.obtain(t, up, MotionEvent.ACTION_UP, x0 + dx, y, 0))
     }
@@ -168,7 +175,10 @@ class TabCubeTest {
     /** The page shows [colour] all across, with no cube over it. */
     private fun assertPage(scenario: ActivityScenario<MainActivity>, label: String, colour: String) {
         val (page, _) = page(scenario)
-        val shot = screenshot(label)
+        settled(label) { shot -> pageIs(shot, page, label, colour) }
+    }
+
+    private fun pageIs(shot: Bitmap, page: Rect, label: String, colour: String) {
         for (fx in listOf(0.1f, 0.5f, 0.9f)) for (fy in listOf(0.05f, 0.5f, 0.95f)) {
             val p = shot.at(page.left + page.width * fx, page.top + page.height * fy)
             val c = Color.parseColor(colours.getValue(colour))
@@ -199,12 +209,31 @@ class TabCubeTest {
         assertTrue("timed out: $what", ok())
     }
 
+    /**
+     * Runs [check] on screenshots until it passes, 5 s at most (the CI emulator can be slow to
+     * draw), and logs the last one.
+     */
+    private fun settled(label: String, check: (Bitmap) -> Unit) {
+        val end = SystemClock.uptimeMillis() + 5000
+        while (true) {
+            SystemClock.sleep(200)
+            val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
+            if (shot != null && runCatching { check(shot) }.isSuccess) return log(shot, label)
+            if (SystemClock.uptimeMillis() > end) break
+        }
+        check(screenshot(label))
+    }
+
     /** The display, also as a base64 PNG in logcat (the e2e-output artifact). */
     private fun screenshot(label: String): Bitmap {
         val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
         assertNotNull("no screenshot", shot)
-        val png = ByteArrayOutputStream().also { shot!!.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        log(shot!!, label)
+        return shot
+    }
+
+    private fun log(shot: Bitmap, label: String) {
+        val png = ByteArrayOutputStream().also { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
         Base64.encodeToString(png, Base64.NO_WRAP).chunked(3000).forEachIndexed { i, chunk -> Log.i("TabCubeShot", "$label #$i $chunk") }
-        return shot!!
     }
 }
