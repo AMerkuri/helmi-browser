@@ -19,9 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -95,25 +92,6 @@ fun SwipeTarget(swipe: HistorySwipe) {
         // Dimmed while it comes in, either way.
         if (!swipe.covering) Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black, alpha = swipe.scrim) })
     }
-}
-
-/** A soft shadow along the edge of the page on top, where it meets the one underneath. */
-@Composable
-fun SwipeShadow(swipe: HistorySwipe) {
-    val shadow = with(LocalDensity.current) { 16.dp.toPx() }
-    Box(
-        Modifier.fillMaxSize().drawBehind {
-            if (swipe.covering) return@drawBehind
-            val x = if (swipe.targetOnTop) swipe.targetOffset else swipe.pageOffset
-            if (x == 0f) return@drawBehind
-            // The top page's left edge when it is to the right, its right edge when it is to the left.
-            val edge = if (x > 0) x else size.width + x
-            val alpha = 0.25f * (1 - swipe.progress * 0.5f)
-            val (from, to) = if (x > 0) edge - shadow to edge else edge to edge + shadow
-            val colors = if (x > 0) listOf(Color.Transparent, Color.Black.copy(alpha = alpha)) else listOf(Color.Black.copy(alpha = alpha), Color.Transparent)
-            drawRect(Brush.horizontalGradient(colors, startX = from, endX = to), topLeft = Offset(from, 0f), size = Size(shadow, size.height))
-        },
-    )
 }
 
 /** The pull-to-reload indicator: comes down from the top edge, turning, then spins while the page loads. */

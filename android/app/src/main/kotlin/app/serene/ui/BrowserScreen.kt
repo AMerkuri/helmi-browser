@@ -159,12 +159,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                         DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
                     }
                 }
-                if (swipe.active) {
-                    // Going forward, the next page slides in over this one; after the step, the
-                    // target covers the WebView until the new page has drawn.
-                    if (swipe.targetOnTop) SwipeTarget(swipe)
-                    SwipeShadow(swipe)
-                }
+                // Going forward, the next page slides in over this one; after the step, the
+                // target covers the WebView until the new page has drawn.
+                if (swipe.active && swipe.targetOnTop) SwipeTarget(swipe)
                 PullIndicator(tab)
             }
             BottomBar(app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true })
