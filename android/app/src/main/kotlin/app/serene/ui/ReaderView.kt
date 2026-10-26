@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -180,7 +181,16 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
     }
 
     CompositionLocalProvider(LocalContentColor provides fg) {
-        Column(Modifier.fillMaxSize().background(bg).statusBarsPadding().navigationBarsPadding()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                // The reader covers the browser; without a pointer handler of its own, taps on the
+                // footer or the bar's empty space went through to the browser's ⋮ menu below.
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+                .background(bg)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AndroidView(factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView }, modifier = Modifier.fillMaxSize())
                 if (chrome) {
