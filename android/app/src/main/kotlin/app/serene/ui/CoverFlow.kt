@@ -149,11 +149,10 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     val scroll = remember { Motion(tabs.currentIndex.toFloat(), scope) }
     // 1: the card the switcher opens from or into is the page itself; 0: all cards in the flow.
     val zoom = remember { Animatable(1f) }
-    // How much the zooming card (and black under it, over the page) covers the page: it fades in
-    // at the start and out at the end, while it has the page's place and size. In between the
-    // live page stays hidden: seen through a fading background it showed as a second, full-size
-    // page behind the growing card.
-    val cover = remember { Animatable(0f) }
+    // How opaque the zooming card is. It fades in at the start and out at the end, only while it
+    // has the page's place and size, over the live page. A card with the page's picture needs no
+    // fade in: it is the page as on screen.
+    val cover = remember { Animatable(if (origin != null && TabPreviews.get(origin) != null) 1f else 0f) }
     var zoomId by remember { mutableLongStateOf(origin?.id ?: -1L) }
     // After a tab is closed, the cards after it move up into its place: [gap] goes from 1 to 0.
     val gap = remember { Animatable(0f) }
@@ -172,7 +171,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     val focus = LocalFocusManager.current
     LaunchedEffect(Unit) {
         focus.clearFocus() // the address bar, with its keyboard
-        launch { cover.animateTo(1f, tween(100)) }
+        cover.animateTo(1f, tween(120))
         zoom.animateTo(0f, tween(380, easing = FastOutSlowInEasing))
     }
 
@@ -270,12 +269,15 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         val count = tabs.tabs.size
 
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - zoom.value }.background(Color.Black))
-        // The page's place stays black under the zooming card, while the bars around it fade in.
+        // While the card is smaller than the page, the page's place stays black around it and
+        // only the bars fade: the live page seen through a fading background was a second,
+        // full-size page behind the card. Not while the card fades: the black then showed
+        // through the card too, and the screen dimmed for a moment (a flicker).
         Box(
             Modifier
                 .offset { IntOffset(page.left.roundToInt(), page.top.roundToInt()) }
                 .size(with(dens) { page.width.toDp() }, with(dens) { page.height.toDp() })
-                .graphicsLayer { alpha = cover.value }
+                .graphicsLayer { alpha = if (cover.value >= 1f) 1f else 0f }
                 .background(Color.Black),
         )
 
