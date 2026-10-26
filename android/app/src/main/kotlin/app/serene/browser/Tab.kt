@@ -84,6 +84,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         private set
     /** The latest download from this tab; a bar over the page shows it until dismissed. */
     var downloadBar by mutableStateOf<Download?>(null)
+    /** The link the user long-pressed: the link menu shows it until dismissed. */
+    var linkMenu by mutableStateOf<Link?>(null)
 
     // The user agent of a blob: download while its data comes back from the page.
     @Volatile private var blobUserAgent: String? = null
@@ -155,6 +157,29 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         webView.setDownloadListener { dlUrl, userAgent, contentDisposition, mimeType, _ ->
             onDownload(dlUrl, userAgent, contentDisposition, mimeType)
         }
+        webView.setOnLongClickListener { onLongPress() }
+    }
+
+    // The long-pressed link's address and text, from WebView's last hit test.
+    private val linkHref = Handler(Looper.getMainLooper()) { m ->
+        val href = m.data.getString("url")?.takeIf { it.isNotBlank() } ?: m.obj as? String
+        if (href != null && isWebLink(href) && !destroyed) linkMenu = Link(href, m.data.getString("title").orEmpty().trim().replace(Regex("\\s+"), " "))
+        true
+    }
+
+    /**
+     * A long press on a link (or a picture that is a link) opens the link menu, as in Chrome.
+     * Anything else (text to select, a picture) stays WebView's. Web links only: a javascript:
+     * or mailto: link has nothing to open in a tab.
+     */
+    private fun onLongPress(): Boolean {
+        val hit = webView.hitTestResult
+        if (hit.type != WebView.HitTestResult.SRC_ANCHOR_TYPE && hit.type != WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) return false
+        // For a picture link the hit test has the picture's address; the link's comes with the message.
+        val anchor = hit.extra.takeIf { hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE }
+        if (anchor != null && !isWebLink(anchor)) return false
+        webView.requestFocusNodeHref(linkHref.obtainMessage(0, anchor))
+        return true
     }
 
     private fun installEngine() {
@@ -289,6 +314,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         if (destroyed) return
         destroyed = true
         main.removeCallbacksAndMessages(null)
+        linkHref.removeCallbacksAndMessages(null)
         flags.cancel()
         swipe.reset()
         pull.reset()
@@ -579,6 +605,11 @@ fun requestType(request: WebResourceRequest): String {
         else -> "other"
     }
 }
+
+/** A link on a page: its address and its text ("" for a picture). */
+data class Link(val url: String, val text: String)
+
+fun isWebLink(url: String) = url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)
 
 /** URL bar input: a URL as typed, a host without scheme, or a search. */
 fun resolveInput(input: String, searchTemplate: String): String {
