@@ -72,7 +72,10 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -96,8 +99,9 @@ import app.serene.report.Reporter
 import java.io.File
 import kotlin.math.roundToInt
 
+/** [covered]: the tab switcher is drawn over this screen, so a new tab doesn't open the keyboard under it. */
 @Composable
-fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
+fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, onPageBounds: (Rect) -> Unit = {}, covered: Boolean = false) {
     val tab = tabs.current ?: return
     val context = LocalContext.current
     var showSite by remember { mutableStateOf(false) }
@@ -146,7 +150,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                     .navigationBarsPadding()
                     .imePadding(),
             ) {
-                UrlBar(app, tab, onShield = { showSite = true })
+                UrlBar(app, tab, covered, onShield = { showSite = true })
                 if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
                 else Spacer(Modifier.height(2.dp))
                 val density = LocalDensity.current
@@ -155,7 +159,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
                         tab.swipe.width = it.width.toFloat()
                         tab.swipe.flingVelocity = with(density) { 800.dp.toPx() }
                         tab.pull.trigger = with(density) { 72.dp.toPx() }
-                    },
+                    }.onGloballyPositioned { onPageBounds(it.boundsInRoot()) },
                 ) {
                     val startPage = tab.url.isEmpty() || tab.url == "about:blank"
                     val downloadPage = tab.downloadPage
@@ -217,7 +221,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
+private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, onShield: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     // The state-based field: dragging the cursor handle past the edge keeps scrolling the text,
     // where the TextFieldValue one stopped a character past what was on screen.
@@ -244,7 +248,8 @@ private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
             scroll.scrollTo(0)
         }
     }
-    LaunchedEffect(tab.id) { if (tab.url.isEmpty()) focus.requestFocus() }
+    // A new tab starts with the keyboard up, once the switcher (if any) is gone.
+    LaunchedEffect(tab.id, covered) { if (!covered && tab.url.isEmpty()) focus.requestFocus() }
     // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome.
     val imeVisible = WindowInsets.isImeVisible
     var imeWasVisible by remember { mutableStateOf(false) }

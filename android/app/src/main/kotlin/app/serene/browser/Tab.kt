@@ -403,13 +403,13 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
     /**
      * A picture of the content area as it is now, for swiping back (or forward) to this page
      * later. PixelCopy, because draw() of a WebView comes out blank on phones. Not while a
-     * swipe or pull is on screen, or while a new page is replacing this one. Only with the
+     * swipe or pull is on screen, nor while the tab switcher covers the page, nor while a new page is replacing this one. Only with the
      * back/forward cache: without it the page reloads behind the picture and visibly changes when
      * it shows, so a swipe shows the plain title card instead.
      */
     fun snapshot() {
         if (!backForwardCache) return
-        if (destroyed || swipe.active || pull.active || painting || !webView.isAttachedToWindow) return
+        if (destroyed || swipe.active || pull.active || painting || TabPreviews.covered || !webView.isAttachedToWindow) return
         val w = webView.width
         val h = webView.height
         if (w == 0 || h == 0) return
