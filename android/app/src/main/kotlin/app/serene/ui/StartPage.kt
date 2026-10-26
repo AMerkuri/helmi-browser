@@ -43,7 +43,6 @@ fun StartPage(app: SereneApp) {
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(32.dp))
             Icon(painterResource(R.drawable.ic_shield), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
             Spacer(Modifier.height(12.dp))
             Text("Serene", style = MaterialTheme.typography.headlineMedium)

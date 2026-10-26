@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -60,8 +62,11 @@ class StartPageTest {
                 assertEquals(2L, app.stats.totals.pages)
                 assertEquals(listOf("127.0.0.1" to 2L), app.stats.totals.busiestSites(3))
 
+                // A blank tab focuses the address bar; the keyboard would cover the totals.
                 scenario.onActivity { it.tabs.open() }
-                SystemClock.sleep(1500)
+                SystemClock.sleep(1000)
+                scenario.onActivity { WindowCompat.getInsetsController(it.window, it.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
+                SystemClock.sleep(1000)
                 val found = inst.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText("annoyances cleared")
                 val shot = inst.uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
                 assertNotNull(shot)
