@@ -105,7 +105,7 @@ def log_partitions() -> None:
   apply_plugin.ApplyPlugin.__call__ = logged
 
 
-def quantize_unused_kv_inputs(path: str) -> None:
+def quantize_unused_kv_inputs(path: str | os.PathLike) -> None:
   """Gives the prefill signature's last-layer KV cache inputs the int16 type the others have.
 
   Prefill has no logits, so the last layer's attention is dead code there and its KV cache inputs
@@ -117,6 +117,7 @@ def quantize_unused_kv_inputs(path: str) -> None:
   from ai_edge_litert import schema_py_generated as schema
   from ai_edge_litert.tools import flatbuffer_utils
 
+  path = str(path)
   model = flatbuffer_utils.read_model(path)
   name = lambda b: b.decode() if isinstance(b, bytes) else b
   kv_inputs = lambda sig: (
