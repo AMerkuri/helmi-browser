@@ -45,7 +45,9 @@ interface Classifier {
 /**
  * Qwen3-0.6B on LiteRT-LM. Loads lazily on the first uncertain candidate (GPU first, CPU if the
  * GPU backend fails, or only [backends]), runs one inference at a time, and unloads after
- * [idleMs] without calls so the ~0.6 GB model does not sit in RAM.
+ * [idleMs] without calls so the model (about 2.4 GB on the GPU, 1.7 GB on the CPU, measured on a
+ * Galaxy Z Fold 7) does not sit in RAM. The app also unloads it when it leaves the screen
+ * (SereneApp.onTrimMemory).
  */
 class LiteRtClassifier(
     val modelFile: File,
