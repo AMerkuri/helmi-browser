@@ -18,10 +18,16 @@ const NEGATED = /without|sans |ohne |senza |sin |sem |bez |zonder |しない|不
 // Thin bars at the top: site headers and nav ("Log in", "Subscribe", "Anmelden" are links in
 // them, not prompts). On the 2026-10-24 crawl the model hid three of these as login walls or
 // newsletters, so they never go to the model and only a strong heuristic can act on them.
-const CHROME_TOKENS = /header|nav|masthead|top-?bar|toolbar|menu/i;
+// Also thin nav bars at the bottom (mobile tab bars: Booking's "Search Saved Sign in" went to the
+// model as a login wall) and top bars with six or more links (Le Figaro's header, called a push
+// prompt). Neither matches any annoyance in the labelled set.
+const CHROME_TOKENS = /header|nav|masthead|top-?bar|toolbar|tab-?bar|menu/i;
 export function looksLikeChrome(f) {
-  if (f.edge !== 'top' || f.coverage >= 0.15) return false;
-  return /^(header|nav)$/.test(f.tag) || /banner|navigation|menubar/.test(f.role || '') || CHROME_TOKENS.test(f.tokens || '') || (f.textLen ?? 0) < 60;
+  if (f.coverage >= 0.15) return false;
+  if (f.edge === 'bottom') return f.tag === 'nav' || /navigation|menubar/.test(f.role || '') || CHROME_TOKENS.test(f.tokens || '');
+  if (f.edge !== 'top') return false;
+  return /^(header|nav)$/.test(f.tag) || /banner|navigation|menubar/.test(f.role || '') || CHROME_TOKENS.test(f.tokens || '') ||
+    (f.textLen ?? 0) < 60 || f.buttons.length >= 6;
 }
 
 export function isSafeTarget(label) {
