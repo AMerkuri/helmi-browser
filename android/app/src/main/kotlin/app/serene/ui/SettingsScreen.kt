@@ -127,6 +127,20 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 }
             }
 
+            Section("Flags")
+            Text(
+                "Features to try out. They may change or go away.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            SwitchRow(
+                "Back/forward cache",
+                if (Tab.backForwardCacheSupported) "Going back or forward resumes the page as it was, and swipes show a picture of it. Off: the page loads again, and swipes show its title."
+                else "Not supported by this WebView: pages load again, and swipes show the page's title.",
+                s.backForwardCache && Tab.backForwardCacheSupported,
+                enabled = Tab.backForwardCacheSupported,
+            ) { s.backForwardCache = it }
+
             Section("About")
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)
             ListItem(
