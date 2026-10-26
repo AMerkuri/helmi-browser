@@ -7,6 +7,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.serene.browser.Snapshots
 import app.serene.browser.Tab
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -47,7 +48,10 @@ class PageGesturesTest {
         while (!r.readLine().isNullOrEmpty()) Unit
         requests += path
         val name = path.trimStart('/')
+        // An image that never comes: its page never finishes loading, like a news site's ads.
+        if (name == "hang") return Thread.sleep(15_000)
         val body = when (name) {
+            "slow" -> "<p style='height:300vh;margin:0;background:#fd0'>slow</p><img src=/hang>"
             // A carousel as wide as the page: its own horizontal scroller.
             "carousel" -> "<div id=c style='overflow-x:auto;white-space:nowrap;height:80vh'>" +
                 (1..5).joinToString("") { "<div style='display:inline-block;width:100vw;height:100%;background:hsl(${it * 60},70%,60%)'>$it</div>" } + "</div>"
@@ -122,6 +126,27 @@ class PageGesturesTest {
             var pulling = true
             scenario.onActivity { pulling = t.pull.active }
             assertFalse(pulling)
+        }
+    }
+
+    /**
+     * A page that is still loading (an image never arrives) gets its snapshot when it is left,
+     * so the swipe back to it shows the page, not a plain title card.
+     */
+    @Test
+    fun snapshotOfAPageStillLoading() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var tab: Tab? = null
+            scenario.onActivity { a -> tab = a.tabs.open("$base/slow") }
+            val t = tab!!
+            waitFor("the slow page to draw") { t.title == "slow" }
+            SystemClock.sleep(1500)
+            var loading = false
+            scenario.onActivity { loading = t.progress < 100 }
+            assertTrue("the slow page finished loading; the test needs it still loading", loading)
+            scenario.onActivity { t.load("$base/two") }
+            waitFor("page two") { t.title == "two" && t.canGoBack }
+            waitFor("a snapshot of the slow page") { Snapshots.get(t.id, 0, "$base/slow") != null }
         }
     }
 

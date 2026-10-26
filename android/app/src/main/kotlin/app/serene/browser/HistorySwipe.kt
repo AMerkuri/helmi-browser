@@ -107,7 +107,10 @@ class HistorySwipe(private val tab: Tab) {
         animator = ValueAnimator.ofFloat(coverAlpha, 0f).apply {
             duration = 200
             addUpdateListener { coverAlpha = it.animatedValue as Float }
-            doOnEnd { clear() }
+            doOnEnd {
+                clear()
+                tab.snapshotSoon() // a page that had no snapshot has one for next time
+            }
             start()
         }
     }

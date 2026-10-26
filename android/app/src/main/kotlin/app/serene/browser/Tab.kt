@@ -151,6 +151,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
                 main.post { onBlobData(data) }
                 return@addWebMessageListener
             }
+            if (isMainFrame && data == SETTLED) {
+                main.post { shown() }
+                return@addWebMessageListener
+            }
             val frame = object : FrameRef {
                 override val isTop = isMainFrame
                 override fun send(json: String) {
@@ -220,20 +224,32 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         webView.destroy()
     }
 
-    // Between a new document's start and its load: the old page, or a half-built new one, is on screen.
+    // A new document is loading (start to finish).
     private var docLoading = false
+    // Between a new document's start and its first paint: the old page is still on screen.
+    private var painting = false
     private var onShown: (() -> Unit)? = null
     private val shownTimeout = Runnable { shown() }
 
     /**
      * Calls [then] once the page a history step went to has loaded and settled (or after a while,
-     * regardless). Not at its first paint: a page that renders in script (GitHub) first draws a
-     * half-built page, which flickered between the snapshot and the finished page.
+     * regardless). Not at its first paint, nor at a same-document step: a page that renders in
+     * script (GitHub, news sites) first draws a half-built page, which flickered between the
+     * snapshot and the finished page.
      */
     fun whenShown(then: () -> Unit) {
         onShown = then
         main.removeCallbacks(shownTimeout)
         main.postDelayed(shownTimeout, 3000)
+    }
+
+    /**
+     * Has the page say when its DOM stops changing (no new nodes or text for 150 ms; 1.2 s at
+     * most, for pages that never stop), then [shown]. Only while a history step waits for it.
+     */
+    private fun whenSettled() {
+        if (onShown == null) return
+        webView.evaluateJavascript(SETTLE_JS, null)
     }
 
     private fun shown() {
@@ -245,8 +261,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
     private val snapshotLater = Runnable { snapshot() }
 
-    /** The page moved: take its snapshot once it has rested a moment. */
-    private fun snapshotSoon() {
+    /** The page moved (or a swipe has just shown it): take its snapshot once it has rested a moment. */
+    fun snapshotSoon() {
         main.removeCallbacks(snapshotLater)
         main.postDelayed(snapshotLater, 400)
     }
@@ -257,7 +273,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
      * swipe or pull is on screen, or while a new page is replacing this one.
      */
     fun snapshot() {
-        if (destroyed || swipe.active || pull.active || docLoading || !webView.isAttachedToWindow) return
+        if (destroyed || swipe.active || pull.active || painting || !webView.isAttachedToWindow) return
         val w = webView.width
         val h = webView.height
         if (w == 0 || h == 0) return
@@ -315,6 +331,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
             docLoading = true
+            painting = true
             // A new page: the download goes on in the notification and the downloads screen.
             hasPage = true
             downloadPage = false
@@ -323,20 +340,24 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             if (!documentStartSupported) view.evaluateJavascript(contentScript(view.context), null)
         }
 
+        override fun onPageCommitVisible(view: WebView, pageUrl: String) { painting = false }
+
         override fun onPageFinished(view: WebView, pageUrl: String) {
             updateNav(pageUrl)
             docLoading = false
-            // A moment for what the page's scripts draw after the load.
-            main.postDelayed(::shown, 300)
+            painting = false
+            whenSettled()
             pull.done()
             snapshotSoon()
         }
 
         override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) {
             updateNav(pageUrl)
-            // A same-document step (#hash, history.pushState) draws no new page; a new document
-            // starts meanwhile and is waited for.
-            main.postDelayed({ if (!docLoading) shown() }, 200)
+            // A same-document step (#hash, history.pushState; single-page sites) has no load to
+            // wait for, only the page's own redraw. A new document's load is waited for.
+            main.postDelayed({ if (!docLoading) whenSettled() }, 50)
+            // The picture of where this step went, once it has drawn (a script-made page has no load).
+            snapshotSoon()
         }
     }
 
@@ -408,6 +429,17 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             is ContextWrapper -> activityOf(c.baseContext)
             else -> null
         }
+
+        private const val SETTLED = "{\"type\":\"serene-settled\"}"
+        private val SETTLE_JS = """(() => {
+            const post = () => window.SereneBridge && SereneBridge.postMessage('$SETTLED');
+            let quiet;
+            const done = () => { o.disconnect(); clearTimeout(quiet); clearTimeout(most); post(); };
+            const o = new MutationObserver(() => { clearTimeout(quiet); quiet = setTimeout(done, 150); });
+            o.observe(document, { subtree: true, childList: true, characterData: true });
+            quiet = setTimeout(done, 150);
+            const most = setTimeout(done, 1200);
+        })()"""
 
         private fun EMPTY_RESPONSE() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
     }
