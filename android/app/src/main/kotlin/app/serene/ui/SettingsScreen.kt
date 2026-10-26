@@ -2,12 +2,8 @@ package app.serene.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Intent
-import android.net.Uri
 import android.text.format.DateUtils
 import android.text.format.Formatter
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -130,7 +126,7 @@ private fun ModelSection(app: SereneApp) {
     val ctx = LocalContext.current
     val m = app.models
     Text(
-        "A small language model runs on the phone and only looks at overlays the filter lists and heuristics are unsure about. " +
+        "Qwen3-0.6B runs on the phone and only looks at overlays the filter lists and heuristics are unsure about. " +
             "Nothing is sent anywhere. Without it Serene still works, using lists and heuristics only.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp),
@@ -146,9 +142,7 @@ private fun ModelSection(app: SereneApp) {
     }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         when (val st = m.state) {
-            ModelState.NotDownloaded -> if (m.spec.gatedPage != null) GatedImport(app) else {
-                Button(onClick = m::download) { Text("Download (${Formatter.formatShortFileSize(ctx, m.spec.sizeBytes)})") }
-            }
+            ModelState.NotDownloaded -> Button(onClick = m::download) { Text("Download (${Formatter.formatShortFileSize(ctx, m.spec.sizeBytes)})") }
             is ModelState.Downloading -> {
                 Text("Downloading ${Formatter.formatShortFileSize(ctx, st.bytes)} of ${Formatter.formatShortFileSize(ctx, st.total)}" + if (s.wifiOnlyDownloads) " (waits for Wi-Fi)" else "")
                 Spacer(Modifier.height(6.dp))
@@ -166,34 +160,13 @@ private fun ModelSection(app: SereneApp) {
             }
             is ModelState.Failed -> {
                 Text("Download failed: ${st.message}", color = MaterialTheme.colorScheme.error)
-                if (m.spec.gatedPage != null) GatedImport(app) else Button(onClick = m::download) { Text("Try again") }
+                Button(onClick = m::download) { Text("Try again") }
             }
         }
     }
     SwitchRow("Use the model", "For overlays the heuristics are unsure about.", s.modelEnabled) { s.modelEnabled = it }
     SwitchRow("Download on Wi-Fi only", null, s.wifiOnlyDownloads) { s.wifiOnlyDownloads = it }
     SwitchRow("Skip the model in battery saver", "Lists and heuristics only while battery saver is on.", s.skipModelOnBatterySaver) { s.skipModelOnBatterySaver = it }
-}
-
-// Hugging Face serves a gated model only to a signed-in account that accepted its terms, so the
-// user downloads it in a browser and picks the file here.
-@Composable
-private fun GatedImport(app: SereneApp) {
-    val ctx = LocalContext.current
-    val m = app.models
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(m::import) }
-    Text(
-        "Hugging Face only lets signed-in accounts that accepted its terms download this model. Open its page, sign in, tap " +
-            "\"Agree and access repository\", then download ${m.spec.file} (${Formatter.formatShortFileSize(ctx, m.spec.sizeBytes)}) " +
-            "from Files and versions and import it here.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(6.dp))
-    Row {
-        OutlinedButton(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(m.spec.gatedPage))) } }) { Text("Open page") }
-        Spacer(Modifier.padding(4.dp))
-        Button(onClick = { pick.launch(arrayOf("*/*")) }) { Text("Import file") }
-    }
 }
 
 // Runs the prototype's labelled overlays through the model on this phone (ModelBenchmark).
