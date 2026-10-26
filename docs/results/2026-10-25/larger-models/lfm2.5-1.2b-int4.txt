@@ -1,0 +1,243 @@
+model: LFM2.5-1.2B-Instruct_int4.litertlm  backend: cpu  load: 9.0 s
+✗ fixture/app-install                      app_install          content              3766 ms
+✗ fixture/cookie-custom                    cookie_consent       content              2466 ms
+✗ fixture/cookie-de-modal                  cookie_consent       content              2556 ms
+✗ fixture/cookie-onetrust                  cookie_consent       content              1350 ms
+✗ fixture/cookie-shadow                    cookie_consent       content              1662 ms
+✓ fixture/neg-article-mentions             content              content              1301 ms
+✓ fixture/neg-sticky-header                content              content              1270 ms
+✗ fixture/newsletter-body-lock             newsletter           content              1459 ms
+✗ fixture/newsletter-delayed               newsletter           content              1387 ms
+✗ fixture/notification-prompt              notification_prompt  content              1440 ms
+✗ fixture/paywall-sheet                    paywall_teaser       notification_prompt  1815 ms
+✓ fixture/unknown-language                 cookie_consent       cookie_consent       1496 ms
+✗ synthetic/fr-cookie                      cookie_consent       content              1488 ms
+✗ synthetic/it-cookie                      cookie_consent       content              1478 ms
+✗ synthetic/pl-cookie                      cookie_consent       content              1849 ms
+✗ synthetic/sourcepoint-iframe             cookie_consent       content              1640 ms
+✗ synthetic/discount-modal                 newsletter           content              2002 ms
+✓ synthetic/push-prompt                    notification_prompt  notification_prompt  1446 ms
+✗ synthetic/app-banner                     app_install          content              1607 ms
+✗ synthetic/login-wall                     login_wall           content              1860 ms
+✗ synthetic/meter-paywall                  paywall_teaser       content              1370 ms
+✓ synthetic/survey                         survey               survey               1339 ms
+✓ synthetic/chat                           chat_widget          chat_widget          1326 ms
+✗ synthetic/cart-drawer                    content              cookie_consent       1749 ms
+✓ synthetic/audio-player                   content              content              1288 ms
+✓ synthetic/site-menu                      content              content              1507 ms
+✓ synthetic/filter-sheet                   content              content              1404 ms
+✗ synthetic/es-newsletter                  newsletter           content              1926 ms
+✗ synthetic/ja-app                         app_install          content              1623 ms
+✗ synthetic/cmp-tcf-de                     cookie_consent       content              2194 ms
+✓ crawl/bbc/header#bbc-header              content              content              1640 ms
+✓ crawl/spiegel/header.-mt-8.pointer-eve   content              content              1434 ms
+✗ crawl/lemonde/div.gdpr-lmd-standard.gd   cookie_consent       content              2179 ms
+✓ crawl/elpais/div#pmConsentWall           cookie_consent       cookie_consent       2327 ms
+✓ crawl/corriere/header.header             content              content              1779 ms
+✓ crawl/corriere/div.privacy-cp-wall       cookie_consent       cookie_consent       2003 ms
+✓ crawl/onet/header.Header_headerWrap      content              content              1483 ms
+✓ crawl/onet/div > nav                     content              content              1453 ms
+✓ crawl/onet/div.cmp-popup_popup.show      cookie_consent       cookie_consent       2573 ms
+✗ crawl/idnes/a.cookie-info                cookie_consent       content              1727 ms
+✓ crawl/yahoo/header#module-uh             content              content              1763 ms
+✗ crawl/cnn/div > div[role="dialog"]       cookie_consent       content              1789 ms
+✓ crawl/forbes/div.GuKkQ.header.univers    content              content              1281 ms
+✗ crawl/forbes/div#ketch-banner            cookie_consent       content              1530 ms
+✓ crawl/medium/div.ac.aj.ak                content              content              1366 ms
+✓ crawl/reddit/reddit-header-small.end-    content              content              1478 ms
+✗ crawl/pinterest/div.box_k.elevation_k.fi login_wall           content              1571 ms
+✓ crawl/stackoverflow/header.js-top-bar.l0 content              content              1499 ms
+✗ crawl/stackoverflow/div#onetrust-banner- cookie_consent       content              1531 ms
+✓ crawl/healthline/div#sticky-nav          content              content              1278 ms
+✗ crawl/gymshark/div#onetrust-banner-sdk   cookie_consent       content              1539 ms
+✓ crawl/allbirds/section.shopify-section.  content              notification_prompt  1417 ms
+✗ crawl/allbirds/section#shopify-pc__bann  cookie_consent       content              2105 ms
+✓ crawl/weather.com/nav.bg-white.bottom-0. content              content              1376 ms
+✗ crawl/weather.com/div.-translate-x-1\/2. app_install          content              1133 ms
+✓ crawl/github/div.header-wrapper.js-he    content              content              1298 ms
+✗ crawl/duckduckgo/div > div               app_install          content              1344 ms
+✗ crawl/err/div.fade.in.modal              cookie_consent       content              1813 ms
+✓ crawl/ohtuleht/div.bottom-0.sticky.z-50  content              content              1442 ms
+✗ crawl/ohtuleht/div#qc-cmp2-usp           cookie_consent       content              1829 ms
+✓ crawl/delfi.lv/nav.align-items-center.d  content              content              1796 ms
+✓ crawl/lrt/header#the-header              content              content              1256 ms
+✓ crawl/yle/div#app > header[role="b       content              content              1307 ms
+✗ crawl/yle/div.ycd-background.yds-t       cookie_consent       content              1840 ms
+✗ crawl/hs/article.ab-test-app-down        app_install          content              1746 ms
+✓ crawl/aftonbladet/div.masthead-top-exten content              content              1480 ms
+✓ crawl/vg/div#masthead                    content              content              1449 ms
+✓ crawl/theverge/div > div                 content              content              1356 ms
+✗ crawl/theverge/aside.duet--navigation--  cookie_consent       content              1834 ms
+✓ crawl/arstechnica/header#site-header     content              content              1559 ms
+✓ crawl/lefigaro/div.fh-wrapper            content              content              1806 ms
+✓ crawl/lefigaro/div#tabbar                content              content              1448 ms
+✓ crawl/bild/header.page-header            content              content              1539 ms
+✓ crawl/repubblica/div#rep-slim-header     content              content              1926 ms
+✗ crawl/repubblica/div#iubenda-cs-banner   cookie_consent       content              2074 ms
+✗ crawl/elmundo/div.didomi-popup-contain   cookie_consent       content              2226 ms
+✓ crawl/nos/nav.jbygbA                     content              content              1551 ms
+✓ crawl/wp.pl/div.wp-header                content              content              1229 ms
+✓ crawl/wp.pl/div#wp-bottom-bar            content              content              1211 ms
+✗ crawl/wp.pl/div.z4twj24                  cookie_consent       content              1745 ms
+✓ crawl/novinky/header.ribbon.ribbon--ba   content              content              1255 ms
+✓ crawl/usatoday/header.gnt_n              content              content              1269 ms
+✓ crawl/foxnews/header.site-header         content              content              1193 ms
+✗ crawl/foxnews/div.responsive-wrapper     app_install          content              1165 ms
+✓ crawl/nbcnews/div.navs-container         content              content              1919 ms
+✗ crawl/bloomberg/div#cmp-consent-modal >  cookie_consent       content              1639 ms
+✓ crawl/ikea/div#onetrust-banner-sdk       cookie_consent       cookie_consent       1731 ms
+✓ crawl/booking/div > nav[role="navigati   content              content              1190 ms
+✓ crawl/nike/nav.nav-css-gyxam0.no-pe      content              content              1531 ms
+✗ crawl/nike/div#singular-banner           app_install          content              1311 ms
+✓ crawl/allrecipes/header#header_1-0       content              content              1629 ms
+✓ crawl/webmd/nav.vn-wrapper               content              content              1645 ms
+✓ crawl/investopedia/header#header_1-0     content              content              1389 ms
+✓ crawl/twitch/div.gvNWWY                  content              content              1369 ms
+✓ crawl/twitch/div.bMKZft.hPLcMa.tw-tra    content              content              1546 ms
+✗ crawl/twitch/div.ReactModal__Content.    app_install          chat_widget          1476 ms
+✗ crawl/nature/dialog.cc-banner            cookie_consent       content              1618 ms
+✓ crawl/espn/header#global-header          content              content              1416 ms
+✓ crawl/nu.nl/header.app-header            content              content              1634 ms
+✓ synthetic/neg-cookie-recipe              content              content              1318 ms
+✓ synthetic/neg-privacy-article            content              content              1219 ms
+✓ synthetic/neg-video-dock                 content              content              1218 ms
+✓ synthetic/neg-bottom-nav                 content              content              1201 ms
+✓ synthetic/neg-toc                        content              content              1560 ms
+✓ synthetic/neg-search-overlay             content              content              1223 ms
+✓ synthetic/neg-live-blog-bar              content              content              1297 ms
+✓ synthetic/neg-breaking-news              content              content              1309 ms
+✓ synthetic/neg-add-to-cart                content              content              1502 ms
+✓ synthetic/neg-size-guide                 content              content              1496 ms
+✓ synthetic/neg-image-lightbox             content              content              1189 ms
+✓ synthetic/neg-language-picker            content              content              1232 ms
+✓ synthetic/neg-accessibility              content              content              1239 ms
+✓ synthetic/neg-comments-drawer            content              content              1314 ms
+✓ synthetic/neg-share-sheet                content              content              1371 ms
+✓ synthetic/neg-delivery-picker            content              content              1195 ms
+✓ synthetic/neg-quiz                       content              content              1208 ms
+✓ synthetic/neg-score-ticker               content              content              1118 ms
+✓ synthetic/neg-mini-cart-et               content              content              1189 ms
+✓ synthetic/neg-header-de                  content              content              1113 ms
+✓ synthetic/neg-cookie-shop-header         content              content              1162 ms
+✓ synthetic/neg-app-review                 content              content              1196 ms
+✓ synthetic/neg-newsletter-archive         content              content              1177 ms
+✓ synthetic/neg-map-panel                  content              content              1317 ms
+✓ synthetic/neg-checkout-steps             content              content              1166 ms
+✓ synthetic/neg-chapter-nav                content              content              1066 ms
+✓ synthetic/neg-reading-progress           content              content              1234 ms
+✓ synthetic/neg-forum-composer             content              content              1141 ms
+✓ synthetic/neg-ticket-seat                content              content              1578 ms
+✓ synthetic/neg-calculator                 content              content              1314 ms
+✓ synthetic/neg-fi-header                  content              content              1148 ms
+✓ synthetic/neg-weather-alert              content              content              1222 ms
+✗ synthetic/et-cookie                      cookie_consent       chat_widget          1238 ms
+✗ synthetic/fi-cookie                      cookie_consent       chat_widget          1297 ms
+✗ synthetic/sv-cookie                      cookie_consent       content              1622 ms
+✗ synthetic/lv-cookie                      cookie_consent       chat_widget          1377 ms
+✗ synthetic/nl-cookie-wall                 cookie_consent       content              1274 ms
+✗ synthetic/pt-cookie                      cookie_consent       content              1425 ms
+✗ synthetic/cookie-minimal                 cookie_consent       content              1416 ms
+✗ synthetic/cookie-iframe-only             cookie_consent       content              1196 ms
+✗ synthetic/privacy-choices-us             cookie_consent       content              1202 ms
+✗ synthetic/et-newsletter                  newsletter           content              1325 ms
+✗ synthetic/de-newsletter-discount         newsletter           content              1304 ms
+✗ synthetic/newsletter-no-field            newsletter           content              1208 ms
+✗ synthetic/spin-wheel                     newsletter           content              1207 ms
+✗ synthetic/et-notifications               notification_prompt  chat_widget          1271 ms
+✓ synthetic/notifications-bell             notification_prompt  notification_prompt  1291 ms
+✗ synthetic/fr-notifications               notification_prompt  chat_widget          1167 ms
+✗ synthetic/et-paywall                     paywall_teaser       chat_widget          1220 ms
+✗ synthetic/paywall-hard                   paywall_teaser       content              1243 ms
+✗ synthetic/it-paywall                     paywall_teaser       content              1204 ms
+✗ synthetic/et-app                         app_install          chat_widget          1244 ms
+✗ synthetic/app-smart-banner               app_install          content              1239 ms
+✓ synthetic/app-interstitial               app_install          app_install          1307 ms
+✗ synthetic/login-wall-de                  login_wall           content              1265 ms
+✗ synthetic/login-sheet                    login_wall           content              1901 ms
+✗ synthetic/survey-stars                   survey               content              1297 ms
+✗ synthetic/survey-et                      survey               chat_widget          1226 ms
+✗ synthetic/chat-bubble                    chat_widget          content              1386 ms
+✗ synthetic/chat-bot-et                    chat_widget          content              1084 ms
+
+== LFM2.5-1.2B-Instruct_int4.litertlm: 88/159 = 55%  guarded 89/159 = 56%  content hidden 1/80  no label 0  median 1389 ms
+    fixture/app-install: app_install -> content  raw='```json\n{\n  "label": "app-cta",\n'
+    fixture/cookie-custom: cookie_consent -> content  raw='{"label": "accept or pay",'
+    fixture/cookie-de-modal: cookie_consent -> content  raw='```json\n{\n  "label": "overlay",\n'
+    fixture/cookie-onetrust: cookie_consent -> content  raw='{"label": "accept or pay",'
+    fixture/cookie-shadow: cookie_consent -> content  raw='{"label": "Overlay: banner at the bottom, 14% of screen",'
+    fixture/newsletter-body-lock: newsletter -> content  raw='{"label": "signup-modal",'
+    fixture/newsletter-delayed: newsletter -> content  raw='{"label": "target",'
+    fixture/notification-prompt: notification_prompt -> content  raw='{"label": "not now",'
+    fixture/paywall-sheet: paywall_teaser -> notification_prompt  raw='```json\n{\n  "label": "notification_prompt",\n'
+    synthetic/fr-cookie: cookie_consent -> content  raw='{"label": "banner",'
+    synthetic/it-cookie: cookie_consent -> content  raw='```json\n{\n  "label": "overlay",'
+    synthetic/pl-cookie: cookie_consent -> content  raw='{"label": "accept or pay",'
+    synthetic/sourcepoint-iframe: cookie_consent -> content  raw='{"label": "accept or pay",'
+    synthetic/discount-modal: newsletter -> content  raw='{"label": "Overlay: box in the middle, 60% of screen, page s'
+    synthetic/app-banner: app_install -> content (header guard)  raw='{"label": "Overlay: bar at the top, 8% of screen",'
+    synthetic/login-wall: login_wall -> content  raw='{"label": "Sign in to see more. Log in or create an account '
+    synthetic/meter-paywall: paywall_teaser -> content  raw='{"label": "target",'
+    synthetic/cart-drawer: content -> cookie_consent (hidden)  raw='```json\n{\n  "label": "cookie_consent",\n'
+    synthetic/es-newsletter: newsletter -> content  raw='{"label": "Suscríbete a nuestro boletín y recibe las noticia'
+    synthetic/ja-app: app_install -> content  raw='{"label": "アプリで開く",'
+    synthetic/cmp-tcf-de: cookie_consent -> content  raw='```json\n{\n  "label": "Überlay: box in the middle, 55% of scr'
+    crawl/lemonde/div.gdpr-lmd-standard.gd: cookie_consent -> content  raw='```json\n{\n  "label": "cookie_consent: cookie, privacy, track'
+    crawl/idnes/a.cookie-info: cookie_consent -> content  raw='{"label": "banner at the bottom, 15% of screen",'
+    crawl/cnn/div > div[role="dialog"]: cookie_consent -> content  raw='```json\n{\n  "label": "overlay",\n'
+    crawl/forbes/div#ketch-banner: cookie_consent -> content  raw='{"label": "target",'
+    crawl/pinterest/div.box_k.elevation_k.fi: login_wall -> content  raw='{"label": "target",'
+    crawl/stackoverflow/div#onetrust-banner-sdk: cookie_consent -> content  raw='{"label": "target",'
+    crawl/gymshark/div#onetrust-banner-sdk: cookie_consent -> content  raw='{"label": "target",'
+    crawl/allbirds/section#shopify-pc__bann: cookie_consent -> content  raw='```json\n{\n  "label": "cookie_consent: cookie, privacy, track'
+    crawl/weather.com/div.-translate-x-1\/2.fi: app_install -> content  raw='{"label": "target",'
+    crawl/duckduckgo/div > div: app_install -> content  raw='{"label": "target",'
+    crawl/err/div.fade.in.modal: cookie_consent -> content  raw='{"label": "target",'
+    crawl/ohtuleht/div#qc-cmp2-usp: cookie_consent -> content  raw='```json\n{\n  "label": "opt-out",\n'
+    crawl/yle/div.ycd-background.yds-t: cookie_consent -> content  raw='{"label": "target",'
+    crawl/hs/article.ab-test-app-down: app_install -> content  raw='{"label": "target",'
+    crawl/theverge/aside.duet--navigation--: cookie_consent -> content  raw='```json\n{\n  "label": "overlay",\n'
+    crawl/repubblica/div#iubenda-cs-banner: cookie_consent -> content  raw='```json\n{\n  "label": "pannello delle preferenze pubblicitari'
+    crawl/elmundo/div.didomi-popup-contain: cookie_consent -> content  raw='```json\n{\n  "label": "cookie_consent: cookie, privacy, track'
+    crawl/wp.pl/div.z4twj24: cookie_consent -> content  raw='{"label": "overlay",'
+    crawl/foxnews/div.responsive-wrapper: app_install -> content  raw='{"label": "Close",'
+    crawl/bloomberg/div#cmp-consent-modal > : cookie_consent -> content  raw='{"label": "accept or pay",'
+    crawl/nike/div#singular-banner: app_install -> content  raw='{"label": "banner",'
+    crawl/twitch/div.ReactModal__Content.: app_install -> chat_widget  raw='{"label": "chat_widget",'
+    crawl/nature/dialog.cc-banner: cookie_consent -> content  raw='{"label": "privacy policy",'
+    synthetic/et-cookie: cookie_consent -> chat_widget  raw='{"label": "chat_widget",'
+    synthetic/fi-cookie: cookie_consent -> chat_widget  raw='{"label": "chat_widget",'
+    synthetic/sv-cookie: cookie_consent -> content  raw='{"label": "Overlay: banner at the bottom, 25% of screen",'
+    synthetic/lv-cookie: cookie_consent -> chat_widget  raw='{"label": "chat_widget",'
+    synthetic/nl-cookie-wall: cookie_consent -> content  raw='{"label": "accept or pay",'
+    synthetic/pt-cookie: cookie_consent -> content  raw='```json\n{\n  "label": "banner",\n'
+    synthetic/cookie-minimal: cookie_consent -> content  raw='{"label": "banner at the bottom, 6% of screen",'
+    synthetic/cookie-iframe-only: cookie_consent -> content  raw='{"label": "overlay",'
+    synthetic/privacy-choices-us: cookie_consent -> content  raw='{"label": "Opt out",'
+    synthetic/et-newsletter: newsletter -> content  raw='{"label": "overlay",'
+    synthetic/de-newsletter-discount: newsletter -> content  raw='{"label": "Nein danke",'
+    synthetic/newsletter-no-field: newsletter -> content  raw='{"label": "overlay",'
+    synthetic/spin-wheel: newsletter -> content  raw='{"label": "Spin",'
+    synthetic/et-notifications: notification_prompt -> content (header guard)  raw='{"label": "chat_widget",'
+    synthetic/fr-notifications: notification_prompt -> content (header guard)  raw='{"label": "chat_widget",'
+    synthetic/et-paywall: paywall_teaser -> chat_widget  raw='{"label": "chat_widget",'
+    synthetic/paywall-hard: paywall_teaser -> content  raw='{"label": "Subscribe now",'
+    synthetic/it-paywall: paywall_teaser -> content  raw='{"label": "Abbonati",'
+    synthetic/et-app: app_install -> chat_widget  raw='{"label": "chat_widget",'
+    synthetic/app-smart-banner: app_install -> content  raw='{"label": "overlay",'
+    synthetic/login-wall-de: login_wall -> content  raw='{"label": "Anmelden",'
+    synthetic/login-sheet: login_wall -> content  raw='```json\n{\n  "label": "banner at the bottom, 60% of screen, p'
+    synthetic/survey-stars: survey -> content  raw='{"label": "rating",'
+    synthetic/survey-et: survey -> chat_widget  raw='{"label": "chat_widget",'
+    synthetic/chat-bubble: chat_widget -> content  raw='{"label": "Overlay: banner at the bottom, 3% of screen",'
+    synthetic/chat-bot-et: chat_widget -> content  raw='{"label": "target",'
+
+confusion (expected -> got):
+  app_install          content:9 chat_widget:2 app_install:1
+  cookie_consent       content:31 cookie_consent:5 chat_widget:3
+  content              content:78 cookie_consent:1 notification_prompt:1
+  newsletter           content:8
+  notification_prompt  content:1 notification_prompt:2 chat_widget:2
+  paywall_teaser       notification_prompt:1 content:3 chat_widget:1
+  login_wall           content:4
+  survey               survey:1 content:1 chat_widget:1
+  chat_widget          chat_widget:1 content:2

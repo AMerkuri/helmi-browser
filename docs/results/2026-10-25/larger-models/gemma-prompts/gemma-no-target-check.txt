@@ -1,0 +1,115 @@
+model: gemma3-1b-it-int4.litertlm  backend: cpu  load: 2.4 s
+✓ fixture/cookie-custom                    cookie_consent       cookie_consent       1382 ms
+✓ fixture/cookie-onetrust                  cookie_consent       cookie_consent       1275 ms
+✓ fixture/neg-article-mentions             content              content              1133 ms
+✗ fixture/newsletter-body-lock             newsletter           content              1170 ms
+✓ fixture/notification-prompt              notification_prompt  notification_prompt  1233 ms
+✓ fixture/unknown-language                 cookie_consent       cookie_consent       1280 ms
+✓ synthetic/it-cookie                      cookie_consent       cookie_consent       1251 ms
+✓ synthetic/sourcepoint-iframe             cookie_consent       cookie_consent       1181 ms
+✗ synthetic/push-prompt                    notification_prompt  content              1254 ms
+✗ synthetic/login-wall                     login_wall           content              1093 ms
+✓ synthetic/survey                         survey               survey               1098 ms
+✓ synthetic/cart-drawer                    content              content              1064 ms
+✓ synthetic/site-menu                      content              content              1096 ms
+✓ synthetic/es-newsletter                  newsletter           newsletter           1192 ms
+✗ synthetic/cmp-tcf-de                     cookie_consent       content              1150 ms
+✓ crawl/spiegel/header.-mt-8.pointer-eve   content              content              1124 ms
+✗ crawl/elpais/div#pmConsentWall           cookie_consent       content              1339 ms
+✗ crawl/corriere/div.privacy-cp-wall       cookie_consent       content              1561 ms
+✓ crawl/onet/div > nav                     content              content              1501 ms
+✓ crawl/idnes/a.cookie-info                cookie_consent       cookie_consent       1172 ms
+✗ crawl/cnn/div > div[role="dialog"]       cookie_consent       content              1278 ms
+✓ crawl/forbes/div#ketch-banner            cookie_consent       cookie_consent       1484 ms
+✓ crawl/reddit/reddit-header-small.end-    content              content              1086 ms
+✓ crawl/stackoverflow/header.js-top-bar.l0 content              content              1243 ms
+✓ crawl/healthline/div#sticky-nav          content              content              1061 ms
+✓ crawl/allbirds/section.shopify-section.  content              content              1112 ms
+✓ crawl/weather.com/nav.bg-white.bottom-0. content              content              1149 ms
+✓ crawl/github/div.header-wrapper.js-he    content              content              1304 ms
+✗ crawl/err/div.fade.in.modal              cookie_consent       content              1486 ms
+✓ crawl/ohtuleht/div#qc-cmp2-usp           cookie_consent       cookie_consent       1427 ms
+✓ crawl/lrt/header#the-header              content              content              1204 ms
+✓ crawl/yle/div.ycd-background.yds-t       cookie_consent       cookie_consent       1375 ms
+✓ crawl/aftonbladet/div.masthead-top-exten content              content              1423 ms
+✓ crawl/theverge/div > div                 content              content              1244 ms
+✓ crawl/arstechnica/header#site-header     content              content              1023 ms
+✓ crawl/lefigaro/div#tabbar                content              content              1030 ms
+✓ crawl/repubblica/div#rep-slim-header     content              content              1112 ms
+✗ crawl/elmundo/div.didomi-popup-contain   cookie_consent       content              1766 ms
+✓ crawl/wp.pl/div.wp-header                content              content              1116 ms
+✗ crawl/wp.pl/div.z4twj24                  cookie_consent       content              1402 ms
+✓ crawl/usatoday/header.gnt_n              content              content              1040 ms
+✗ crawl/foxnews/div.responsive-wrapper     app_install          content              1118 ms
+✗ crawl/bloomberg/div#cmp-consent-modal >  cookie_consent       content              1412 ms
+✓ crawl/booking/div > nav[role="navigati   content              content              1588 ms
+✗ crawl/nike/div#singular-banner           app_install          content              1291 ms
+✓ crawl/webmd/nav.vn-wrapper               content              content              1187 ms
+✓ crawl/twitch/div.gvNWWY                  content              content              1401 ms
+✗ crawl/twitch/div.ReactModal__Content.    app_install          content              1089 ms
+✓ crawl/espn/header#global-header          content              content              1449 ms
+✓ synthetic/neg-cookie-recipe              content              content              1129 ms
+✓ synthetic/neg-video-dock                 content              content              1144 ms
+✓ synthetic/neg-toc                        content              content              1213 ms
+✓ synthetic/neg-live-blog-bar              content              content              1198 ms
+✓ synthetic/neg-add-to-cart                content              content              1178 ms
+✓ synthetic/neg-image-lightbox             content              content              1033 ms
+✓ synthetic/neg-accessibility              content              content              1479 ms
+✓ synthetic/neg-share-sheet                content              content              1064 ms
+✓ synthetic/neg-quiz                       content              content              1260 ms
+✓ synthetic/neg-mini-cart-et               content              content              1123 ms
+✓ synthetic/neg-cookie-shop-header         content              content              1637 ms
+✓ synthetic/neg-newsletter-archive         content              content              1340 ms
+✓ synthetic/neg-checkout-steps             content              content              1267 ms
+✓ synthetic/neg-reading-progress           content              content              1231 ms
+✓ synthetic/neg-ticket-seat                content              content              1165 ms
+✓ synthetic/neg-fi-header                  content              content              1154 ms
+✗ synthetic/et-cookie                      cookie_consent       content              1384 ms
+✓ synthetic/sv-cookie                      cookie_consent       cookie_consent       1238 ms
+✓ synthetic/nl-cookie-wall                 cookie_consent       cookie_consent       1142 ms
+✓ synthetic/cookie-minimal                 cookie_consent       cookie_consent       1356 ms
+✓ synthetic/privacy-choices-us             cookie_consent       cookie_consent       1630 ms
+✓ synthetic/de-newsletter-discount         newsletter           newsletter           1126 ms
+✗ synthetic/spin-wheel                     newsletter           content              1245 ms
+✓ synthetic/notifications-bell             notification_prompt  notification_prompt  1529 ms
+✗ synthetic/et-paywall                     paywall_teaser       content              1673 ms
+✗ synthetic/it-paywall                     paywall_teaser       content              1127 ms
+✗ synthetic/app-smart-banner               app_install          content              1430 ms
+✗ synthetic/login-wall-de                  login_wall           cookie_consent       1088 ms
+✗ synthetic/survey-stars                   survey               content              1157 ms
+✗ synthetic/chat-bubble                    chat_widget          content              1403 ms
+
+== gemma3-1b-it-int4.litertlm [no-target check]: 57/79 = 72%  guarded 57/79 = 72%  content hidden 0/39  no label 0  median 1231 ms
+    fixture/newsletter-body-lock: newsletter -> content  raw='```json\n{"label": "signup-modal"}'
+    synthetic/push-prompt: notification_prompt -> content  raw='```json\n{\n  "label": "overlay",'
+    synthetic/login-wall: login_wall -> content  raw='```json\n{"label": "Sign & Login"}'
+    synthetic/cmp-tcf-de: cookie_consent -> content  raw='```json\n{"label": "consent_notice"}'
+    crawl/elpais/div#pmConsentWall: cookie_consent -> content  raw='```json\n{\n  "label": "overlay",'
+    crawl/corriere/div.privacy-cp-wall: cookie_consent -> content  raw='```json\n{"label": "privacy-cp-wall"}'
+    crawl/cnn/div > div[role="dialog"]: cookie_consent -> content  raw='```json\n{"label": "legal terms"}'
+    crawl/err/div.fade.in.modal: cookie_consent -> content  raw='```json\n{"label": "Overlay"}'
+    crawl/elmundo/div.didomi-popup-contain: cookie_consent -> content  raw='```json\n{\n  "label": "Aviso de privacidad"'
+    crawl/wp.pl/div.z4twj24: cookie_consent -> content  raw='```json\n{"label": "overlay"}'
+    crawl/foxnews/div.responsive-wrapper: app_install -> content  raw='```json\n{"label": "banner"}'
+    crawl/bloomberg/div#cmp-consent-modal > : cookie_consent -> content  raw='```json\n{\n  "label": "overlay"'
+    crawl/nike/div#singular-banner: app_install -> content  raw='```json\n{"label": "banner at bottom"}'
+    crawl/twitch/div.ReactModal__Content.: app_install -> content  raw='```json\n{"label": "overlay"}'
+    synthetic/et-cookie: cookie_consent -> content  raw='```json\n{\n  "label": "Overlay: banner at bottom",'
+    synthetic/spin-wheel: newsletter -> content  raw='```json\n{"label": "Spin the wheel"}'
+    synthetic/et-paywall: paywall_teaser -> content  raw='```json\n{"label": "Overlay: banner at bottom, 45% of screen"'
+    synthetic/it-paywall: paywall_teaser -> content  raw='```json\n{"label": "banner"}'
+    synthetic/app-smart-banner: app_install -> content  raw='```json\n{\n  "label": "Shopwell App"'
+    synthetic/login-wall-de: login_wall -> cookie_consent  raw='```json\n{"label": "cookie_consent"}'
+    synthetic/survey-stars: survey -> content  raw='```json\n{"label": "banner"}'
+    synthetic/chat-bubble: chat_widget -> content  raw='```json\n{"label": "banner at bottom, 3% of screen"}'
+
+confusion (expected -> got):
+  cookie_consent       cookie_consent:13 content:9
+  content              content:39
+  newsletter           content:2 newsletter:2
+  notification_prompt  notification_prompt:2 content:1
+  login_wall           content:1 cookie_consent:1
+  survey               survey:1 content:1
+  app_install          content:4
+  paywall_teaser       content:2
+  chat_widget          content:1

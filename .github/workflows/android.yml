@@ -130,7 +130,11 @@ jobs:
           # A cached boot snapshot was tried: the 2.2 GB AVD took longer to restore (~65 s)
           # than the cold boot it saved (~40 s). Not saving one on exit saves ~12 s.
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          # A system app's "isn't responding" dialog (Pixel Launcher, GMS) can sit over the app
+          # and spoil screenshot checks such as DarkThemeTest: turn those dialogs off.
           script: |
+            adb shell settings put global hide_error_dialogs 1
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS || true
             adb install -r "$(find apks -name app-debug.apk)"
             adb install -r "$(find apks -name app-debug-androidTest.apk)"
             adb logcat -c
