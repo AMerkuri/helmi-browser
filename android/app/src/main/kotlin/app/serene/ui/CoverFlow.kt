@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -42,6 +44,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,13 +53,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
@@ -82,6 +82,8 @@ import app.serene.R
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -143,7 +145,7 @@ data class CoverFlowLayout(
 fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val origin = remember { tabs.current }
-    val scroll = remember { Animatable(tabs.currentIndex.toFloat()) }
+    val scroll = remember { Motion(tabs.currentIndex.toFloat(), scope) }
     // 1: the card the switcher opens from or into is the page itself; 0: all cards in the flow.
     val zoom = remember { Animatable(1f) }
     var zoomId by remember { mutableLongStateOf(origin?.id ?: -1L) }
@@ -151,7 +153,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     val gap = remember { Animatable(0f) }
     var gapFrom by remember { mutableIntStateOf(Int.MAX_VALUE) }
     // The middle card pushed up to close it.
-    val lift = remember { Animatable(0f) }
+    val lift = remember { Motion(0f, scope) }
     var liftId by remember { mutableLongStateOf(-1L) }
     var leaving by remember { mutableStateOf(false) }
     @Suppress("UNUSED_VARIABLE") val pictures = TabPreviews.version // recompose when a picture comes in
@@ -197,7 +199,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
             // Under the card, so the WebView has drawn by the time the card has grown.
             tabs.select(tab)
             zoomId = tab.id
-            if (i >= 0 && abs(scroll.value - i) > 0.01f) scroll.animateTo(i.toFloat(), spring(dampingRatio = 0.9f, stiffness = 400f))
+            if (i >= 0 && abs(scroll.value - i) > 0.01f) scroll.animateTo(i.toFloat(), spring(dampingRatio = 0.9f, stiffness = 400f)).join()
             zoom.animateTo(1f, tween(360, easing = FastOutSlowInEasing))
             onDone()
         }
@@ -220,10 +222,10 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         if (k < 0 || leaving) return
         scope.launch {
             liftId = tab.id
-            lift.animateTo(-2000f, tween(200))
+            lift.animateTo(-2000f, tween(200)).join()
             tabs.close(tab) // opens a new tab if it was the last
             liftId = -1L
-            lift.snapTo(0f)
+            lift.set(0f)
             if (k <= tabs.tabs.lastIndex) {
                 // The cards after it move up into its place.
                 gapFrom = k
@@ -260,7 +262,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
             var to = scroll.value - dx / perCard
             // Past either end it gives way less, and springs back.
             if (to < 0f || to > last) to = scroll.value - dx / perCard * 0.3f
-            scope.launch { scroll.snapTo(to) }
+            scroll.set(to)
         }
         Box(
             Modifier.fillMaxSize().draggable(
@@ -270,7 +272,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
                 onDragStopped = { velocity ->
                     val v = -velocity / perCard // cards a second
                     val to = (scroll.value + v * 0.3f).roundToInt().coerceIn(0, tabs.tabs.lastIndex)
-                    scroll.animateTo(to.toFloat(), spring(dampingRatio = 0.85f, stiffness = 260f), initialVelocity = v)
+                    scroll.animateTo(to.toFloat(), spring(dampingRatio = 0.85f, stiffness = 260f), velocity = v)
                 },
             ),
         ) {
@@ -333,18 +335,18 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
                             when {
                                 leaving -> Unit
                                 abs(i - scroll.value) < 0.5f -> open(tab)
-                                else -> scope.launch { scroll.animateTo(i.toFloat(), spring(dampingRatio = 0.85f, stiffness = 300f)) }
+                                else -> scroll.animateTo(i.toFloat(), spring(dampingRatio = 0.85f, stiffness = 300f))
                             }
                         },
                         onClose = { close(tab) },
                         onLift = { dy ->
                             if (liftId == -1L && abs(i - scroll.value) < 0.5f && !leaving) liftId = tab.id
-                            if (liftId == tab.id) scope.launch { lift.snapTo(min(0f, lift.value + dy)) }
+                            if (liftId == tab.id) lift.set(min(0f, lift.value + dy))
                         },
                         onLiftEnd = { velocity ->
                             if (liftId == tab.id) {
                                 if (lift.value < -layout.cardHeight * 0.3f || velocity < -1500f) close(tab)
-                                else scope.launch { lift.animateTo(0f, spring()); liftId = -1L }
+                                else scope.launch { lift.animateTo(0f, spring()).join(); if (lift.value == 0f) liftId = -1L }
                             }
                         },
                     )
@@ -444,21 +446,25 @@ private fun TabCard(
                 Icon(Icons.Filled.Close, "Close tab", tint = Color.White, modifier = Modifier.size(20.dp))
             }
         }
-        // The floor's reflection: the card upside down, fading out.
+        // The floor's reflection: the card upside down, with the card's rounded corners at the
+        // top, fading into the black. Opaque, so the reflection of a card in front hides the one
+        // behind it as the cards themselves do; see-through ones added up where cards overlap.
         Canvas(
             Modifier
                 .size(cardW, reflH)
-                .clipToBounds()
                 .graphicsLayer {
-                    compositingStrategy = CompositingStrategy.Offscreen
+                    val r = 8.dp * (1f - flat())
+                    shape = RoundedCornerShape(topStart = r, topEnd = r)
+                    clip = true
                     alpha = 1f - flat()
                 },
         ) {
             val h = cardH.toPx()
+            drawRect(Color.Black)
             withTransform({ scale(1f, -1f, pivot = Offset(size.width / 2, h / 2)) }) {
                 if (image != null) drawCover(image, h) else drawRect(placeholder, size = size.copy(height = h))
             }
-            drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.3f), 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+            drawRect(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.7f), 1f to Color.Black))
         }
     }
 }
@@ -493,6 +499,28 @@ private fun DrawScope.drawCover(image: ImageBitmap, height: Float = size.height)
         dstSize = IntSize(w.roundToInt(), height.roundToInt()),
         filterQuality = FilterQuality.Medium,
     )
+}
+
+/**
+ * A value moved by the finger and by animations. The finger sets it at once and stops any
+ * animation. (With Animatable each drag step was a snapTo coroutine of its own; one that ran
+ * after the finger lifted cancelled the settling animation, and the cards stopped half way.)
+ */
+private class Motion(initial: Float, private val scope: CoroutineScope) {
+    var value by mutableFloatStateOf(initial)
+        private set
+    private var job: Job? = null
+
+    fun set(v: Float) {
+        job?.cancel()
+        job = null
+        value = v
+    }
+
+    fun animateTo(target: Float, spec: AnimationSpec<Float>, velocity: Float = 0f): Job {
+        job?.cancel()
+        return scope.launch { animate(value, target, velocity, spec) { v, _ -> value = v } }.also { job = it }
+    }
 }
 
 private fun cardTitle(tab: Tab) = tab.title.ifBlank { host(tab) ?: "New tab" }

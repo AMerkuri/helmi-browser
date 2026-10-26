@@ -73,6 +73,14 @@ class CoverFlowTest {
                 SystemClock.sleep(1000)
                 assertCards(scenario, "after a tap on green", middle = "green", left = "red")
 
+                // A slow drag over most of a card and the cards settle on the next one, not half way.
+                drag(scenario, cards = 0.7f)
+                SystemClock.sleep(1000)
+                assertCards(scenario, "after a drag to red", middle = "red", left = null)
+                drag(scenario, cards = -0.7f)
+                SystemClock.sleep(1000)
+                assertCards(scenario, "after a drag back to green", middle = "green", left = "red")
+
                 // A tap on the middle card opens its tab.
                 tap(scenario) { it.centerX }
                 waitFor("the switcher closes") { screen(scenario) == Screen.Browser }
@@ -131,6 +139,20 @@ class CoverFlowTest {
         inst.sendPointerSync(MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, px, py, 0))
     }
 
+    /** Drags sideways by [cards] (to the right is positive), slowly, then holds still before letting go: no fling. */
+    private fun drag(scenario: ActivityScenario<MainActivity>, cards: Float) {
+        val (l, o) = layout(scenario)
+        val dx = cards * l.cardWidth * 0.5f // as far as one card moves per CoverFlowTabs' perCard
+        val x0 = o[0] + l.centerX - dx / 2
+        val py = o[1] + l.centerY + l.cardHeight * 0.4f
+        val t = SystemClock.uptimeMillis()
+        val inst = InstrumentationRegistry.getInstrumentation()
+        inst.sendPointerSync(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x0, py, 0))
+        for (step in 1..30) inst.sendPointerSync(MotionEvent.obtain(t, t + step * 20L, MotionEvent.ACTION_MOVE, x0 + dx * step / 30f, py, 0))
+        for (step in 31..40) inst.sendPointerSync(MotionEvent.obtain(t, t + step * 20L, MotionEvent.ACTION_MOVE, x0 + dx, py, 0))
+        inst.sendPointerSync(MotionEvent.obtain(t, t + 41 * 20L, MotionEvent.ACTION_UP, x0 + dx, py, 0))
+    }
+
     private fun swipeUp(scenario: ActivityScenario<MainActivity>) {
         val (l, o) = layout(scenario)
         val px = o[0] + l.centerX
@@ -143,10 +165,10 @@ class CoverFlowTest {
     }
 
     /**
-     * The middle card shows [middle]'s page and the one to its left [left]'s, with a reflection
+     * The middle card shows [middle]'s page and the one to its left [left]'s (if any), with a reflection
      * under the middle one. The screenshot goes to logcat either way, to look at.
      */
-    private fun assertCards(scenario: ActivityScenario<MainActivity>, label: String, middle: String, left: String) {
+    private fun assertCards(scenario: ActivityScenario<MainActivity>, label: String, middle: String, left: String?) {
         val (l, o) = layout(scenario)
         val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
         assertNotNull("no screenshot", shot)
@@ -154,8 +176,10 @@ class CoverFlowTest {
         fun at(x: Float, y: Float) = shot.getPixel((o[0] + x).toInt(), (o[1] + y).toInt())
         val mid = at(l.centerX, l.centerY)
         assertTrue("$label: middle card %08x is not $middle".format(mid), near(mid, colours.getValue(middle)))
-        val side = at(l.centerX - l.centerGap, l.centerY)
-        assertTrue("$label: left card %08x is not $left".format(side), near(side, colours.getValue(left)))
+        if (left != null) {
+            val side = at(l.centerX - l.centerGap, l.centerY)
+            assertTrue("$label: left card %08x is not $left".format(side), near(side, colours.getValue(left)))
+        }
         // The reflection: the middle card's colour, darker, just under it.
         val refl = at(l.centerX, l.centerY + l.cardHeight / 2 + l.cardHeight * 0.03f)
         val c = Color.parseColor(colours.getValue(middle))
