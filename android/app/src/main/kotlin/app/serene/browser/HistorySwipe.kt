@@ -184,6 +184,8 @@ class HistorySwipe(private val tab: Tab) {
         const val BACK = -1
         const val FORWARD = 1
         private const val PARALLAX = 0.3f
-        private const val SCRIM = 0.18f
+        // As dark as Chrome's: the page underneath starts at about a third of its brightness and
+        // brightens as it comes in (measured from Chrome screenshots on the Fold).
+        private const val SCRIM = 0.64f
     }
 }
