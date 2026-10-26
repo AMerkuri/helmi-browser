@@ -24,6 +24,7 @@ npm test
 npm run model && npm run llm-eval
 # a .litertlm build, the way the app runs it (pip install litert-lm==0.18.1):
 python3 test/litert-eval.py --model Qwen3-0.6B.litertlm
+python3 test/litert-eval.py --model Qwen3-0.6B.litertlm --variant no-target --half tune   # a prompt from test/prompt-variants.mjs on every other record
 npm run crawl            # or: npm run crawl:no-model
 ```
 

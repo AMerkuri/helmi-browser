@@ -298,6 +298,21 @@ Nothing was visible meanwhile (no exposure on either site), and there were no ne
   Memory the model adds to the app (build 85, PSS, largest sample between calls): Gemma +2351 MB on the GPU (1912 MB of it graphics) and +1133 MB on the CPU; Qwen +2450 MB on the GPU (2285 MB graphics) and +1654 MB on the CPU. The GPU holds both models' weights unpacked, so the smaller INT4 file saves little there. In the same build, run one after the other, Qwen's GPU calls took 1541 ms (1375 ms prepared) against Gemma's 985 ms, probably partly because the phone was warm by then.
 
   On the GPU, Gemma is as fast and as accurate as Qwen and hides less than half as much content: only `neg-privacy-article` and `neg-language-picker`, both called cookie banners. Preparing the next conversation does nothing for Gemma (5 ms), because its chat template has no system turn: the instructions go into the user turn, so there is nothing to prefill ahead of the overlay. On the phone its wrong labels lean towards `cookie_consent` where the desktop build wrote a phrase from the overlay, and app banners, paywalls, surveys and chat widgets still mostly come out as content (left up). Hugging Face only serves it to a signed-in account that accepted the Gemma terms, so Settings links its page and imports the downloaded file. Logs: [results/2026-10-25/larger-models](results/2026-10-25/larger-models/).
+
+  Gemma's lower count of hidden content comes mostly from recognising less. Of the 40 annoyances that are not cookie banners (desktop), Gemma names 9 correctly and Qwen3-0.6B INT8 26: app banners 3 of 12 against 10, newsletters 3 of 8 against 6, push prompts 0 of 5 against 4, login walls 0 of 4 against 3. The rest Gemma calls content or a cookie banner. Prompt changes don't fix that. Tuned on every other record (`litert-eval.py --variant NAME --half tune`, variants in [`test/prompt-variants.mjs`](../engine/test/prompt-variants.mjs)) and checked on the rest (`--half check`):
+
+  | Prompt (Gemma 3 1B INT4, desktop) | Tune half: guarded, hidden of 41 | Check half: guarded, hidden of 39 |
+  |---|---|---|
+  | The app's (base) | 76%, 1 | 77%, 1 |
+  | Without the unused `target` line | 74%, 0 | 72%, 0 |
+  | ...plus "the label must be one of: ..." in the instructions | 59%, 15 | |
+  | ...the same at the end of the overlay message | 42%, 24 | |
+  | ...cookie_consent listed last / content listed first | 62%, 0 / 62%, 0 | |
+  | ...ending with "Which label fits this overlay?" | 59%, 17 | |
+  | ...instructions as an earlier turn answered "OK" (preparable) | 65%, 0 | |
+  | ...3 / 6 worked examples as earlier turns | 65%, 1 / 59%, 0 | |
+
+  Gemma 3 1B leans to whichever label it reads first or last: naming the nine labels again turns most answers into `cookie_consent`, and moving that label turns them into `newsletter`. Worked examples and the preparable layout push it towards content. Logs: [results/2026-10-25/larger-models/gemma-prompts](results/2026-10-25/larger-models/gemma-prompts/).
 - **On-device benchmark.** Settings → On-device model → *Run benchmark* runs the 159 labelled records from [`labeled-features.jsonl`](../engine/test/data/labeled-features.jsonl) (packaged as an asset) through the model with the free reply: on the GPU with a new conversation per call, on the GPU with prepared conversations, and on a CPU-only engine with prepared conversations. It reports the phone and SoC, the load time, the median and p95 latency, the time to the first chunk, the label accuracy with and without the header guard, and how many of the content records the engine would hide (a false positive, header guard included). *Copy results* puts the report on the clipboard.
 - **`target` in the output.** The model's button choice stays in the prompt, because removing that line cost 5 points of accuracy (see above). Cutting the reply off after the label gets the speed without changing the prompt.
 

@@ -34,13 +34,16 @@ CHATML = (
 
 EXPORT = """
 import fs from 'node:fs';
-import { SYSTEM_PROMPT, buildPrompt, LABELS } from '../src/host/classifier.mjs';
+import { LABELS } from '../src/host/classifier.mjs';
 import { looksLikeChrome } from '../src/host/policy.mjs';
+import { VARIANTS } from './prompt-variants.mjs';
+const v = VARIANTS[process.argv[2]];
+if (!v) throw new Error(`unknown variant ${process.argv[2]}; one of ${Object.keys(VARIANTS).join(', ')}`);
 const rows = fs.readFileSync(process.argv[1], 'utf8').split('\\n').filter(Boolean).map((l) => JSON.parse(l))
   .map((r) => ({ id: r.id ?? `${r.site}/${r.features?.sig}`, expected: r.expected ?? r.label, features: r.features }))
   .filter((r) => r.expected && LABELS.includes(r.expected))
-  .map((r) => ({ id: r.id, expected: r.expected, chrome: looksLikeChrome(r.features), user: buildPrompt(r.features) }));
-console.log(JSON.stringify({ system: SYSTEM_PROMPT, labels: LABELS, rows }));
+  .map((r) => ({ id: r.id, expected: r.expected, chrome: looksLikeChrome(r.features), user: v.user(r.features) }));
+console.log(JSON.stringify({ system: v.system, preface: !!v.preface, examples: v.examples ?? [], labels: LABELS, rows }));
 """
 
 
@@ -57,12 +60,19 @@ def main():
   ap.add_argument('--preface-turn', action='store_true',
                   help='send the instructions as a first user turn answered "OK" instead of a system message '
                        '(Gemma has no system turn, so only this layout can be prefilled ahead of the overlay)')
+  ap.add_argument('--variant', default='base', help='prompt from test/prompt-variants.mjs; base is the app\'s')
+  ap.add_argument('--half', choices=['tune', 'check'],
+                  help='every other record: tune prompts on one half, then check the winner on the other')
   ap.add_argument('--limit', type=int, default=0)
   args = ap.parse_args()
 
-  data = json.loads(subprocess.run(['node', '--input-type=module', '-e', EXPORT, args.data],
+  data = json.loads(subprocess.run(['node', '--input-type=module', '-e', EXPORT, args.data, args.variant],
                                    cwd=HERE, check=True, capture_output=True, text=True).stdout)
-  labels, rows = data['labels'], data['rows'][: args.limit or None]
+  labels, rows = data['labels'], data['rows']
+  args.preface_turn = args.preface_turn or data['preface']
+  if args.half:
+    rows = rows[0 if args.half == 'tune' else 1::2]
+  rows = rows[: args.limit or None]
   litert_lm.set_min_log_severity(litert_lm.LogSeverity.ERROR)
   backend = litert_lm.Backend.GPU() if args.backend == 'gpu' else litert_lm.Backend.CPU()
   t0 = time.time()
@@ -77,9 +87,11 @@ def main():
     if args.fresh_engine and r is not rows[0]:
       engine.close()
       engine = litert_lm.Engine(args.model, backend=backend, cache_dir=str(pathlib.Path(args.model).parent))
-    preface = [{'role': 'user', 'content': data['system']}, {'role': 'model', 'content': 'OK'}] if args.preface_turn else None
+    preface = [{'role': 'user', 'content': data['system']}, {'role': 'model', 'content': 'OK'}] if args.preface_turn else []
+    for u, a in data['examples']:
+      preface += [{'role': 'user', 'content': u}, {'role': 'model', 'content': a}]
     conv = engine.create_conversation(
-        messages=preface,
+        messages=preface or None,
         system_message=None if args.preface_turn else data['system'],
         sampler_config=litert_lm.SamplerConfig(top_k=1, top_p=1.0, temperature=0.0),
         thinking_config=litert_lm.ThinkingConfig(enable_thinking=False),
@@ -117,7 +129,7 @@ def main():
     print(f"{'✓' if g == r['expected'] else '✗'} {r['id'][:40]:40} {r['expected']:20} {got:20} {ms[-1]:.0f} ms", flush=True)
 
   n = len(rows)
-  print(f"\n== {pathlib.Path(args.model).name}: {ok}/{n} = {100 * ok / n:.0f}%  guarded {guarded}/{n} = {100 * guarded / n:.0f}%"
+  print(f"\n== {pathlib.Path(args.model).name} [{args.variant}{' ' + args.half if args.half else ''}]: {ok}/{n} = {100 * ok / n:.0f}%  guarded {guarded}/{n} = {100 * guarded / n:.0f}%"
         f"  content hidden {hidden}/{n_content}  no label {no_label}  median {statistics.median(ms):.0f} ms")
   print('\n'.join(misses))
   print('\nconfusion (expected -> got):')
