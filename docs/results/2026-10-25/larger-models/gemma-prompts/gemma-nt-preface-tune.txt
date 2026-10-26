@@ -1,0 +1,122 @@
+model: gemma3-1b-it-int4.litertlm  backend: cpu  load: 2.5 s
+✗ fixture/app-install                      app_install          content              1050 ms
+✓ fixture/cookie-de-modal                  cookie_consent       cookie_consent       1141 ms
+✓ fixture/cookie-shadow                    cookie_consent       cookie_consent       1211 ms
+✓ fixture/neg-sticky-header                content              content              1368 ms
+✗ fixture/newsletter-delayed               newsletter           cookie_consent       1164 ms
+✗ fixture/paywall-sheet                    paywall_teaser       content              1159 ms
+✓ synthetic/fr-cookie                      cookie_consent       cookie_consent       1012 ms
+✓ synthetic/pl-cookie                      cookie_consent       cookie_consent       1027 ms
+✗ synthetic/discount-modal                 newsletter           content              969 ms
+✗ synthetic/app-banner                     app_install          content              1101 ms
+✗ synthetic/meter-paywall                  paywall_teaser       content              1223 ms
+✗ synthetic/chat                           chat_widget          content              1167 ms
+✓ synthetic/audio-player                   content              content              1021 ms
+✓ synthetic/filter-sheet                   content              content              989 ms
+✗ synthetic/ja-app                         app_install          content              945 ms
+✓ crawl/bbc/header#bbc-header              content              content              925 ms
+✓ crawl/lemonde/div.gdpr-lmd-standard.gd   cookie_consent       cookie_consent       1194 ms
+✓ crawl/corriere/header.header             content              content              1219 ms
+✓ crawl/onet/header.Header_headerWrap      content              content              1169 ms
+✗ crawl/onet/div.cmp-popup_popup.show      cookie_consent       content              2026 ms
+✓ crawl/yahoo/header#module-uh             content              content              1670 ms
+✓ crawl/forbes/div.GuKkQ.header.univers    content              content              1157 ms
+✓ crawl/medium/div.ac.aj.ak                content              content              1031 ms
+✗ crawl/pinterest/div.box_k.elevation_k.fi login_wall           content              1056 ms
+✗ crawl/stackoverflow/div#onetrust-banner- cookie_consent       content              1033 ms
+✓ crawl/gymshark/div#onetrust-banner-sdk   cookie_consent       cookie_consent       1124 ms
+✓ crawl/allbirds/section#shopify-pc__bann  cookie_consent       cookie_consent       1305 ms
+✗ crawl/weather.com/div.-translate-x-1\/2. app_install          content              1153 ms
+✗ crawl/duckduckgo/div > div               app_install          content              1351 ms
+✓ crawl/ohtuleht/div.bottom-0.sticky.z-50  content              content              1035 ms
+✓ crawl/delfi.lv/nav.align-items-center.d  content              content              1160 ms
+✓ crawl/yle/div#app > header[role="b       content              content              1138 ms
+✗ crawl/hs/article.ab-test-app-down        app_install          content              1266 ms
+✓ crawl/vg/div#masthead                    content              content              1059 ms
+✗ crawl/theverge/aside.duet--navigation--  cookie_consent       content              1307 ms
+✓ crawl/lefigaro/div.fh-wrapper            content              content              1520 ms
+✓ crawl/bild/header.page-header            content              content              1296 ms
+✓ crawl/repubblica/div#iubenda-cs-banner   cookie_consent       cookie_consent       1472 ms
+✓ crawl/nos/nav.jbygbA                     content              content              1447 ms
+✓ crawl/wp.pl/div#wp-bottom-bar            content              content              1017 ms
+✓ crawl/novinky/header.ribbon.ribbon--ba   content              content              1328 ms
+✓ crawl/foxnews/header.site-header         content              content              1164 ms
+✓ crawl/nbcnews/div.navs-container         content              content              1203 ms
+✗ crawl/ikea/div#onetrust-banner-sdk       cookie_consent       content              1403 ms
+✓ crawl/nike/nav.nav-css-gyxam0.no-pe      content              content              1308 ms
+✓ crawl/allrecipes/header#header_1-0       content              content              1128 ms
+✓ crawl/investopedia/header#header_1-0     content              content              1010 ms
+✓ crawl/twitch/div.bMKZft.hPLcMa.tw-tra    content              content              955 ms
+✓ crawl/nature/dialog.cc-banner            cookie_consent       cookie_consent       1182 ms
+✓ crawl/nu.nl/header.app-header            content              content              1267 ms
+✓ synthetic/neg-privacy-article            content              content              1122 ms
+✓ synthetic/neg-bottom-nav                 content              content              1088 ms
+✓ synthetic/neg-search-overlay             content              content              1057 ms
+✓ synthetic/neg-breaking-news              content              content              1764 ms
+✓ synthetic/neg-size-guide                 content              content              2218 ms
+✓ synthetic/neg-language-picker            content              content              1330 ms
+✓ synthetic/neg-comments-drawer            content              content              1142 ms
+✓ synthetic/neg-delivery-picker            content              content              1270 ms
+✓ synthetic/neg-score-ticker               content              content              1243 ms
+✓ synthetic/neg-header-de                  content              content              1122 ms
+✓ synthetic/neg-app-review                 content              content              1856 ms
+✓ synthetic/neg-map-panel                  content              content              1071 ms
+✓ synthetic/neg-chapter-nav                content              content              1210 ms
+✓ synthetic/neg-forum-composer             content              content              1371 ms
+✓ synthetic/neg-calculator                 content              content              1103 ms
+✓ synthetic/neg-weather-alert              content              content              1589 ms
+✓ synthetic/fi-cookie                      cookie_consent       cookie_consent       1236 ms
+✗ synthetic/lv-cookie                      cookie_consent       content              989 ms
+✓ synthetic/pt-cookie                      cookie_consent       cookie_consent       1157 ms
+✗ synthetic/cookie-iframe-only             cookie_consent       content              1028 ms
+✗ synthetic/et-newsletter                  newsletter           content              1134 ms
+✗ synthetic/newsletter-no-field            newsletter           content              1422 ms
+✗ synthetic/et-notifications               notification_prompt  content              1255 ms
+✗ synthetic/fr-notifications               notification_prompt  content              1193 ms
+✗ synthetic/paywall-hard                   paywall_teaser       content              1077 ms
+✗ synthetic/et-app                         app_install          content              1286 ms
+✗ synthetic/app-interstitial               app_install          content              1455 ms
+✗ synthetic/login-sheet                    login_wall           content              1050 ms
+✗ synthetic/survey-et                      survey               content              1184 ms
+✗ synthetic/chat-bot-et                    chat_widget          content              1163 ms
+
+== gemma3-1b-it-int4.litertlm [nt-preface tune]: 52/80 = 65%  guarded 52/80 = 65%  content hidden 0/41  no label 1  median 1164 ms
+    fixture/app-install: app_install -> content  raw='{"label": "banner"}'
+    fixture/newsletter-delayed: newsletter -> cookie_consent  raw='{"label": "cookie_consent"}'
+    fixture/paywall-sheet: paywall_teaser -> content  raw='{"label": "box_in_middle"}'
+    synthetic/discount-modal: newsletter -> content  raw='{"label": "box"}'
+    synthetic/app-banner: app_install -> content (header guard)  raw='{"label": "bar at top",'
+    synthetic/meter-paywall: paywall_teaser -> content  raw='{"label": "banner"}'
+    synthetic/chat: chat_widget -> content  raw='{"label": "banner"}'
+    synthetic/ja-app: app_install -> content  raw='{"label": "banner"}'
+    crawl/onet/div.cmp-popup_popup.show: cookie_consent -> content  raw='```json\n{\n  "label": "Overlay: covers the whole screen, 100%'
+    crawl/pinterest/div.box_k.elevation_k.fi: login_wall -> content  raw='{"label": "box"}'
+    crawl/stackoverflow/div#onetrust-banner-sdk: cookie_consent -> content  raw='{"label": "box"}'
+    crawl/weather.com/div.-translate-x-1\/2.fi: app_install -> content  raw='{"label": "box_in_middle"}'
+    crawl/duckduckgo/div > div: app_install -> content  raw='{"label": "box_in_middle"}'
+    crawl/hs/article.ab-test-app-down: app_install -> content  raw='{"label": "banner"}'
+    crawl/theverge/aside.duet--navigation--: cookie_consent -> content  raw='{"label": "banner at bottom"}'
+    crawl/ikea/div#onetrust-banner-sdk: cookie_consent -> content  raw='{"label": "box"}'
+    synthetic/lv-cookie: cookie_consent -> content  raw='{"label": "banner"}'
+    synthetic/cookie-iframe-only: cookie_consent -> content  raw='{"label": "box"}'
+    synthetic/et-newsletter: newsletter -> content  raw='{"label": "box_in_middle"}'
+    synthetic/newsletter-no-field: newsletter -> content  raw='```json\n{\n  "label": "banner at bottom",'
+    synthetic/et-notifications: notification_prompt -> content (header guard)  raw='{"label": "bar at top"}'
+    synthetic/fr-notifications: notification_prompt -> content (header guard)  raw='{"label": "bar at top"}'
+    synthetic/paywall-hard: paywall_teaser -> content  raw='{"label": "Subscribe now"}'
+    synthetic/et-app: app_install -> content  raw='{"label": "banner at bottom"}'
+    synthetic/app-interstitial: app_install -> content  raw='{"label": "This overlay presents an app-specific feature."'
+    synthetic/login-sheet: login_wall -> content  raw='{"label": "banner"}'
+    synthetic/survey-et: survey -> content  raw='{"label": "banner at bottom"}'
+    synthetic/chat-bot-et: chat_widget -> content  raw='{"label": "banner"}'
+
+confusion (expected -> got):
+  app_install          content:8
+  cookie_consent       cookie_consent:11 content:6
+  content              content:41
+  newsletter           cookie_consent:1 content:3
+  paywall_teaser       content:3
+  chat_widget          content:2
+  login_wall           content:2
+  notification_prompt  content:2
+  survey               content:1

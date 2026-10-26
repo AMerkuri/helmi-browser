@@ -36,15 +36,18 @@ object Policy {
     // "Continue without accepting", "Continuer sans accepter": the agree word is negated.
     private val NEGATED = re("""without|sans |ohne |senza |sin |sem |bez |zonder |しない|不同意|않|^не """)
 
-    // Thin bars at the top: site headers and nav. See looksLikeChrome() in policy.mjs.
-    private val CHROME_TOKENS = re("header|nav|masthead|top-?bar|toolbar|menu")
+    // Thin bars at the top (site headers and nav) and nav bars at the bottom. See looksLikeChrome() in policy.mjs.
+    private val CHROME_TOKENS = re("header|nav|masthead|top-?bar|toolbar|tab-?bar|menu")
     private val CHROME_TAG = Regex("^(header|nav)$")
     private val CHROME_ROLE = Regex("banner|navigation|menubar")
+    private val BOTTOM_NAV_ROLE = Regex("navigation|menubar")
 
     fun looksLikeChrome(f: Features): Boolean {
-        if (f.edge != "top" || f.coverage >= 0.15) return false
+        if (f.coverage >= 0.15) return false
+        if (f.edge == "bottom") return f.tag == "nav" || BOTTOM_NAV_ROLE.containsMatchIn(f.role) || CHROME_TOKENS.containsMatchIn(f.tokens)
+        if (f.edge != "top") return false
         return CHROME_TAG.matches(f.tag) || CHROME_ROLE.containsMatchIn(f.role) ||
-            CHROME_TOKENS.containsMatchIn(f.tokens) || f.textLen < 60
+            CHROME_TOKENS.containsMatchIn(f.tokens) || f.textLen < 60 || f.buttons.size >= 6
     }
 
     fun isSafeTarget(label: String?): Boolean =

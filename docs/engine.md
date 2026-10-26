@@ -273,6 +273,52 @@ Nothing was visible meanwhile (no exposure on either site), and there were no ne
   | CPU, prepared | 2505 ms, 81%, 7 hidden | 1195 ms, 72%, 12 hidden |
 
   INT4 is about a third faster, but it hides real content more than twice as often, so INT8 stays the default and the INT4 entry in Settings says so. On INT8 the GPU is less accurate than the CPU, but most of its extra misses are cookie banners called content, which leaves the banner up (and the lists and autoconsent remove most of those before the model sees them), and it hides less content. So the GPU stays first. Neither model reads Estonian, Swedish or Latvian cookie banners well yet: those come out as content (a miss, not a false positive). Logs: [INT8](results/2026-10-25/litert-int8-159.txt), [INT4](results/2026-10-25/litert-int4-159.txt).
+- **Bigger models, and other 4-bit builds.** The likeliest small text models on [litert-community](https://huggingface.co/litert-community) with a generic `.litertlm` build of about 1 GB or less, plus Qwen3-1.7B INT8 as a ceiling, went through [`test/litert-eval.py`](../engine/test/litert-eval.py) (desktop LiteRT-LM 0.18.1, CPU, the app's prompt and free reply, a new conversation per call; content hidden is with the header guard, of 80):
+
+  | Model (file) | Size | Guarded | Content hidden | Median per call |
+  |---|---|---|---|---|
+  | Qwen3-0.6B INT8 (the default) | 614 MB | 83% | 6 | 1835 ms |
+  | Gemma 3 1B INT4 (`gemma3-1b-it-int4`) | 584 MB | 77% | **2** | **840 ms** |
+  | Qwen3-1.7B INT8 | 2.06 GB | **87%** | 10 | 2128 ms |
+  | Qwen3-1.7B INT4 (`dynamic_wi4b32`) | 977 MB | 74% | 24 | 3938 ms |
+  | Qwen3-0.6B INT4, TorchAO mixed (`qwen3_0_6b_mixed_int4`) | 498 MB | 84% | 10 | 1791 ms |
+  | Qwen3-0.6B INT4 (`qwen3_0.6b_nothink_q4_block32`) | 347 MB | 69% | 13 | 1068 ms |
+  | LFM2.5-1.2B INT4 | 736 MB | 56% | 1 | 1389 ms |
+  | Qwen3.5-0.8B INT8 | 965 MB | 50% | 1 | 1700 ms |
+
+  More parameters at 4 bits do not help Qwen: the 1.7B INT4 build hides real content four times as often as the 0.6B INT8 one, and the INT8 1.7B is the most accurate but still hides 10. Gemma 3 1B is the only model that hides less content than the default, and it is twice as fast on the CPU. Its misses are mostly the safe kind: it often writes a phrase from the overlay instead of a label (`"label": "Open In App"`, `"Subscribe"`), which counts as content and leaves the overlay up, so app banners, paywalls and login walls suffer most. The same with or without the trailing `/no_think` (77%, 2 hidden). LFM2.5 copies the prompt into the label most of the time. Qwen3.5-0.8B (a hybrid model with recurrent state) loops on `<think>` blocks after the first call, because a new LiteRT-LM conversation on the same engine keeps the last one's state ([LiteRT-LM#3165](https://github.com/google-ai-edge/LiteRT-LM/issues/3165)); with a new engine per call it gets 85% of the first 40 records, but a 24 s load per call rules that out. Scored as GGUF on llama.cpp instead (Unsloth builds, `test/llm-eval.mjs` single-pass scoring, where Qwen3-0.6B Q8_0 gets 83% and hides 12), Qwen3.5-0.8B is worse than Qwen3-0.6B at either width: Q8_0 75% and 20 hidden, Q4_K_M 64% and 32 hidden (Qwen3-0.6B Q4_K_M: 70%, 30), so the model itself is no better, apart from the runtime bug. The TorchAO INT4 build of Qwen3-0.6B needs its own chat template (its built-in one fails on LiteRT-LM 0.18.1) and hides 10. Llama 3.2 1B and Gemma 3 1B are gated on Hugging Face; the Gemma file was scored from a public copy with the same name and byte size. So Gemma 3 1B INT4 went into Settings for a phone run (it has since been taken out, see below). On the phone (Galaxy Z Fold 7, build 70; with the header guard; content hidden of 80; Qwen's numbers from build 52):
+
+  | | Qwen3-0.6B INT8 | Gemma 3 1B INT4 |
+  |---|---|---|
+  | GPU | 1099 ms, 74%, 5 hidden | 952 ms, 75%, 2 hidden |
+  | GPU, prepared | 964 ms, 73%, 5 hidden | 1029 ms, 75%, 2 hidden |
+  | CPU, prepared | 2505 ms, 81%, 7 hidden | 2439 ms, 75%, 4 hidden |
+  | Load | about 3 s | 6.2 s (GPU) |
+
+  Memory the model adds to the app (build 85, PSS, largest sample between calls): Gemma +2351 MB on the GPU (1912 MB of it graphics) and +1133 MB on the CPU; Qwen +2450 MB on the GPU (2285 MB graphics) and +1654 MB on the CPU; Qwen INT4 +1387 MB on the GPU and +801 MB on the CPU, with GPU calls of 785 ms (658 ms prepared) but 12 of 80 content items hidden. The GPU holds both models' weights unpacked, so the smaller INT4 file saves little there. In the same build, run one after the other, Qwen's GPU calls took 1541 ms (1375 ms prepared) against Gemma's 985 ms, probably partly because the phone was warm by then.
+
+  On the GPU, Gemma is as fast and as accurate as Qwen and hides less than half as much content: only `neg-privacy-article` and `neg-language-picker`, both called cookie banners. Preparing the next conversation does nothing for Gemma (5 ms), because its chat template has no system turn: the instructions go into the user turn, so there is nothing to prefill ahead of the overlay. On the phone its wrong labels lean towards `cookie_consent` where the desktop build wrote a phrase from the overlay, and app banners, paywalls, surveys and chat widgets still mostly come out as content (left up). Logs: [results/2026-10-25/larger-models](results/2026-10-25/larger-models/).
+
+  Gemma's lower count of hidden content comes mostly from recognising less. Of the 40 annoyances that are not cookie banners (desktop), Gemma names 9 correctly and Qwen3-0.6B INT8 26: app banners 3 of 12 against 10, newsletters 3 of 8 against 6, push prompts 0 of 5 against 4, login walls 0 of 4 against 3. The rest Gemma calls content or a cookie banner. Prompt changes don't fix that. Tuned on every other record (`litert-eval.py --variant NAME --half tune`, variants in [`test/prompt-variants.mjs`](../engine/test/prompt-variants.mjs)) and checked on the rest (`--half check`):
+
+  | Prompt (Gemma 3 1B INT4, desktop) | Tune half: guarded, hidden of 41 | Check half: guarded, hidden of 39 |
+  |---|---|---|
+  | The app's (base) | 76%, 1 | 77%, 1 |
+  | Without the unused `target` line | 74%, 0 | 72%, 0 |
+  | ...plus "the label must be one of: ..." in the instructions | 59%, 15 | |
+  | ...the same at the end of the overlay message | 42%, 24 | |
+  | ...cookie_consent listed last / content listed first | 62%, 0 / 62%, 0 | |
+  | ...ending with "Which label fits this overlay?" | 59%, 17 | |
+  | ...instructions as an earlier turn answered "OK" (preparable) | 65%, 0 | |
+  | ...3 / 6 worked examples as earlier turns | 65%, 1 / 59%, 0 | |
+
+  Gemma 3 1B leans to whichever label it reads first or last: naming the nine labels again turns most answers into `cookie_consent`, and moving that label turns them into `newsletter`. Worked examples and the preparable layout push it towards content. Logs: [results/2026-10-25/larger-models/gemma-prompts](results/2026-10-25/larger-models/gemma-prompts/).
+
+  Decided 2026-10-26: one model to tune, Qwen3-0.6B INT8, which stays the default. Qwen3-0.6B INT4 stays in Settings as the lighter choice. Gemma 3 1B is out of the app: it catches a third as many of the non-cookie annoyances, and its file is gated.
+
+  The same prompt variants on Qwen3-0.6B INT8 (desktop, guarded, hidden): the app's prompt 81%, 3 of 41 on the tune half and 85%, 3 of 39 on the check half. Without the `target` line it looked as good on the tune half (80%, 0 hidden) but fell to 77%, 6 hidden on the check half, so the prompt stays. Worked examples cost Qwen 13 to 17 points, and naming the labels again 7. Sampling settings have nothing left to give: decoding is greedy and stops when the label closes. Logs: [results/2026-10-25/larger-models/qwen-prompts](results/2026-10-25/larger-models/qwen-prompts/).
+
+  The header guard now also covers thin nav bars at the bottom (a `<nav>`, `role=navigation`, or nav/tab-bar/menu class names; mobile tab bars) and top bars with six or more links. That catches two of Qwen's six hidden items, Booking's bottom nav (called a login wall) and Le Figaro's header (called a push prompt), and matches none of the 79 annoyances in the labelled set. Desktop Qwen INT8 goes from 83% guarded and 6 hidden to 84% and 4. The other four, two carts called app banners, a weather alert and an article about cookie rules, have no shape a rule could tell apart from real annoyances (a price check would also match three paywalls and a cookie wall).
 - **On-device benchmark.** Settings → On-device model → *Run benchmark* runs the 159 labelled records from [`labeled-features.jsonl`](../engine/test/data/labeled-features.jsonl) (packaged as an asset) through the model with the free reply: on the GPU with a new conversation per call, on the GPU with prepared conversations, and on a CPU-only engine with prepared conversations. It reports the phone and SoC, the load time, the median and p95 latency, the time to the first chunk, the label accuracy with and without the header guard, and how many of the content records the engine would hide (a false positive, header guard included). *Copy results* puts the report on the clipboard.
 - **`target` in the output.** The model's button choice stays in the prompt, because removing that line cost 5 points of accuracy (see above). Cutting the reply off after the label gets the speed without changing the prompt.
 

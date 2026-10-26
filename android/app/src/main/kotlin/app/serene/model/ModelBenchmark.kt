@@ -2,6 +2,7 @@ package app.serene.model
 
 import android.content.Context
 import android.os.Build
+import android.os.Debug
 import app.serene.BuildConfig
 import app.serene.engine.EngineJson
 import app.serene.engine.Features
@@ -38,6 +39,20 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
         var falsePositives = 0
         var invalid = 0
         val misses = mutableListOf<String>()
+        /** The process's memory over the app without a model loaded, sampled between calls; the largest sample. */
+        var peak: Mem? = null
+    }
+
+    /** Proportional set size in kB: the whole process, its native heap, and graphics (GPU buffers). */
+    data class Mem(val total: Int, val native: Int, val graphics: Int) {
+        operator fun minus(o: Mem) = Mem(total - o.total, native - o.native, graphics - o.graphics)
+        fun mb(kb: Int) = "${(kb + 512) / 1024} MB"
+        override fun toString() = "${mb(total)} (native ${mb(native)}, graphics ${mb(graphics)})"
+    }
+
+    private fun mem(): Mem {
+        val mi = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+        return Mem(mi.totalPss, mi.nativePss, mi.getMemoryStat("summary.graphics")?.toIntOrNull() ?: 0)
     }
 
     fun records(): List<Row> = context.assets.open("labeled-features.jsonl").bufferedReader().useLines { lines ->
@@ -52,15 +67,16 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
     suspend fun measure(onProgress: (Progress) -> Unit): String {
         val rows = records()
         classifier.unload() // measure a cold load, and keep only one model in memory
+        val baseline = mem()
         val keep = classifier.prepare
         val (gpu, gpuPrepared) = try {
-            run("GPU", classifier, rows, onProgress, prepare = false) to run("GPU, prepared", classifier, rows, onProgress, prepare = true)
+            run("GPU", classifier, rows, onProgress, prepare = false, baseline) to run("GPU, prepared", classifier, rows, onProgress, prepare = true, baseline)
         } finally {
             classifier.prepare = keep
         }
         classifier.unload()
         val cpuOnly = LiteRtClassifier(classifier.modelFile, cacheDir, backends = listOf({ Backend.CPU() }))
-        val cpu = try { run("CPU, prepared", cpuOnly, rows, onProgress, prepare = true) } finally { cpuOnly.unload() }
+        val cpu = try { run("CPU, prepared", cpuOnly, rows, onProgress, prepare = true, mem()) } finally { cpuOnly.unload() }
         val runs = listOf(gpu, gpuPrepared, cpu)
         val n = rows.size
         val contentRows = rows.count { it.expected == "content" }
@@ -83,17 +99,25 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
                 appendLine("${r.name} misses:")
                 r.misses.forEach { appendLine("  $it") }
             }
+            appendLine("Memory with the model loaded, over the app without it (PSS, largest sample between calls):")
+            for (r in runs) r.peak?.let { appendLine("  ${r.name}: +$it") }
         }
     }
 
-    private suspend fun run(name: String, c: LiteRtClassifier, rows: List<Row>, onProgress: (Progress) -> Unit, prepare: Boolean): Run {
+    private suspend fun run(name: String, c: LiteRtClassifier, rows: List<Row>, onProgress: (Progress) -> Unit, prepare: Boolean, baseline: Mem): Run {
         val r = Run(name)
+        fun sample() {
+            val m = mem() - baseline
+            if (r.peak.let { it == null || m.total > it.total }) r.peak = m
+        }
         onProgress(Progress(name, 0, rows.size))
         c.prepare = prepare
         r.loadMs = c.warmUp()
         r.backend = c.backend
         c.classify(rows.first().features, LiteRtClassifier.Reply.FREE) // the first call compiles GPU kernels
+        sample()
         rows.forEachIndexed { i, row ->
+            if (i % 20 == 19) sample() // between calls, outside the timings
             // In the app the next conversation is prepared while the reader is on the page;
             // here it is done (and timed) between calls, so each call can use one.
             if (prepare) {

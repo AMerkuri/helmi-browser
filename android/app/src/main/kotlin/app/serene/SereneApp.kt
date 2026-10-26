@@ -17,6 +17,7 @@ import app.serene.engine.SereneEngine
 import app.serene.engine.VerdictCache
 import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
+import app.serene.reader.ReaderPrefs
 import app.serene.ui.applyNightMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,7 @@ class SereneApp : Application() {
     lateinit var engine: SereneEngine private set
     lateinit var lists: FilterLists private set
     lateinit var downloads: Downloads private set
+    lateinit var readerPrefs: ReaderPrefs private set
 
     /** Shown in settings: "loading", "ready", or an error. */
     var rulesStatus by mutableStateOf("loading")
@@ -82,6 +84,7 @@ class SereneApp : Application() {
         models = ModelManager(this, settings, scope)
         models.refresh()
         downloads = Downloads(this)
+        readerPrefs = ReaderPrefs(this)
         lists = FilterLists(File(filesDir, "lists"))
         engine = SereneEngine(
             rules = null, // heuristics only until the lists are loaded

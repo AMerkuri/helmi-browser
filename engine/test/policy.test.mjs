@@ -42,6 +42,22 @@ test('site headers never go to the model', () => {
   assert.ok(!looksLikeChrome({ ...bar, edge: 'bottom' }));
 });
 
+test('bottom tab bars and link-heavy headers never go to the model', () => {
+  const weak = { label: 'login_wall', score: 0.3, structure: 0, rejectIdx: -1 };
+  // booking's bottom nav (the model called it a login wall), a tab bar, and a top bar of section links
+  const navs = [
+    { ...base, tag: 'nav', role: 'navigation', edge: 'bottom', coverage: 0.07, textLen: 20, text: 'Search Saved Sign in', buttons: ['Search', 'Saved', 'Sign in'], heuristic: weak },
+    { ...base, tokens: 'tabbar', edge: 'bottom', coverage: 0.06, textLen: 30, text: 'Home Live Audio', buttons: ['Home', 'Live', 'Audio'], heuristic: weak },
+    { ...base, edge: 'top', coverage: 0.1, textLen: 300, text: 'Se connecter Politique International', buttons: ['Menu', 'Notifications', 'Search', 'Se connecter', 'Politique', 'International'], heuristic: weak },
+  ];
+  for (const f of navs) {
+    assert.ok(looksLikeChrome(f), f.text);
+    assert.equal(preDecide(f, { llmAvailable: true }).action, 'ignore', f.text);
+  }
+  // an app banner at the bottom still goes to the model
+  assert.ok(!looksLikeChrome({ ...base, tokens: 'smart-app-banner', edge: 'bottom', coverage: 0.1, textLen: 40, buttons: ['Open', 'Not now'] }));
+});
+
 test('paywall and login overlays are hidden, never clicked', () => {
   assert.equal(actionFor('paywall_teaser', 0, { ...base, buttons: ['Close'] }).action, 'hide');
   assert.equal(actionFor('login_wall', 0, { ...base, buttons: ['Close'] }).action, 'hide');

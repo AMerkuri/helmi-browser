@@ -52,6 +52,22 @@ class PolicyTest {
         assertFalse(Policy.looksLikeChrome(bar.copy(edge = "bottom")))
     }
 
+    @Test fun bottomTabBarsAndLinkHeavyHeadersNeverGoToTheModel() {
+        val weak = Heuristic("login_wall", 0.3, 0.0, -1)
+        // booking's bottom nav (the model called it a login wall), a tab bar, and a top bar of section links
+        val navs = listOf(
+            base.copy(tag = "nav", role = "navigation", edge = "bottom", coverage = 0.07, textLen = 20, text = "Search Saved Sign in", buttons = listOf("Search", "Saved", "Sign in"), heuristic = weak),
+            base.copy(tokens = "tabbar", edge = "bottom", coverage = 0.06, textLen = 30, text = "Home Live Audio", buttons = listOf("Home", "Live", "Audio"), heuristic = weak),
+            base.copy(edge = "top", coverage = 0.1, textLen = 300, text = "Se connecter Politique International", buttons = listOf("Menu", "Notifications", "Search", "Se connecter", "Politique", "International"), heuristic = weak),
+        )
+        for (f in navs) {
+            assertTrue(f.text, Policy.looksLikeChrome(f))
+            assertEquals(f.text, "ignore", Policy.preDecide(f, llmAvailable = true).action)
+        }
+        // an app banner at the bottom still goes to the model
+        assertFalse(Policy.looksLikeChrome(base.copy(tokens = "smart-app-banner", edge = "bottom", coverage = 0.1, textLen = 40, buttons = listOf("Open", "Not now"))))
+    }
+
     @Test fun modelVerdictsPolicyPicksTheButtonUnsureLabelsAreLeftAlone() {
         val v = Policy.fromModel("cookie_consent", 0.97, base)
         assertEquals("click", v.action)
