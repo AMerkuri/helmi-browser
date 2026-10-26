@@ -20,6 +20,7 @@ Run by .github/workflows/npu-model.yml; locally: python build.py --work /tmp/npu
 """
 
 import argparse
+import copy
 import os
 import pathlib
 import re
@@ -84,7 +85,8 @@ def main() -> None:
 
 
 def log_partitions() -> None:
-  """Prints how many ops of each section the Qualcomm plugin took, which the compiler doesn't."""
+  """Fixes each section before the Qualcomm plugin compiles it, and prints how many of its ops the
+  plugin took, which the compiler doesn't."""
   from absl import logging
   from ai_edge_litert.aot.core import apply_plugin
   import ai_edge_litert
@@ -94,11 +96,48 @@ def log_partitions() -> None:
   call = apply_plugin.ApplyPlugin.__call__
 
   def logged(self, input_model, output_model, *args, **kwargs):
+    if "prefill_decode" in pathlib.Path(input_model.path).name:
+      quantize_unused_kv_inputs(input_model.path)
     result = call(self, input_model, output_model, *args, **kwargs)
     print(f"Partition of {input_model.path}: {output_model.partition_stats}")
     return result
 
   apply_plugin.ApplyPlugin.__call__ = logged
+
+
+def quantize_unused_kv_inputs(path: str) -> None:
+  """Gives the prefill signature's last-layer KV cache inputs the int16 type the others have.
+
+  Prefill has no logits, so the last layer's attention is dead code there and its KV cache inputs
+  have no consumer. The quantizer only quantizes consumed tensors, so those two inputs stay
+  float32 in prefill while decode has them as int16. LiteRT-LM shares one buffer per KV cache
+  input between the signatures, and on the phone the prefill failed with "Custom allocation is
+  too small" for that tensor. The inputs are unused, so their type changes nothing else.
+  """
+  from ai_edge_litert import schema_py_generated as schema
+  from ai_edge_litert.tools import flatbuffer_utils
+
+  model = flatbuffer_utils.read_model(path)
+  name = lambda b: b.decode() if isinstance(b, bytes) else b
+  kv_inputs = lambda sig: (
+      (name(i.name), model.subgraphs[sig.subgraphIndex].tensors[i.tensorIndex])
+      for i in sig.inputs if name(i.name).startswith("kv_cache_"))
+  quantized = {}
+  for sig in model.signatureDefs:
+    for n, tensor in kv_inputs(sig):
+      if tensor.type != schema.TensorType.FLOAT32:
+        quantized.setdefault(n, tensor)
+  fixed = []
+  for sig in model.signatureDefs:
+    for n, tensor in kv_inputs(sig):
+      if tensor.type == schema.TensorType.FLOAT32 and n in quantized:
+        tensor.type = quantized[n].type
+        tensor.quantization = copy.deepcopy(quantized[n].quantization)
+        fixed.append(f"{name(sig.signatureKey)}/{n}")
+  print(f"KV cache inputs given the quantized type: {fixed or 'none'}")
+  if fixed:
+    flatbuffer_utils.write_model(model, path + ".fixed")
+    os.replace(path + ".fixed", path)
 
 
 if __name__ == "__main__":
