@@ -1,6 +1,8 @@
 package app.serene.ui
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Build
 import android.view.View
@@ -193,10 +195,22 @@ private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
     // where the TextFieldValue one stopped a character past what was on screen.
     val state = remember(tab.id) { TextFieldState(displayUrl(tab.url)) }
     val scroll = rememberScrollState()
+    // The address the edit started from, while the field is focused.
+    var original by remember { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     val focus = remember { FocusRequester() }
+    val context = LocalContext.current
     LaunchedEffect(tab.url, focused) {
-        if (!focused) {
+        if (focused) {
+            // The whole address, selected, as in Samsung Internet. After the tap that focused the
+            // field has placed its cursor, which would otherwise undo the selection.
+            if (original == null) {
+                val url = if (tab.url == "about:blank") "" else tab.url
+                original = url
+                state.setTextAndSelectAll(url)
+            }
+        } else {
+            original = null
             state.edit { replace(0, length, displayUrl(tab.url)); selection = TextRange.Zero }
             // An unfocused field doesn't follow the cursor, so show the start of the address.
             scroll.scrollTo(0)
@@ -229,13 +243,14 @@ private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
                     focusManager.clearFocus()
                 },
                 modifier = Modifier.fillMaxSize().focusRequester(focus).onFocusChanged {
-                    if (it.isFocused && !focused) state.setTextAndSelectAll(tab.url)
                     focused = it.isFocused
                 },
                 decorator = { inner ->
                     // Chrome's inline clear button: inside the field, at its end, while there is
-                    // something to clear. Reload stays where it is.
+                    // something to clear. Reload stays where it is. Copy sits next to it until
+                    // the address is edited, as in Samsung Internet.
                     val showClear = focused && state.text.isNotEmpty()
+                    val showCopy = showClear && original != null && state.text.contentEquals(original)
                     Row(
                         Modifier.fillMaxSize().padding(start = 16.dp, end = if (showClear) 2.dp else 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -243,6 +258,14 @@ private fun UrlBar(app: SereneApp, tab: Tab, onShield: () -> Unit) {
                         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                             if (state.text.isEmpty()) Text("Search or type a URL", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             inner()
+                        }
+                        if (showCopy) {
+                            IconButton(onClick = {
+                                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Address", original))
+                                focusManager.clearFocus()
+                            }, modifier = Modifier.size(40.dp)) {
+                                Icon(painterResource(R.drawable.ic_copy), "Copy address", Modifier.size(20.dp))
+                            }
                         }
                         if (showClear) {
                             IconButton(onClick = { state.clearText() }, modifier = Modifier.size(40.dp)) {
