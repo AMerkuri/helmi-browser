@@ -64,6 +64,7 @@ object Policy {
         "paywall_teaser" to "hide",       // nag overlay only, never unlock content
         "login_wall" to "hide",
         "chat_widget" to "ignore",        // usually small and wanted; hidden only if it covers the page
+        "adblock_notice" to "click",      // its own close button; else hide (heuristics only, not a model label)
         "content" to "ignore",
     )
 

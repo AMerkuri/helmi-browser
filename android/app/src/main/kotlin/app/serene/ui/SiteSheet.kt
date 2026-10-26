@@ -44,6 +44,7 @@ private val LABELS = mapOf(
     "login_wall" to "Sign-in wall",
     "chat_widget" to "Chat widget",
     "survey" to "Survey",
+    "adblock_notice" to "Ad-blocker notice",
     "content" to "Page element",
 )
 

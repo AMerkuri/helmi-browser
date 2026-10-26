@@ -133,6 +133,7 @@ val CATEGORY_NAMES = mapOf(
     "login_wall" to "Sign-in walls",
     "chat_widget" to "Chat widgets",
     "survey" to "Surveys",
+    "adblock_notice" to "Ad-blocker notices",
 )
 
 /** "45 s", "12 min", "3 h 5 min", "2 d 4 h". */

@@ -64,6 +64,14 @@ test('paywall and login overlays are hidden, never clicked', () => {
   assert.equal(actionFor('content', 1, base).action, 'ignore');
 });
 
+test('ad-blocker notices are closed, never "allow ads"', () => {
+  // gamerant.com (issue #35): its own × closes it; "How to Allow Ads on This Site" is never pressed
+  const v = actionFor('adblock_notice', 1, { ...base, buttons: ['How to Allow Ads on This Site', '×'] });
+  assert.equal(v.action, 'click');
+  assert.equal(v.buttonLabel, '×');
+  assert.equal(actionFor('adblock_notice', 0, { ...base, buttons: ['Allow ads', "I've disabled it"] }).action, 'hide');
+});
+
 test('heuristic routing', () => {
   const h = (label, score, structure = 0.2, rejectIdx = 1) => ({ ...base, heuristic: { label, score, structure, rejectIdx } });
   assert.equal(preDecide(h('cookie_consent', 0.95), { llmAvailable: true }).source, 'heuristic');

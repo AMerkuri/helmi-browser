@@ -56,7 +56,7 @@ navigation
 
 **Features** sent to the host: about 300 characters of text, up to 8 button labels in order, role/aria, id/class tokens, iframe origins, coverage, screen edge, z-index, scroll lock, email/password/video inputs, a "looks like page layout" flag, and whether the user just tapped. The prompt is under 600 characters, about 100–200 tokens plus the cached system prompt.
 
-**Heuristics.** Keyword sets per label (cookie wording in about 15 languages), a structure score (coverage, scroll lock, `aria-modal`, z-index, a few buttons), and penalties for headers, navigation, video and big text blocks. Clear cases never reach the model. In the rules-only run, 9 of the 11 overlay fixtures were handled without it.
+**Heuristics.** Keyword sets per label (cookie wording in about 15 languages), a structure score (coverage, scroll lock, `aria-modal`, z-index, a few buttons), and penalties for headers, navigation, video and big text blocks. Clear cases never reach the model. One label is the heuristics' alone: `adblock_notice` ("We noticed that ads aren't being displayed"), matched on wording only, never on an `adblock` class name (ad slots use it too). The policy presses the notice's own close button, never "Allow ads", and hides the notice if it has none. The model has no such label. In the rules-only run, 9 of the 11 overlay fixtures were handled without it.
 
 **LLM.** Qwen3-0.6B, zero-shot, with thinking suppressed (an empty `<think>` block). It does not write an answer any more. The engine prefills the prompt plus the start of the answer, `{"label": "`, and reads the model's next-token logits for the first token of each of the nine labels. All nine first tokens differ (`cookie`, `newsletter`, `notification`, `pay`, `app`, `login`, `chat`, `survey`, `content`; checked at load), so that one forward pass decides the label. A softmax over those nine logits gives a probability per label, and the policy uses it (see below). The model no longer picks a button: the policy's decline list always did that in practice. The old grammar-constrained JSON mode is still there (`--mode generate`) for comparison. Calls are serialized and reuse the system-prompt KV cache. In the harness it runs on llama.cpp (`node-llama-cpp`, GGUF Q8_0); on the phone it runs on LiteRT-LM with the `.litertlm` build, which gives no logits: there the model writes its reply freely and the app stops it once the label is written (see [The model on the phone](#the-model-on-the-phone)). The prompt is the same in both.
 
@@ -93,7 +93,9 @@ Hand-written pages that imitate common patterns. They are not copies of real sit
 | notification soft prompt | heuristics | clicked "Not now" |
 | metered paywall sheet | heuristics | sheet hidden, article untouched, nothing clicked |
 | open-in-app bar | heuristics | clicked "Not now" |
+| ad-blocker notice ("ads aren't being displayed") in an open `<dialog>`, scroll lock | heuristics | clicked its × button, scrolling restored, "How to allow ads" not pressed |
 | sticky header with "Subscribe" link | none | left alone |
+| sticky ad slot with an `adblock` class, article about ad blockers | none | left alone |
 | full-screen menu opened by a tap | none (user gesture) | left alone |
 | article about cookies + mini video player | none | left alone |
 

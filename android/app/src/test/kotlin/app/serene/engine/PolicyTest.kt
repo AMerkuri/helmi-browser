@@ -84,6 +84,14 @@ class PolicyTest {
         assertEquals("ignore", Policy.actionFor("content", 1, base).action)
     }
 
+    @Test fun adBlockerNoticesAreClosedNeverAllowed() {
+        // gamerant.com (issue #35): its own × closes it; "How to Allow Ads on This Site" is never pressed
+        val v = Policy.actionFor("adblock_notice", 1, base.copy(buttons = listOf("How to Allow Ads on This Site", "×")))
+        assertEquals("click", v.action)
+        assertEquals("×", v.buttonLabel)
+        assertEquals("hide", Policy.actionFor("adblock_notice", 0, base.copy(buttons = listOf("Allow ads", "I've disabled it"))).action)
+    }
+
     @Test fun heuristicRouting() {
         fun h(label: String, score: Double, structure: Double = 0.2, rejectIdx: Int = 1) = base.copy(heuristic = Heuristic(label, score, structure, rejectIdx))
         assertEquals("heuristic", Policy.preDecide(h("cookie_consent", 0.95), true).source)

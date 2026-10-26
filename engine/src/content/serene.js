@@ -561,6 +561,9 @@
     login_wall: /sign in to (continue|read)|log ?in to (continue|see)|create (a free )?account to|register to continue|continue with (google|apple|facebook)/i,
     survey: /survey|feedback|how (likely|satisfied)|rate (us|your)|quick question/i,
     chat_widget: /chat with us|need help\?|how can we help|live chat|ask us/i,
+    // "We noticed that ads aren't being displayed": ad-blocker nags. Wording only: a bare
+    // "adblock" class is also what ad slots are called.
+    adblock_notice: /\bads? ?block(ers?|ing| detected)|\bads (aren't|aren’t|are not|were not|weren't|weren’t) (being )?(displayed|shown|showing|loading)|(disable|turn off|pause|deactivate) (your |the )?ad ?block|allow(ing)? ads on|by allowing ads|(whitelist|allowlist) (us|this site|our site)|werbeblocker|bloqueur de pub|bloqueador de anuncios|blocco (degli )?annunci|\bblok\w* reklam/i,
   };
   const CMP_HOSTS = /cookielaw|onetrust|cookiebot|usercentrics|didomi|sourcepoint|privacy-mgmt|consensu|trustarc|quantcast|cmp|consentmanager|iubenda|termly|cookieyes|osano|sp-prod/i;
   const REJECT = /reject|decline|refuse|deny|disagree|necessary only|only necessary|essential only|only essential|continue without|ablehnen|nur (notwendige|erforderliche)|ohne zustimmung|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|nein,? danke|no,? thanks|not now|maybe later|later|no thanks|close|dismiss|^×$|^✕$|^✖$|^x$|schließen|später|nicht jetzt|fermer|plus tard|non merci|cerrar|ahora no|chiudi|non ora|fechar|agora não|sluiten|weigeren|zamknij|nie teraz|zavřít|avvisa|stäng|afvis|avvis|\bluk\b|hylkää|sulje|reddet|kapat|отклонить|отказаться|закрыть|не сейчас|拒否|同意しない|閉じる|後で|今はしない|拒绝|拒絕|关闭|關閉|不同意|稍后|거부|거절|동의하지 않|닫기|나중에/i;

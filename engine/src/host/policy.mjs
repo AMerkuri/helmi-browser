@@ -44,6 +44,7 @@ const ACTIONS = {
   paywall_teaser: 'hide',      // nag overlay only, never unlock content
   login_wall: 'hide',
   chat_widget: 'ignore',       // usually small and wanted; hidden only if it covers the page
+  adblock_notice: 'click',     // its own close button; else hide (heuristics only, not a model label)
   content: 'ignore',
 };
 
