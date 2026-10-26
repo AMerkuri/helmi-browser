@@ -8,11 +8,13 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.serene.browser.Snapshots
+import app.serene.engine.PageSession
 import app.serene.browser.Tab
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,7 +61,7 @@ class PageGesturesTest {
         }
         val html = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>$name</title><body style='margin:0'>$body".toByteArray()
         s.getOutputStream().apply {
-            write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nContent-Length: ${html.size}\r\nConnection: close\r\n\r\n".toByteArray())
+            write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n${if (name.startsWith("kept")) "" else "Cache-Control: no-store\r\n"}Content-Length: ${html.size}\r\nConnection: close\r\n\r\n".toByteArray())
             write(html)
             flush()
         }
@@ -150,6 +152,29 @@ class PageGesturesTest {
             scenario.onActivity { t.load("$base/two") }
             waitFor("page two") { t.title == "two" && t.canGoBack }
             waitFor("a snapshot of the slow page") { Snapshots.get(t.id, 0, "$base/slow") != null }
+        }
+    }
+
+    /**
+     * With WebView's back/forward cache, back resumes the page as it was (no new request), and
+     * the tab's engine session is that page's again, not the one of the page it replaced.
+     */
+    @Test
+    fun backResumesThePageWithItsSession() {
+        assumeTrue("this WebView has no back/forward cache", Tab.backForwardCacheSupported)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var tab: Tab? = null
+            scenario.onActivity { a -> tab = a.tabs.open("$base/kept1") }
+            val t = tab!!
+            waitFor("page kept1") { t.title == "kept1" && t.progress == 100 && t.session != null }
+            var first: PageSession? = null
+            scenario.onActivity { first = t.session }
+            scenario.onActivity { t.load("$base/kept2") }
+            waitFor("page kept2") { t.title == "kept2" && t.progress == 100 && t.session !== first }
+            scenario.onActivity { t.goBack() }
+            waitFor("back on kept1") { t.url.endsWith("/kept1") }
+            waitFor("kept1's session back") { t.session === first }
+            assertEquals("kept1 was loaded again, not resumed: ${requests.filter { it.startsWith("/kept") }}", 1, requests.count { it == "/kept1" })
         }
     }
 

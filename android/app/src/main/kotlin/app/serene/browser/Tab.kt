@@ -117,6 +117,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             if (webAuthnSupported) {
                 WebSettingsCompat.setWebAuthenticationSupport(this, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER)
             }
+            // Back/forward cache, as Chrome has: a page left is kept paused for a while, and back or
+            // forward to it resumes it as it was instead of loading it again (no reload, no jump).
+            // The page's engine session goes with it, see onDocMessage.
+            if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(this, true)
         }
         installEngine()
         webView.webViewClient = Client()
@@ -155,6 +159,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
                 main.post { shown() }
                 return@addWebMessageListener
             }
+            if (isMainFrame && data.startsWith("{\"type\":\"serene-doc")) {
+                onDocMessage(data)
+                return@addWebMessageListener
+            }
             val frame = object : FrameRef {
                 override val isTop = isMainFrame
                 override fun send(json: String) {
@@ -173,6 +181,39 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         }
         if (documentStartSupported) {
             WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
+            // After the content script, so its hello (and the session it starts) comes first.
+            WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
+        }
+    }
+
+    // Each document's engine session, by an id the document makes up at its start.
+    private val docSessions = object : LinkedHashMap<String, PageSession>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PageSession>) = size > 50
+    }
+
+    /**
+     * A top document says it started (right after its hello, so [current] is its session) or that
+     * it came back from the back/forward cache. A restored document says no hello: without this
+     * its requests and messages would go to the session of the page it replaced.
+     */
+    private fun onDocMessage(data: String) {
+        val msg = runCatching { EngineJson.parseToJsonElement(data).jsonObject }.getOrNull() ?: return
+        val id = msg["id"]?.jsonPrimitive?.contentOrNull ?: return
+        when (msg["type"]?.jsonPrimitive?.contentOrNull) {
+            "serene-doc" -> current?.let { docSessions[id] = it }
+            "serene-doc-restored" -> {
+                docSessions[id]?.let { s ->
+                    pending = null
+                    current = s
+                    session = s
+                    version++
+                }
+                // It is on screen as it was left: nothing to wait for.
+                painting = false
+                docLoading = false
+                shown()
+                snapshotSoon()
+            }
         }
     }
 
@@ -282,7 +323,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         val item = list.currentItem ?: return
         val index = list.currentIndex
         val xy = IntArray(2).also { webView.getLocationInWindow(it) }
-        val bmp = Bitmap.createBitmap(w / 2, h / 2, Bitmap.Config.ARGB_8888)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         try {
             PixelCopy.request(window, Rect(xy[0], xy[1], xy[0] + w, xy[1] + h), bmp, { result ->
                 // A swipe that started meanwhile may be in the picture.
@@ -415,6 +456,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
         val webAuthnSupported: Boolean
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)
+        val backForwardCacheSupported: Boolean
+            get() = WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE)
 
         /**
          * engine/dist/autoconsent.js, then engine/src/content/serene.js, both packaged as assets.
@@ -440,6 +483,13 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             quiet = setTimeout(done, 150);
             const most = setTimeout(done, 1200);
         })()"""
+
+        /** Top documents only: an id, said at the start and again on coming back from the back/forward cache. */
+        private val DOC_JS = """if (window === window.top && window.SereneBridge) {
+            const id = Math.random().toString(36).slice(2);
+            SereneBridge.postMessage(JSON.stringify({ type: 'serene-doc', id }));
+            addEventListener('pageshow', e => { if (e.persisted) SereneBridge.postMessage(JSON.stringify({ type: 'serene-doc-restored', id })); });
+        }"""
 
         private fun EMPTY_RESPONSE() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
     }
