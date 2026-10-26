@@ -15,3 +15,4 @@ Android browser that removes page annoyances (cookie banners, newsletter boxes, 
 - Fixtures are hand-written imitations of an overlay pattern, never copies of a real site.
 - A false positive (hiding real page content) is worse than a missed popup.
 - The Android build needs the SDK, NDK and Rust; leave it to the `android` workflow, which builds a debug APK on every PR that touches the app (or the engine files it packages) and links it in the PR description.
+- Open a PR as a draft while you are still pushing to it, and mark it ready for review when it is done. The emulator e2e job skips draft PRs (it is the biggest part of the Actions bill), so a PR must be ready for review before it can count as tested.

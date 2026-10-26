@@ -5,6 +5,8 @@ name: android
 # it packages as assets (see android/app/build.gradle.kts). Docs-only changes skip it.
 on:
   pull_request:
+    # ready_for_review starts the e2e a draft skipped.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'android/**'
       - 'engine/src/content/**'
@@ -127,8 +129,11 @@ jobs:
 
   # The engine's fixture pages in the real app on an emulator: system WebView, document-start
   # script, SereneBridge, adblock-rust over JNI and the Kotlin policy, end to end.
+  # Skipped on draft PRs to save minutes (it is about half the bill): a branch still being
+  # worked on gets the APK and unit tests, and e2e runs once it is marked ready for review.
   e2e:
     needs: build
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 20 # usually 6; a stuck emulator would otherwise bill up to 6 hours
     steps:
