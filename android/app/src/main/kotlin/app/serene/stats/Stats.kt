@@ -31,12 +31,6 @@ data class Totals(
     val requestsBlocked: Long get() = requests.values.sum()
     val annoyances: Long get() = cleared.values.sum()
 
-    /** An estimate: the lists' blocked requests never load, so their size is a typical one per type. */
-    val bytesSaved: Long get() = requests.entries.sumOf { (type, n) -> n * typicalBytes(type) }
-
-    /** An estimate too: the time it would have taken to close each pop-up by hand. */
-    val secondsSaved: Long get() = annoyances * SECONDS_PER_POPUP
-
     fun busiestSites(n: Int): List<Pair<String, Long>> = sites.entries.sortedByDescending { it.value }.take(n).map { it.key to it.value }
 
     fun withPage() = copy(pages = pages + 1)
@@ -46,23 +40,7 @@ data class Totals(
     fun withModelCall(ms: Long) = copy(modelCalls = modelCalls + 1, modelMs = modelMs + ms)
 
     companion object {
-        const val SECONDS_PER_POPUP = 3L
         const val MAX_SITES = 200
-
-        /**
-         * Typical size of a request the lists block, by type. Measured with
-         * engine/harness/blocked-sizes.mjs on the 30 crawl sites (2026-10-26): the annoyance lists
-         * block few requests, nearly all scripts (cookie, newsletter and chat widgets), on average
-         * 27 KB each. The other types were too rare to measure and get small, cautious sizes.
-         * Whatever a blocked script would have loaded in turn isn't counted.
-         */
-        fun typicalBytes(type: String): Long = when (type) {
-            "script" -> 27_000
-            "sub_frame" -> 20_000
-            "stylesheet", "font", "image" -> 10_000
-            "media" -> 0 // streamed; how much of it would have played is anyone's guess
-            else -> 2_000
-        }
 
         private fun Map<String, Long>.plusOne(k: String) = this + (k to (this[k] ?: 0) + 1)
 
@@ -135,14 +113,3 @@ val CATEGORY_NAMES = mapOf(
     "survey" to "Surveys",
 )
 
-/** "45 s", "12 min", "3 h 5 min", "2 d 4 h". */
-fun formatDuration(seconds: Long): String {
-    val m = seconds / 60
-    val h = m / 60
-    return when {
-        seconds < 60 -> "$seconds s"
-        h == 0L -> "$m min"
-        h < 24 -> if (m % 60 == 0L) "$h h" else "$h h ${m % 60} min"
-        else -> if (h % 24 == 0L) "${h / 24} d" else "${h / 24} d ${h % 24} h"
-    }
-}

@@ -1,7 +1,6 @@
 package app.serene.ui
 
 import android.text.format.DateUtils
-import android.text.format.Formatter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,7 +31,6 @@ import app.serene.R
 import app.serene.SereneApp
 import app.serene.stats.CATEGORY_NAMES
 import app.serene.stats.Totals
-import app.serene.stats.formatDuration
 import java.text.NumberFormat
 
 /** A blank tab: what Serene is, and the totals of what it has cleared so far. */
@@ -89,11 +87,6 @@ private fun StatsPanel(t: Totals) {
         Tile(n.format(t.annoyances), "annoyances cleared", Modifier.weight(1f))
         Tile(n.format(t.requestsBlocked), "requests blocked", Modifier.weight(1f))
     }
-    Spacer(Modifier.height(8.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Tile("≈ " + Formatter.formatShortFileSize(ctx, t.bytesSaved), "data saved", Modifier.weight(1f))
-        Tile("≈ " + formatDuration(t.secondsSaved), "time saved", Modifier.weight(1f))
-    }
 
     val categories = t.cleared.entries.filter { it.value > 0 }.sortedByDescending { it.value }
     if (categories.isNotEmpty()) {
@@ -114,14 +107,6 @@ private fun StatsPanel(t: Totals) {
         Text("Most cleaned-up sites", style = MaterialTheme.typography.labelLarge, color = muted)
         sites.forEach { (site, count) -> Line(site, n.format(count)) }
     }
-    Spacer(Modifier.height(12.dp))
-    Text(
-        "Data saved is an estimate: blocked requests never load, so each counts at a typical size for its kind " +
-            "(blocked scripts average 27 KB on 30 news and shop sites). Time saved assumes 3 s to close a pop-up by hand. " +
-            "Reset in Settings.",
-        style = MaterialTheme.typography.bodySmall,
-        color = muted,
-    )
 }
 
 @Composable
