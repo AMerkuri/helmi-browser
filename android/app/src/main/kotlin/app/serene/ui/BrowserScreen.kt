@@ -84,7 +84,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -370,27 +369,6 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("What Serene did here") }, onClick = { menu = false; onSite() })
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; onOpen(Screen.Settings) })
             }
-        }
-    }
-}
-
-@Composable
-private fun StartPage(app: SereneApp) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(64.dp))
-            Icon(painterResource(R.drawable.ic_shield), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
-            Spacer(Modifier.height(12.dp))
-            Text("Serene", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Cookie banners, newsletter pop-ups and other overlays are cleared for you.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(24.dp))
-            val model = if (app.models.readyFile() != null && app.settings.modelEnabled) "on-device model ready" else "filter lists and heuristics (no model)"
-            Text("Engine: $model", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -39,6 +39,7 @@
     consentEl: null,
     consentSelectors: new Set(),
     consentParked: false,  // list-matched cookie banners: parked for autoconsent, or hidden
+    listHit: false,        // reported a list-matched banner that was on the page
     consent: { lifecycle: null, busySince: 0 }, // this frame's autoconsent progress
     scrollFixed: false,
     pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
@@ -140,9 +141,24 @@
 
   function releaseConsent() {
     if (!state.consentParked) return;
+    reportListHit();
     state.consentParked = false;
     clearTimeout(state.parkTimer);
     renderConsentCss();
+  }
+
+  // A list-known banner that was laid out while parked was really on the page: the host counts
+  // it for the totals on the start page. Hidden with display:none it has no box to tell by.
+  function reportListHit() {
+    if (state.listHit) return;
+    for (const sel of state.consentSelectors) {
+      let els = [];
+      try { els = document.querySelectorAll(sel); } catch { continue; }
+      for (const el of els) {
+        const r = el.getBoundingClientRect();
+        if (r.width * r.height > 2000) { state.listHit = true; send('listHit', { label: 'cookie_consent' }); return; }
+      }
+    }
   }
 
   const AC_BUSY = new Set(['openPopupDetected', 'runningOptOut']);
@@ -342,6 +358,7 @@
 
   function scanInner() {
     if (!document.body) return [];
+    if (state.consentParked) reportListHit();
     if (!IS_TOP) { reportFrame(); return []; }
     if (consentBusy()) return [];
     const roots = new Set();

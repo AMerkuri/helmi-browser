@@ -18,6 +18,7 @@ import app.serene.engine.VerdictCache
 import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
 import app.serene.reader.ReaderPrefs
+import app.serene.stats.Stats
 import app.serene.ui.applyNightMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +68,7 @@ class SereneApp : Application() {
     lateinit var lists: FilterLists private set
     lateinit var downloads: Downloads private set
     lateinit var readerPrefs: ReaderPrefs private set
+    lateinit var stats: Stats private set
 
     /** Shown in settings: "loading", "ready", or an error. */
     var rulesStatus by mutableStateOf("loading")
@@ -92,6 +94,8 @@ class SereneApp : Application() {
             classifier = ::classifierNow,
             siteEnabled = settings::isSiteEnabled,
         )
+        stats = Stats(File(filesDir, "stats.json"), scope)
+        engine.events = stats
         loadRules(force = false)
         scope.launch(Dispatchers.IO) {
             // DuckDuckGo autoconsent's rule snapshot (engine/dist): a real "reject" for the consent
