@@ -209,7 +209,7 @@ private fun NpuBenchmarkRow(app: SereneApp) {
     Spacer(Modifier.height(12.dp))
     Text(
         if (app.npuCompiledModel) {
-            "Experimental: the same overlays on the NPU, with the model compiled for it."
+            "Experimental: the same overlays on the NPU, with the model compiled for it (${app.npuCompiledModelInfo})."
         } else {
             "Experimental: the same overlays on the NPU, with the downloaded model compiled for it on the phone (slow). Pick the compiled NPU model (the .zip from GitHub Actions, or the .litertlm in it) to run that instead."
         },

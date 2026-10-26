@@ -174,9 +174,14 @@ class SereneApp : Application() {
     /** The NPU benchmark runs the model compiled for the NPU when one is imported, else the downloaded one. */
     var npuCompiledModel by mutableStateOf(false)
         private set
+    /** Its size and import time, when there is one. */
+    var npuCompiledModelInfo by mutableStateOf<String?>(null)
+        private set
 
     fun refreshNpuModel() {
-        npuCompiledModel = NpuBenchmark.compiledModel(this).exists()
+        val file = NpuBenchmark.compiledModel(this)
+        npuCompiledModel = file.exists()
+        npuCompiledModelInfo = if (file.exists()) NpuBenchmark.describe(file) else null
     }
 
     fun importNpuModel(uri: Uri) {
@@ -205,7 +210,7 @@ class SereneApp : Application() {
         if (npuBenchmarkProgress != null || benchmarkProgress != null) return
         val compiled = NpuBenchmark.compiledModel(this).takeIf { it.exists() }
         val file = compiled ?: models.readyFile() ?: return
-        val name = if (compiled != null) NpuBenchmark.COMPILED_NAME else models.spec.name
+        val name = if (compiled != null) "${NpuBenchmark.COMPILED_NAME} (${NpuBenchmark.describe(compiled)})" else "${models.spec.name}, compiled on the phone"
         npuBenchmarkProgress = "starting"
         scope.launch {
             // One model in memory at a time: the NPU process loads its own copy.

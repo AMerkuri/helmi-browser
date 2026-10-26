@@ -49,6 +49,8 @@ class LiteRtClassifier(
     private val cacheDir: File,
     private val idleMs: Long = 90_000,
     private val backends: List<() -> Backend> = listOf({ Backend.GPU() }, { Backend.CPU() }),
+    /** A Jinja chat template to use instead of the one in the model file (null: the model's). */
+    private val chatTemplate: String? = null,
 ) : Classifier {
     /**
      * How the model answers.
@@ -124,6 +126,7 @@ class LiteRtClassifier(
                         thinkingConfig = ThinkingConfig(enableThinking = false),
                         maxOutputToken = 32,
                         enableResponseFormat = mode == Reply.JSON,
+                        chatTemplate = chatTemplate,
                     ),
                 )
                 var firstChunkMs: Long? = null

@@ -22,6 +22,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.zip.ZipInputStream
 
 /**
@@ -41,7 +44,8 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
     suspend fun measure(progress: (String) -> Unit): String {
         Engine.setNativeMinLogSeverity(LogSeverity.INFO) // LiteRT's partition and QNN messages, for the report
         val libDir = context.applicationInfo.nativeLibraryDir
-        val npu = LiteRtClassifier(model, context.cacheDir, backends = listOf({ Backend.NPU(nativeLibraryDir = libDir) }))
+        val template = if (model == compiledModel(context)) CHATML else null
+        val npu = LiteRtClassifier(model, context.cacheDir, backends = listOf({ Backend.NPU(nativeLibraryDir = libDir) }), chatTemplate = template)
         val rows = ModelBenchmark(context, npu, context.cacheDir, modelName).records()
         val n = rows.size
         val ms = mutableListOf<Long>()
@@ -120,8 +124,24 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         /** Name of the model compiled ahead of time for the NPU (android/npu-model), in the report. */
         const val COMPILED_NAME = "Qwen3-0.6B a16w8, compiled for SM8750"
 
+        /**
+         * Qwen3's chat format for the compiled model. The template litert-torch's export carries is
+         * Hugging Face's, which adds message contents as strings, while LiteRT-LM passes them as a
+         * list of parts ("tried to use + operator on unsupported types string and sequence"). This
+         * renders the same text the calibration prompts used: system, user, an empty think block.
+         */
+        private const val CHATML =
+            "{%- for m in messages -%}" +
+                "{%- set c = m.content if m.content is string else (m.content | map(attribute='text') | join('')) -%}" +
+                "<|im_start|>{{ m.role }}\n{{ c }}<|im_end|>\n" +
+                "{% endfor %}" + // no "-": that would trim the newline before it
+                "{%- if add_generation_prompt -%}<|im_start|>assistant\n<think>\n\n</think>\n\n{% endif %}"
+
         /** The model compiled ahead of time for the NPU, once imported ([importCompiled]). */
         fun compiledModel(context: Context) = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/npu/Qwen3-0.6B.sm8750.litertlm")
+
+        /** Size and import time of the compiled model, so a report says which build it ran. */
+        fun describe(file: File) = "${file.length() / 1_000_000} MB, imported ${SimpleDateFormat("d MMM HH:mm", Locale.ROOT).format(Date(file.lastModified()))}"
 
         /**
          * Copies a compiled model into the app: the .litertlm itself, or the .zip GitHub Actions
