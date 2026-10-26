@@ -39,10 +39,16 @@ object TabPreviews {
         private set
 
     /**
-     * Something is drawn over the page (the switcher): a capture now would take that instead,
-     * so captures are skipped and the pictures kept.
+     * Something is drawn over the page (the switcher, the bottom bar's cube): a capture now would
+     * take that instead, so captures are skipped and the pictures kept.
      */
-    var covered = false
+    val covered get() = covers > 0
+    private var covers = 0
+
+    /** Something now covers the page ([on]), or has gone. Counted: the cube can still be fading as the switcher opens. */
+    fun cover(on: Boolean) {
+        covers = (covers + if (on) 1 else -1).coerceAtLeast(0)
+    }
 
     fun get(tab: Tab): Bitmap? = cache.get(tab.id)
 
