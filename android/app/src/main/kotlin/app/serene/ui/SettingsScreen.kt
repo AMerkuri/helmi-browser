@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -47,6 +48,7 @@ import app.serene.BuildConfig
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
 import app.serene.SereneApp
+import app.serene.ThemeMode
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
@@ -100,6 +102,22 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                     })
                 }
             }
+
+            Section("Theme")
+            ThemeMode.entries.forEach { m ->
+                Row(Modifier.fillMaxWidth().clickable { s.theme = m }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = s.theme == m, onClick = { s.theme = m })
+                    Column {
+                        Text(m.label)
+                        if (m == ThemeMode.SYSTEM) Text("Dark when the phone's dark theme is on", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            SwitchRow(
+                "Apply dark theme to sites, when possible",
+                "Darkens sites that have no dark theme of their own. Sites with one use it, and pictures keep their colors.",
+                s.darkSites, enabled = s.theme != ThemeMode.LIGHT,
+            ) { s.darkSites = it }
 
             Section("Search")
             SearchEngine.entries.forEach { e ->
@@ -221,6 +239,6 @@ private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, enable
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
         trailingContent = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
-        modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) },
+        modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) }.alpha(if (enabled) 1f else 0.5f),
     )
 }

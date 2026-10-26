@@ -134,6 +134,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
                 if (!it) Snapshots.clear(id)
             }
         }
+        applyDarkening()
+        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, KEEP_PICTURES, setOf("*"))
         installEngine()
         webView.webViewClient = Client()
         webView.webChromeClient = object : WebChromeClient() {
@@ -248,6 +250,19 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         if (changeQueued.compareAndSet(false, true)) {
             main.postDelayed({ changeQueued.set(false); version++ }, 100)
         }
+    }
+
+    /**
+     * Settings › Theme › "Apply dark theme to sites": while the app theme is dark, WebView darkens
+     * pages that have no dark theme of their own (Chrome's auto dark mode); a page with one keeps
+     * it, through prefers-color-scheme. Call again when the theme changes: setting it makes WebView
+     * read the app theme again, which a WebView that isn't on screen would otherwise miss.
+     */
+    fun applyDarkening() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
+        val on = app.settings.darkSites
+        WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, !on)
+        WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
     }
 
     fun load(input: String) {
@@ -405,7 +420,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             downloadPage = false
             downloadBar = null
             // Old WebViews without DOCUMENT_START_SCRIPT: best effort, may lose the race.
-            if (!documentStartSupported) view.evaluateJavascript(contentScript(view.context), null)
+            if (!documentStartSupported) {
+                view.evaluateJavascript(KEEP_PICTURES, null)
+                view.evaluateJavascript(contentScript(view.context), null)
+            }
         }
 
         override fun onPageCommitVisible(view: WebView, pageUrl: String) { painting = false }
@@ -517,6 +535,19 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             SereneBridge.postMessage(JSON.stringify({ type: 'serene-doc', id }));
             addEventListener('pageshow', e => { if (e.persisted) SereneBridge.postMessage(JSON.stringify({ type: 'serene-doc-restored', id })); });
         }"""
+
+        /**
+         * Darkening a page leaves its pictures as they are. WebView would invert the ones it takes
+         * for icons or drawings (few colors: logos, diagrams, scans); `color-scheme: only light`
+         * opts an element out of forced darkening, and does nothing otherwise.
+         */
+        private const val KEEP_PICTURES = """(() => {
+            try {
+                const sheet = new CSSStyleSheet();
+                sheet.replaceSync('img, picture, video, canvas, svg image { color-scheme: only light !important; }');
+                document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+            } catch (e) {}
+        })();"""
 
         private fun EMPTY_RESPONSE() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
     }
