@@ -72,7 +72,8 @@ import kotlin.math.roundToInt
 /**
  * Reader mode: the page's article alone, in book typography, like an e-reader. A WebView of its
  * own with JavaScript off shows ReaderHtml; links open in the tab. Tapping the left or right edge
- * turns the page, the middle shows and hides the bars, and the footer says how far along you are.
+ * turns the page, the top bar hides while you read down and comes back when you scroll up (as in
+ * Chrome), and the footer says how far along you are.
  */
 @SuppressLint("ClickableViewAccessibility")
 @Composable
@@ -126,12 +127,18 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
             setOnScrollChangeListener { v, _, y, _, oldY ->
                 val max = maxScroll(v as WebView)
                 progress = if (max > 0) (y.toFloat() / max).coerceIn(0f, 1f) else 1f
-                if (y > oldY + 8 && chrome) chrome = false
+                // Only scrolling moves the bar: a tap on empty space hiding it was a surprise.
+                when {
+                    y <= 0 -> chrome = true
+                    y > oldY + 8 -> chrome = false
+                    y < oldY - 8 -> chrome = true
+                }
             }
         }
     }
 
-    // Edge taps turn pages; the middle toggles the bars. Links keep working: the WebView handles those.
+    // Edge taps turn pages, and the scroll they cause hides or shows the bar. Links keep working:
+    // the WebView handles those.
     val tapToTurn = prefs.tapToTurn
     DisposableEffect(webView, tapToTurn) {
         val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -139,12 +146,11 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
                 val hit = webView.hitTestResult.type
                 if (hit == WebView.HitTestResult.SRC_ANCHOR_TYPE || hit == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) return false
                 val w = webView.width
-                when {
-                    tapToTurn && e.x < w * 0.25f -> turn(webView, -1).also { chrome = false }
-                    tapToTurn && e.x > w * 0.75f -> turn(webView, 1).also { chrome = false }
-                    else -> chrome = !chrome
+                return when {
+                    tapToTurn && e.x < w * 0.25f -> { turn(webView, -1); true }
+                    tapToTurn && e.x > w * 0.75f -> { turn(webView, 1); true }
+                    else -> false
                 }
-                return true
             }
         })
         webView.setOnTouchListener { _, ev -> detector.onTouchEvent(ev); false }
