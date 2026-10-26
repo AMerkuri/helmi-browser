@@ -70,7 +70,14 @@ fun ContextMenu(app: SereneApp, tab: Tab, pressed: Pressed, onDismiss: () -> Uni
     var full by remember(link, src) { mutableStateOf(false) }
     // The picture, fetched as the menu opens: for its thumbnail, and ready to copy or share. In
     // the app's scope, so a copy or share chosen before it arrives still happens.
-    val image = remember(src) { src?.let { app.scope.async(Dispatchers.IO) { PageImages.fetch(context, it, tab.userAgent, tab.referrer) } } }
+    // The user agent and referrer are read here, on the main thread: WebView allows no other.
+    val image = remember(src) {
+        src?.let {
+            val ua = tab.userAgent
+            val referrer = tab.referrer
+            app.scope.async(Dispatchers.IO) { PageImages.fetch(context, it, ua, referrer) }
+        }
+    }
     val thumbPx = with(LocalDensity.current) { 56.dp.roundToPx() }
     val thumb by produceState<ImageBitmap?>(null, image) {
         value = image?.await()?.let { withContext(Dispatchers.IO) { PageImages.thumbnail(it, thumbPx) } }?.asImageBitmap()
