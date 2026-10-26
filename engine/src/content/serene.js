@@ -376,13 +376,17 @@
     // A locked page with nothing visible on top is what filter-list hides and cached hides
     // leave behind (the banner is gone, its scroll lock is not).
     const backdrops = [...state.candidates.values()].filter((c) => c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
+    // Only a candidate still waiting for its verdict holds this back; a quarantine that outlived
+    // its verdict (hidden, or clicked in a frame) used to block it for good (techspot, #24).
     const blocking = [...roots].some((r) => !r.hasAttribute(ATTR) && visible(r) && !backdrops.some((b) => b.el === r) && coverage(r.getBoundingClientRect()) > 0.3)
-      || [...state.candidates.values()].some((c) => c.quarantined);
+      || [...state.candidates.values()].some((c) => c.quarantined && !c.decided);
     const idle = performance.now() - state.lastInput > config.userGestureMs;
     // An empty full-screen layer with no modal on it (the lists or a hide took the modal) only
-    // dims the page and swallows taps. Give a modal 2 s to show up on it first.
+    // dims the page and swallows taps. Give a modal 2 s to show up on it first, unless the
+    // layer wraps a modal we already hid (a consent tool's dimmed wrapper that faded in late).
     const modalUp = [...state.candidates.values()].some((c) => c.modalish && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
-    const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000);
+    const hidden = [...state.candidates.values()].filter((c) => c.hidden);
+    const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000 || hidden.some((c) => b.el.contains(c.el)));
     if (!config.observeOnly && !blocking && idle && stray.length) { for (const b of stray) hideEl(b.el, 'backdrop'); fixScroll(); }
     else if (!config.observeOnly && !blocking && idle && scrollLocked()) fixScroll();
     else if (state.scrollFixed) restorePage();
@@ -621,6 +625,7 @@
     const c = state.candidates.get(v.id);
     if (!c) return;
     if (config.observeOnly) return;
+    c.decided = true;
     if (v.action === 'ignore') { quarantine(v.id, false); return; }
     if (v.action === 'click') {
       let btn = typeof v.target === 'number' ? c.buttons[v.target] : null;
@@ -648,6 +653,7 @@
 
   function hide(c) {
     c.el.style.removeProperty('visibility');
+    c.hidden = true;
     hideEl(c.el, 'hidden');
     hideBackdrops(c.el);
     // Backdrops that are not siblings of the modal (pinterest nests them apart) were seen as

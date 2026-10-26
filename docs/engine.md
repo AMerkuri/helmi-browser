@@ -83,6 +83,7 @@ Hand-written pages that imitate common patterns. They are not copies of real sit
 | OneTrust banner in Greek, with OneTrust's own button ids | autoconsent | clicked "Απόρριψη όλων" (reject all); without autoconsent the lists only hide it (tested both ways) |
 | custom cookie bar (unknown class) | heuristics | clicked "Reject all" |
 | German consent modal + backdrop + scroll lock | heuristics | clicked "Nur notwendige Cookies", backdrop gone, scrolling restored |
+| consent dialog in a dimmed wrapper that fades in after it (no decline button) | heuristics | dialog hidden, then the empty wrapper as soon as it shows; nothing clicked |
 | consent in a cross-origin iframe | heuristics (on the frame's own text) | clicked "Reject" inside the iframe |
 | consent banner in shadow DOM | heuristics | clicked "Reject all" |
 | Japanese cookie modal (no keyword hit) | model | hidden, scroll restored; second visit from cache, no model call |
