@@ -105,7 +105,7 @@ Because the output is short and constrained, prefill dominates. So we keep the f
 
 - **APK:** expect roughly 15–30 MB: Compose UI, `adblock-rust` (a few MB per ABI), and LiteRT-LM native libraries. These are estimates, to be confirmed in step 3. Ship an App Bundle so each device gets one ABI.
 - **Model:** ~0.6 GB, downloaded after install (Wi-Fi by default) and stored in app-private storage. The browser works rules-only until the model arrives. Play's base-module limit (200 MB) makes bundling impractical anyway.
-- **RAM:** load the model lazily on the first uncertain candidate and unload it after ~1–2 minutes idle. Never load it when the system reports low memory.
+- **RAM:** load the model lazily on the first uncertain candidate and unload it after ~1–2 minutes idle (90 s in the app), and at once when the app leaves the screen (`onTrimMemory`), since a cached app is frozen before any timer runs. Never load it when the system reports low memory. Measured on a Galaxy Z Fold 7 (step 4): Qwen3-0.6B INT8 adds about 2.4 GB on the GPU (2.3 GB of it graphics buffers, which are system RAM on the phone) and 1.7 GB on the CPU; INT4 adds 1.4 GB and 0.8 GB.
 - **Battery:** the model runs about once per new site and is cached afterwards, so the cost is small compared with page rendering. In battery-saver mode, skip the LLM and run rules plus heuristics only. Run inference on a background dispatcher and never on the UI thread.
 
 ## 6. Risks and open questions

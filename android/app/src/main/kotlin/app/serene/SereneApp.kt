@@ -2,6 +2,7 @@ package app.serene
 
 import android.app.ActivityManager
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.VisibleForTesting
@@ -145,6 +146,24 @@ class SereneApp : Application() {
             c?.let { old -> scope.launch { old.unload() } }
             return LiteRtClassifier(file, cacheDir).also { classifier = it }
         }
+    }
+
+    /** Frees the model now if it is loaded; it loads again on the next uncertain overlay. */
+    fun unloadModel() {
+        val c = synchronized(this) { classifier } ?: return
+        scope.launch { c.unload() }
+    }
+
+    // Out of sight the model goes at once instead of after the classifier's idle timeout. The
+    // system freezes a cached app within seconds, so that timer would not run, and a frozen app
+    // holding the model (about 2.4 GB on the GPU) is the first one the system kills, browser and all.
+    // Calls are rare (about one per new site with an unsure overlay), so a reload is rarely paid.
+    // Android 14+ only sends UI_HIDDEN and BACKGROUND; older versions also send the RUNNING_ levels.
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (benchmarkProgress != null) return // it would time a reload
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) unloadModel()
     }
 
     /** The on-device model benchmark in settings: its report, or progress while it runs. */
