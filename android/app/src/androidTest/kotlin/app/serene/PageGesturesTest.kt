@@ -49,9 +49,9 @@ class PageGesturesTest {
         requests += path
         val name = path.trimStart('/')
         // An image that never comes: its page never finishes loading, like a news site's ads.
-        if (name == "hang") return Thread.sleep(15_000)
+        if (name.startsWith("hang")) return Thread.sleep(15_000)
         val body = when (name) {
-            "slow" -> "<p style='height:300vh;margin:0;background:#fd0'>slow</p><img src=/hang>"
+            "slow" -> "<img src=/hang width=20 height=20><script async src=/hang.js></script><p style='height:300vh;margin:0;background:#fd0'>slow</p>"
             // A carousel as wide as the page: its own horizontal scroller.
             "carousel" -> "<div id=c style='overflow-x:auto;white-space:nowrap;height:80vh'>" +
                 (1..5).joinToString("") { "<div style='display:inline-block;width:100vw;height:100%;background:hsl(${it * 60},70%,60%)'>$it</div>" } + "</div>"
@@ -141,9 +141,12 @@ class PageGesturesTest {
             val t = tab!!
             waitFor("the slow page to draw") { t.title == "slow" }
             SystemClock.sleep(1500)
-            var loading = false
-            scenario.onActivity { loading = t.progress < 100 }
-            assertTrue("the slow page finished loading; the test needs it still loading", loading)
+            var state = ""
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                t.webView.evaluateJavascript("document.readyState") { state = it }
+            }
+            waitFor("the slow page's ready state") { state.isNotEmpty() }
+            assertTrue("the slow page finished loading ($state); the test needs it still loading", state != "\"complete\"")
             scenario.onActivity { t.load("$base/two") }
             waitFor("page two") { t.title == "two" && t.canGoBack }
             waitFor("a snapshot of the slow page") { Snapshots.get(t.id, 0, "$base/slow") != null }
