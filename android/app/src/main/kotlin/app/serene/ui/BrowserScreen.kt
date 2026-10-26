@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -111,11 +112,13 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
+import app.serene.engine.siteOf
 import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
 import java.io.File
@@ -393,6 +396,17 @@ private fun BottomBar(
                         trailingIcon = { Switch(checked = enabled, onCheckedChange = null, enabled = app.settings.engineEnabled) },
                         enabled = app.settings.engineEnabled,
                         onClick = { close(); app.settings.setSiteEnabled(site, !enabled); tab.reload() },
+                    )
+                }
+                // Chrome's ⋮ › Dark theme: this site darkened or not, the setting until switched here.
+                // Only in the dark theme: WebView darkens nothing in the light one.
+                if (onPage && isSystemInDarkTheme() && WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                    val darkSite = siteOf(tab.url)
+                    val dark = app.settings.darkSite(darkSite)
+                    DropdownMenuItem(
+                        text = { Text("Dark theme") },
+                        trailingIcon = { Switch(checked = dark, onCheckedChange = null) },
+                        onClick = { close(); app.settings.setDarkSite(darkSite, !dark) },
                     )
                 }
                 DropdownMenuItem(text = { Text("What Serene did here") }, onClick = { close(); onSite() })

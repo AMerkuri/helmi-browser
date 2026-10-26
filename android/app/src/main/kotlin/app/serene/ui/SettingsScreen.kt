@@ -124,6 +124,16 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 "Darkens sites that have no dark theme of their own. Sites with one use it, and pictures keep their colors.",
                 s.darkSites, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.darkSites = it }
+            // Sites switched in ⋮ › Dark theme; X puts one back on the setting above.
+            s.darkSiteChoices.toSortedMap().forEach { (site, on) ->
+                ListItem(
+                    headlineContent = { Text(site) },
+                    supportingContent = { Text(if (on) "Dark theme on" else "Dark theme off") },
+                    trailingContent = {
+                        IconButton(onClick = { s.resetDarkSite(site) }) { Icon(Icons.Filled.Close, "Use the setting for $site") }
+                    },
+                )
+            }
 
             Section("Search")
             SearchEngine.entries.forEach { e ->
