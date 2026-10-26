@@ -11,26 +11,38 @@ import android.widget.Toast
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -39,16 +51,17 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.setTextAndSelectAll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -56,6 +69,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -67,6 +81,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -79,10 +94,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -92,8 +109,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import app.serene.R
 import app.serene.Screen
@@ -365,24 +388,30 @@ private fun BottomBar(
     app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Screen) -> Unit, onReport: () -> Unit, onSite: () -> Unit,
     onReader: () -> Unit,
 ) {
-    var menu by remember { mutableStateOf(false) }
+    val menu = remember { MutableTransitionState(false) }
+    fun close() { menu.targetState = false }
+    var barTop by remember { mutableIntStateOf(0) }
     HorizontalDivider()
     Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = tab::goBack, enabled = tab.canGoBack, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         IconButton(onClick = tab::goForward, enabled = tab.canGoForward, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Forward") }
+        IconButton(onClick = { tabs.open() }, modifier = Modifier.weight(1f)) { Icon(Icons.Filled.Add, "New tab") }
         IconButton(onClick = { onOpen(Screen.Tabs) }, modifier = Modifier.weight(1f)) {
             Surface(shape = RoundedCornerShape(6.dp), border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface), color = MaterialTheme.colorScheme.surface, modifier = Modifier.size(24.dp)) {
                 Box(contentAlignment = Alignment.Center) { Text("${tabs.tabs.size}", style = MaterialTheme.typography.labelMedium) }
             }
         }
-        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("New tab") }, onClick = { menu = false; tabs.open() })
-                DropdownMenuItem(text = { Text("Downloads") }, onClick = { menu = false; onOpen(Screen.Downloads) })
+        // The whole height of the bar, so the menu's anchor starts where the bar does.
+        Box(
+            Modifier.weight(1f).fillMaxHeight().onGloballyPositioned { barTop = it.positionInWindow().y.roundToInt() },
+            contentAlignment = Alignment.Center,
+        ) {
+            IconButton(onClick = { menu.targetState = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
+            BarMenu(menu, barTop) {
+                DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
-                DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { menu = false; onReader() })
-                DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { menu = false; onReport() })
+                DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
+                DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {
                     val enabled = app.settings.isSiteEnabled(site)
@@ -390,13 +419,53 @@ private fun BottomBar(
                         text = { Text("Serene on $site") },
                         trailingIcon = { Switch(checked = enabled, onCheckedChange = null, enabled = app.settings.engineEnabled) },
                         enabled = app.settings.engineEnabled,
-                        onClick = { menu = false; app.settings.setSiteEnabled(site, !enabled); tab.reload() },
+                        onClick = { close(); app.settings.setSiteEnabled(site, !enabled); tab.reload() },
                     )
                 }
-                DropdownMenuItem(text = { Text("What Serene did here") }, onClick = { menu = false; onSite() })
-                DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; onOpen(Screen.Settings) })
+                DropdownMenuItem(text = { Text("What Serene did here") }, onClick = { close(); onSite() })
+                DropdownMenuItem(text = { Text("Settings") }, onClick = { close(); onOpen(Screen.Settings) })
             }
         }
+    }
+}
+
+/**
+ * The bottom bar's menu, standing on the bar at its end, as Chrome's does. Material's DropdownMenu
+ * keeps 48 dp clear of the bottom of the visible window, which ends at the navigation bar, so above
+ * the bottom bar it floated with a gap under it.
+ */
+@Composable
+private fun BarMenu(expanded: MutableTransitionState<Boolean>, barTop: Int, content: @Composable ColumnScope.() -> Unit) {
+    if (!expanded.currentState && !expanded.targetState) return
+    // Taller than the room above the bar (a folded phone on its side), it scrolls.
+    val density = LocalDensity.current
+    val room = with(density) { (barTop - WindowInsets.statusBars.getTop(this)).toDp() - 8.dp }
+    Popup(popupPositionProvider = AboveAnchor, onDismissRequest = { expanded.targetState = false }, properties = PopupProperties(focusable = true)) {
+        AnimatedVisibility(
+            expanded,
+            enter = fadeIn(tween(120)) + scaleIn(tween(120), initialScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f)),
+            exit = fadeOut(tween(75)),
+        ) {
+            Surface(
+                shape = MenuDefaults.shape,
+                color = MenuDefaults.containerColor,
+                tonalElevation = MenuDefaults.TonalElevation,
+                shadowElevation = MenuDefaults.ShadowElevation,
+            ) {
+                Column(
+                    Modifier.heightIn(max = room.coerceAtLeast(48.dp)).width(IntrinsicSize.Max).verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                    content = content,
+                )
+            }
+        }
+    }
+}
+
+/** The popup's bottom on the anchor's top, its end on the anchor's end. */
+private object AboveAnchor : PopupPositionProvider {
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val x = if (layoutDirection == LayoutDirection.Ltr) anchorBounds.right - popupContentSize.width else anchorBounds.left
+        return IntOffset(x.coerceAtLeast(0), anchorBounds.top - popupContentSize.height)
     }
 }
 
