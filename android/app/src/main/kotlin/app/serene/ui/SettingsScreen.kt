@@ -81,7 +81,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 headlineContent = { Text("Filter lists") },
                 supportingContent = {
                     Text(
-                        (if (st != null) "Fanboy Annoyances, uBO Cookie Notices, uBO Annoyances · ${Formatter.formatShortFileSize(ctx, st.bytes)} · updated ${DateUtils.getRelativeTimeSpanString(st.updatedAt)}" else "Not downloaded yet") +
+                        (if (st != null) "Fanboy Annoyances, uBO Cookie Notices, uBO Annoyances, app banners (AdGuard, Fanboy) · ${Formatter.formatShortFileSize(ctx, st.bytes)} · updated ${DateUtils.getRelativeTimeSpanString(st.updatedAt)}" else "Not downloaded yet") +
                             "\nEngine: ${app.rulesStatus}",
                     )
                 },

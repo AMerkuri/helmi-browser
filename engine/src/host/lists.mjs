@@ -13,6 +13,9 @@ export const DEFAULT_LISTS = [
   { name: 'fanboy-annoyance.txt', url: 'https://raw.githubusercontent.com/easylist/easylist/gh-pages/fanboy-annoyance.txt', consent: 'easylist-cookie-sections' },
   { name: 'annoyances-cookies.txt', url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt', consent: 'all', trusted: true },
   { name: 'annoyances-others.txt', url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-others.txt', trusted: true },
+  // "Open in app" bars and interstitials: AdGuard's list (its uBO-syntax build) and Fanboy's.
+  { name: 'adguard-mobile-app-banners.txt', url: 'https://filters.adtidy.org/extension/ublock/filters/20.txt' },
+  { name: 'fanboy-mobile-notifications.txt', url: 'https://secure.fanboy.co.nz/fanboy-mobile-notifications.txt' },
 ];
 // adblock-rust permission bit for trusted scriptlets (build.mjs sets it on uBO's requiresTrust ones).
 export const TRUSTED = 1;
