@@ -12,7 +12,7 @@
     "crawl": "node harness/run.mjs --model models/Qwen3-0.6B-Q8_0.gguf",
     "crawl:no-model": "node harness/run.mjs --modes baseline,rules"
   },
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "@duckduckgo/autoconsent": "16.61.0",
     "@mozilla/readability": "0.6.0",
