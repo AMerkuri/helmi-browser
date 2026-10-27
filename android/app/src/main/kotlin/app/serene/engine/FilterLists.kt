@@ -25,6 +25,9 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String) {
         Source("fanboy-annoyance.txt", "https://raw.githubusercontent.com/easylist/easylist/gh-pages/fanboy-annoyance.txt", consent = EASYLIST_COOKIE_SECTIONS),
         Source("annoyances-cookies.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt", consent = ALL, trusted = true),
         Source("annoyances-others.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-others.txt", trusted = true),
+        // "Open in app" bars and interstitials: AdGuard's list (its uBO-syntax build) and Fanboy's.
+        Source("adguard-mobile-app-banners.txt", "https://filters.adtidy.org/extension/ublock/filters/20.txt"),
+        Source("fanboy-mobile-notifications.txt", "https://secure.fanboy.co.nz/fanboy-mobile-notifications.txt"),
     )
 
     // v2: lists parsed with the trusted permission. An engine saved without it would keep
