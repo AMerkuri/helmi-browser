@@ -1,0 +1,85 @@
+name: npu-model
+
+# Builds Qwen3-0.6B compiled ahead of time for the Snapdragon 8 Elite's NPU (android/npu-model)
+# and uploads it as an artifact. In the app, Settings → On-device model → Pick NPU model takes
+# the artifact's .zip as downloaded, and the NPU benchmark then runs it.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - android/npu-model/**
+      - .github/workflows/npu-model.yml
+
+concurrency:
+  group: npu-model-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npu-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # The runner's disk is mostly preinstalled toolchains; the build needs ~15 GB (Python
+      # packages, the Hugging Face weights and three .litertlm stages) plus swap for the export.
+      - name: Disk space and swap
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile /swapfile
+          sudo fallocate -l 8G /swapfile2 && sudo chmod 600 /swapfile2 && sudo mkswap /swapfile2 && sudo swapon /swapfile2
+          df -h / && free -g
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install litert-torch and the Qualcomm SDK
+        run: |
+          # QAIRT's x86_64 libraries are built against LLVM's libc++, which the runner lacks.
+          sudo apt-get update -q && sudo apt-get install -y -q libc++1 libc++abi1
+          python -m pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
+          # litert-torch main: the NPU pipeline and its Qwen3-0.6B / SM8750 config are newer
+          # than the last release. Installing the SDK package downloads QAIRT 2.50 from Qualcomm.
+          pip install -c android/npu-model/constraints.txt \
+            "litert-torch @ git+https://github.com/google-ai-edge/litert-torch.git@c677a8069d63fc86a6d14e11168dfc387fd9357c" \
+            ai-edge-litert-sdk-qualcomm-nightly==2.4.0.dev20261024
+          python -c "import ai_edge_litert_sdk_qualcomm as q; p = q.path_to_sdk_libs(); print(p); assert p and p.is_dir()"
+      # The first three stages take about 20 minutes and depend only on these inputs, so a
+      # change to the compile stage reuses the quantized model. Saved before the compile, which
+      # is the stage that fails.
+      - uses: actions/cache/restore@v4
+        id: quantized
+        with:
+          path: ${{ runner.temp }}/npu/quantized
+          key: npu-quantized-c677a80-512-${{ hashFiles('android/npu-model/calibration.jsonl', 'android/npu-model/constraints.txt') }}
+      - name: Export, calibrate and quantize
+        if: steps.quantized.outputs.cache-hit != 'true'
+        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages export,calibrate,quantize
+      - uses: actions/cache/save@v4
+        if: steps.quantized.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/npu/quantized
+          key: ${{ steps.quantized.outputs.cache-primary-key }}
+      # The app's dispatch library is LiteRT 2.3.0's (litert-npu-runtime-qualcomm), and a model
+      # compiled by the nightly's plugin failed to allocate its tensors on the phone, so the compile
+      # uses the 2.3.0 release's plugin. litert-torch still imports with it. Both use QAIRT 2.50.
+      - name: Compile
+        run: |
+          pip install --no-deps --target "$RUNNER_TEMP/litert-2.3.0" ai-edge-litert==2.3.0
+          PYTHONPATH="$RUNNER_TEMP/litert-2.3.0" python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages compile
+      - name: Checksum
+        run: |
+          cd "$RUNNER_TEMP/npu/npu"
+          ls -l
+          sha256sum *.litertlm | tee SHA256SUMS
+          echo "### NPU model" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npu-model-${{ github.run_number }}
+          path: ${{ runner.temp }}/npu/npu/
+          retention-days: 30

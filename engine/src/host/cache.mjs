@@ -28,10 +28,17 @@ export class VerdictCache {
 
   save() { if (this.file) fs.writeFileSync(this.file, JSON.stringify(this.sites, null, 1)); }
 
-  /** Cached hide verdicts as cosmetic CSS, injected at page start so there is no flash. */
-  cssFor(url) {
-    return this.rulesFor(url)
-      .filter((r) => r.action === 'hide' && /[#.]/.test(r.sig))
+  /** Cached hide verdicts as cosmetic CSS, injected at page start so there is no flash. With
+   *  parkCookies (autoconsent on) cookie banners are left out: they go to cookieSelectorsFor. */
+  cssFor(url, { parkCookies = false } = {}) {
+    return this.hideRules(url)
+      .filter((r) => !(parkCookies && r.label === 'cookie_consent'))
       .map((r) => `${r.sig}{display:none!important}`).join('\n');
   }
+
+  /** Cached cookie banners as consent selectors: parked while autoconsent tries to reject them,
+   *  which it cannot do to a banner hidden from the start (techspot, #24). */
+  cookieSelectorsFor(url) { return this.hideRules(url).filter((r) => r.label === 'cookie_consent').map((r) => r.sig); }
+
+  hideRules(url) { return this.rulesFor(url).filter((r) => r.action === 'hide' && /[#.]/.test(r.sig)); }
 }

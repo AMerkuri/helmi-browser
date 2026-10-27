@@ -65,10 +65,17 @@ class VerdictCache(private val file: File? = null) {
 
     @Synchronized fun siteCount(): Int = sites.size
 
-    /** Cached hide verdicts as cosmetic CSS, injected at page start so there is no flash. */
-    fun cssFor(url: String): String = rulesFor(url)
-        .filter { it.action == "hide" && (it.sig.contains('#') || it.sig.contains('.')) }
+    /** Cached hide verdicts as cosmetic CSS, injected at page start so there is no flash. With
+     *  [parkCookies] (autoconsent on) cookie banners are left out: they go to [cookieSelectorsFor]. */
+    fun cssFor(url: String, parkCookies: Boolean = false): String = hideRules(url)
+        .filter { !(parkCookies && it.label == "cookie_consent") }
         .joinToString("\n") { "${it.sig}{display:none!important}" }
+
+    /** Cached cookie banners as consent selectors: parked while autoconsent tries to reject them,
+     *  which it cannot do to a banner hidden from the start (techspot, #24). */
+    fun cookieSelectorsFor(url: String): List<String> = hideRules(url).filter { it.label == "cookie_consent" }.map { it.sig }
+
+    private fun hideRules(url: String) = rulesFor(url).filter { it.action == "hide" && (it.sig.contains('#') || it.sig.contains('.')) }
 
     private fun save() {
         val f = file ?: return

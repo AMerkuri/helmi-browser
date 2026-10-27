@@ -112,6 +112,10 @@ class PolicyTest {
         c.put("https://b.example.com/y", SiteRule(sig = "div > div", label = "newsletter", action = "hide", source = "llm"))
         assertEquals(2, c.rulesFor("https://example.com/").size)
         assertEquals("div.nl-modal{display:none!important}", c.cssFor("https://example.com/"))
+        // With autoconsent on, a cookie banner is parked as a consent selector instead of hidden.
+        c.put("https://example.com/", SiteRule(sig = "div#cmp", label = "cookie_consent", action = "hide", source = "heuristic"))
+        assertEquals("div.nl-modal{display:none!important}", c.cssFor("https://example.com/", parkCookies = true))
+        assertEquals(listOf("div#cmp"), c.cookieSelectorsFor("https://example.com/"))
         c.undo("https://example.com/", "div.nl-modal")
         assertEquals("ignore", c.rulesFor("https://example.com/")[0].action)
     }

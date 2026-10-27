@@ -176,6 +176,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         }
         val rules = e.rules
         var css = ""
+        val consentSelectors = mutableListOf<String>()
         val out = buildJsonObject {
             put("type", "init")
             put("config", buildJsonObject { if (!enabled) put("observeOnly", true) })
@@ -185,17 +186,20 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
                 exceptions = c.exceptions
                 if (frame.isTop) generichide = c.generichide
                 if (c.hideSelectors.isNotEmpty()) css = c.hideSelectors.joinToString(",\n") + "{display:none!important}"
-                put("consentSelectors", JsonArray(c.consentSelectors.map(::JsonPrimitive)))
+                consentSelectors += c.consentSelectors
                 put("script", c.script)
                 put("procedural", JsonArray(c.procedural))
                 if (frame.isTop) log("cosmetic: ${c.hideSelectors.size} hide, ${c.consentSelectors.size} consent, ${c.procedural.size} procedural, scriptlets=${c.script.isNotEmpty()}, ${(System.nanoTime() - t0) / 1_000_000} ms")
             }
-            if (enabled) e.autoconsent?.let { put("autoconsent", it.forFrame(url, frame.isTop)) }
+            val ac = if (enabled) e.autoconsent else null
+            ac?.let { put("autoconsent", it.forFrame(url, frame.isTop)) }
             if (enabled && frame.isTop) {
                 put("siteRules", EngineJson.encodeToJsonElement(ListSerializer(SiteRule.serializer()), e.cache.rulesFor(url)))
-                val cached = e.cache.cssFor(url)
+                val cached = e.cache.cssFor(url, parkCookies = ac != null)
                 if (cached.isNotEmpty()) css += "\n" + cached
+                if (ac != null) consentSelectors += e.cache.cookieSelectorsFor(url)
             }
+            put("consentSelectors", JsonArray(consentSelectors.map(::JsonPrimitive)))
             put("css", css)
         }
         frame.send(out.toString())

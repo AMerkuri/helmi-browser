@@ -1,10 +1,26 @@
 name: android
 
 # Debug APK on every PR and every push to main, uploaded as an artifact you can sideload.
+# Only changes to what goes into the APK or its tests start a run: the app, and the engine files
+# it packages as assets (see android/app/build.gradle.kts). Docs-only changes skip it.
 on:
   pull_request:
+    paths:
+      - 'android/**'
+      - 'engine/src/content/**'
+      - 'engine/dist/**'
+      - 'engine/test/data/**'
+      - 'engine/test/fixtures/**'
+      - '.github/workflows/android.yml'
   push:
     branches: [main]
+    paths:
+      - 'android/**'
+      - 'engine/src/content/**'
+      - 'engine/dist/**'
+      - 'engine/test/data/**'
+      - 'engine/test/fixtures/**'
+      - '.github/workflows/android.yml'
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +33,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # usually 3 to 5; a hung Gradle daemon would otherwise hold the runner up to 6 hours
     permissions:
       contents: read
       pull-requests: write # the APK link in the PR description
@@ -99,18 +116,20 @@ jobs:
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          retention-days: 3
+          retention-days: 1 # only the e2e job of this run needs them
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: unit-test-reports
           path: android/app/build/reports/tests/
+          retention-days: 7
 
   # The engine's fixture pages in the real app on an emulator: system WebView, document-start
   # script, SereneBridge, adblock-rust over JNI and the Kotlin policy, end to end.
   e2e:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 20 # usually 6; a stuck emulator would otherwise hold the runner up to 6 hours
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -152,3 +171,4 @@ jobs:
             logcat.txt
             crash.txt
           if-no-files-found: ignore
+          retention-days: 7

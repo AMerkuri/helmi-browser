@@ -7,9 +7,14 @@ on:
     branches: [main]
     paths: ['engine/**', '.github/workflows/engine.yml']
 
+concurrency:
+  group: engine-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: engine
@@ -20,8 +25,19 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: engine/package-lock.json
-      # adblock-rs compiles Brave's adblock-rust on install; the runner image ships Rust.
-      - run: npm ci
+      # adblock-rs compiles Brave's adblock-rust on install (~1.5 min), so keep node_modules
+      # between runs with the same lockfile. Not node-llama-cpp's CUDA builds (~570 MB, unused
+      # here) or adblock-rs's Rust build directory; the runner image ships Rust for a miss.
+      - uses: actions/cache@v4
+        id: node-modules
+        with:
+          path: |
+            engine/node_modules
+            !engine/node_modules/@node-llama-cpp/linux-x64-cuda*
+            !engine/node_modules/adblock-rs/target
+          key: engine-node-modules-${{ runner.os }}-node22-${{ hashFiles('engine/package-lock.json') }}
+      - if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm test
       # The app packages dist/ as assets: the committed copy must match the build.
