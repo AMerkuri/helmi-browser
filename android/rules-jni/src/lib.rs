@@ -19,9 +19,10 @@ use serde_json::{json, Value};
 const TRUSTED: PermissionMask = PermissionMask::from_bits(1);
 
 /// Build an engine from filter list texts, each with whether it is trusted (may inject uBO's
-/// trusted scriptlets), plus uBO's scriptlets (engine/dist/scriptlets.json).
+/// trusted scriptlets), plus uBO's scriptlets (engine/dist/scriptlets.json). Built in debug mode,
+/// so a blocked request can name its rule and list ([matched]); the engine keeps that when saved.
 pub fn build(lists: Vec<(String, bool)>, resources_json: &str) -> Engine {
-    let mut set = FilterSet::new(false);
+    let mut set = FilterSet::new(true);
     for (text, trusted) in lists {
         let permissions = if trusted { TRUSTED } else { PermissionMask::default() };
         set.add_filter_list(text, ParseOptions { permissions, ..ParseOptions::default() });
@@ -48,10 +49,24 @@ fn use_resources(engine: &mut Engine, resources_json: &str) {
 }
 
 pub fn check(engine: &Engine, url: &str, source: &str, kind: &str) -> bool {
-    match Request::new(url, source, kind, "GET") {
-        Ok(req) => engine.check_network_request(&req).should_block(),
-        Err(_) => false,
+    matched(engine, url, source, kind).is_some()
+}
+
+/// The rule that blocks this request, or None when it is not blocked: `{ "list": <index into the
+/// lists given to [build], or null>, "rule": <the rule as written, or null> }`.
+pub fn matched(engine: &Engine, url: &str, source: &str, kind: &str) -> Option<Value> {
+    let req = Request::new(url, source, kind, "GET").ok()?;
+    let r = engine.check_network_request(&req);
+    if !r.should_block() {
+        return None;
     }
+    let f = r.filter.unwrap_or_default();
+    Some(json!({ "list": f.source_location.map(|l| l.source_index), "rule": f.raw_line }))
+}
+
+/// Each list's `! Title:` header, in the order the lists were given to [build].
+pub fn titles(engine: &Engine) -> Vec<Option<String>> {
+    engine.get_debug_info().source_info.into_iter().map(|s| s.title).collect()
 }
 
 /// Same shape as RulesEngine.cosmetic() in rules.mjs.
@@ -189,6 +204,30 @@ pub extern "system" fn Java_app_serene_engine_RulesEngine_nativeCheck(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_app_serene_engine_RulesEngine_nativeMatch(
+    mut env: JNIEnv,
+    _: JClass,
+    handle: jlong,
+    url: JString,
+    source: JString,
+    kind: JString,
+) -> jstring {
+    let Some(e) = (unsafe { engine(handle) }) else { return std::ptr::null_mut() };
+    let (url, source, kind) = (jstr(&mut env, &url), jstr(&mut env, &source), jstr(&mut env, &kind));
+    match catch_unwind(AssertUnwindSafe(|| matched(e, &url, &source, &kind))) {
+        Ok(Some(m)) => new_jstring(&mut env, &m.to_string()),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_app_serene_engine_RulesEngine_nativeTitles(mut env: JNIEnv, _: JClass, handle: jlong) -> jstring {
+    let Some(e) = (unsafe { engine(handle) }) else { return std::ptr::null_mut() };
+    let out = catch_unwind(AssertUnwindSafe(|| json!(titles(e)).to_string())).unwrap_or_default();
+    new_jstring(&mut env, &out)
+}
+
+#[no_mangle]
 pub extern "system" fn Java_app_serene_engine_RulesEngine_nativeCosmetic(
     mut env: JNIEnv,
     _: JClass,
@@ -243,6 +282,24 @@ mod tests {
     }
 
     #[test]
+    fn blocked_request_names_rule_and_list() {
+        let other = "! Title: Other list\n||widgets.example.net^\n@@||widgets.example.net/ok.js";
+        let e = build(vec![(LIST.to_string(), false), (other.to_string(), true)], "[]");
+        let mut d = Engine::default();
+        d.deserialize(&e.serialize()).unwrap();
+        // Same answers from the saved engine.
+        for e in [&e, &d] {
+            let m = matched(e, "https://cdn.cookielaw.org/otSDKStub.js", "https://example.com/", "script").unwrap();
+            assert_eq!(m, json!({ "list": 0, "rule": "||cdn.cookielaw.org^$script" }));
+            let m = matched(e, "https://widgets.example.net/chat.js", "https://example.com/", "script").unwrap();
+            assert_eq!(m, json!({ "list": 1, "rule": "||widgets.example.net^" }));
+            assert!(matched(e, "https://widgets.example.net/ok.js", "https://example.com/", "script").is_none());
+            assert!(matched(e, "https://example.com/app.js", "https://example.com/", "script").is_none());
+            assert_eq!(titles(e), vec![None, Some("Other list".to_string())]);
+        }
+    }
+
+    #[test]
     fn trusted_scriptlets_need_a_trusted_list() {
         // Stand-ins in the shape engine/build.mjs writes: function-style, trusted ones with permission 1.
         let b64 = |s: &str| base64_encode(s.as_bytes());
@@ -293,6 +350,23 @@ mod real_lists {
         let c = cosmetic(&e, "https://www.stackoverflow.com/");
         assert!(!c["hideSelectors"].as_array().unwrap().is_empty() || !c["script"].as_str().unwrap().is_empty());
         assert!(generic(&e, &[], &["onetrust-banner-sdk".into()], &[]).contains(&"#onetrust-banner-sdk".to_string()));
+        let urls = [
+            "https://cdn.cookielaw.org/scripttemplates/otSDKStub.js",
+            "https://consent.cookiebot.com/uc.js",
+            "https://widget.intercom.io/widget/abc",
+            "https://www.example.com/static/app.js",
+            "https://cdn.example.com/img/hero.jpg",
+            "https://js.hs-scripts.com/123.js",
+            "https://static.klaviyo.com/onsite/js/klaviyo.js",
+            "https://www.googletagmanager.com/gtm.js?id=GTM-X",
+        ];
+        let t = std::time::Instant::now();
+        let mut hits = Vec::new();
+        for _ in 0..1000 {
+            hits = urls.iter().filter_map(|u| matched(&e, u, "https://www.example.com/", "script")).collect();
+        }
+        eprintln!("{} checks in {:?}; blocked: {hits:?}", urls.len() * 1000, t.elapsed());
+        eprintln!("titles: {:?}", titles(&e));
         let t = std::time::Instant::now();
         let mut d = Engine::default();
         d.deserialize(&e.serialize()).unwrap();

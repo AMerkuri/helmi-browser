@@ -32,9 +32,10 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String) {
 
     // v2: lists parsed with the trusted permission. An engine saved without it would keep
     // dropping uBO's trusted scriptlets, so it is not reused.
-    private val engineFile = File(dir, "engine-v2.dat")
-    private val consentFile = File(dir, "consent-v2.dat")
-    private val legacy = listOf("engine.dat", "consent.dat", "resources.json").map { File(dir, it) }
+    // v3: parsed in debug mode, so a blocked request names its rule and list (the site sheet).
+    private val engineFile = File(dir, "engine-v3.dat")
+    private val consentFile = File(dir, "consent-v3.dat")
+    private val legacy = listOf("engine.dat", "consent.dat", "resources.json", "engine-v2.dat", "consent-v2.dat").map { File(dir, it) }
 
     fun status(): Status? {
         val files = sources.map { File(dir, it.name) }

@@ -31,7 +31,7 @@ The model is skipped in battery saver (a setting), when the system reports low m
 
 ## The app
 
-- **Shield** (left of the URL bar): what Serene did on this page (requests blocked, overlays handled and how), **Undo** for each action, the per-site switch, "Forget this site" and "Report missed popup".
+- **Shield** (left of the URL bar): what Serene did on this page (requests blocked, overlays handled and how; tap the requests line to see which list and rule blocked each request), **Undo** for each action, the per-site switch, "Forget this site" and "Report missed popup".
 - **Report missed popup** (also in the menu): saves `report.json` (what the detector sees on screen right now, every candidate and verdict on the page, the engine log, app/WebView versions) and a screenshot, and asks for an optional note. Then either:
   - **GitHub issue**: opens the [missed-popup issue form](../.github/ISSUE_TEMPLATE/missed-popup.yml) in a new tab with every field filled in (page address without its query string, the verdicts, the log tail, a trimmed HTML snippet of what is on screen; trimmed to keep the URL under 8 KB). You submit it from your own GitHub login, so the app holds no token. A link cannot carry files, so the screenshot goes to the clipboard and to Pictures/Serene (Android 10+), to paste or attach in the form's Screenshot box.
   - **Share files**: the share sheet with `report.json` and the screenshot.

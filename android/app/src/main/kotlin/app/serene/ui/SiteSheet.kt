@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,9 +16,14 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -24,15 +31,21 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.serene.BuildConfig
 import app.serene.SereneApp
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
+import app.serene.engine.BlockedRequest
 import app.serene.engine.CandidateRecord
 
 private val LABELS = mapOf(
@@ -49,7 +62,7 @@ private val LABELS = mapOf(
 
 private val SOURCES = mapOf("heuristic" to "heuristics", "llm" to "on-device model", "cache" to "remembered", "chrome" to "page chrome")
 
-/** What Serene did on this page, the per-site switch, undo, and the report button. */
+/** What Serene did on this page (and, a tap away, which lists blocked which requests), the per-site switch, undo, and the report button. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> Unit) {
@@ -57,8 +70,10 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
     val s = tab.session
     val site = s?.site()
     val ctx = LocalContext.current
+    var showBlocked by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
+        if (showBlocked && s != null) BlockedRequests(s.blocked(), s.blockedRequests.get()) { showBlocked = false }
+        else Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
             Text(site ?: "No page", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(12.dp))
             if (site != null) {
@@ -79,11 +94,20 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 Spacer(Modifier.height(16.dp))
                 val actions = s.actions()
                 val rejected = s.consentRejected()
-                Text(
-                    "${s.blockedRequests.get()} requests blocked · ${actions.size} overlays handled" +
-                        if (rejected.isNotEmpty()) " · cookies rejected (${rejected.joinToString()})" else "",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                val blocked = s.blockedRequests.get()
+                // Which lists blocked what: one tap away, so the sheet stays short.
+                Row(
+                    Modifier.fillMaxWidth().clickable(enabled = blocked > 0) { showBlocked = true }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "$blocked ${if (blocked == 1) "request" else "requests"} blocked · ${actions.size} overlays handled" +
+                            if (rejected.isNotEmpty()) " · cookies rejected (${rejected.joinToString()})" else "",
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    if (blocked > 0) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Which lists blocked them", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
                 if (actions.isEmpty()) {
@@ -121,6 +145,53 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+}
+
+/** The requests the lists blocked on this page, grouped by list, each with the rule that matched. */
+@Composable
+private fun BlockedRequests(blocked: List<BlockedRequest>, count: Int, onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+    // Lists in the order they first blocked something; "?" when the engine could not tell.
+    val byList = blocked.groupBy { it.list ?: "?" }
+    Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            Text("Blocked requests", style = MaterialTheme.typography.titleLarge)
+        }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+            byList.forEach { (list, reqs) ->
+                item(key = "list:$list") {
+                    Text(
+                        "${if (list == "?") "List unknown" else list} · ${reqs.size}",
+                        Modifier.padding(top = 16.dp, bottom = 4.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                items(reqs) { BlockedRow(it) }
+            }
+            if (count > blocked.size) item {
+                Text(
+                    "and ${count - blocked.size} more",
+                    Modifier.padding(vertical = 12.dp),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun BlockedRow(req: BlockedRequest) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(req.url.substringAfter("://"), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            listOfNotNull(req.type, req.rule).joinToString(" · "),
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

@@ -2,8 +2,13 @@ package app.serene.engine
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /** Per-URL cosmetic resources, flattened into what the content script needs (rules.mjs). */
 @Serializable
@@ -36,9 +41,29 @@ class RulesEngine private constructor(private var handle: Long) {
     /** Generic selectors for the class/id tokens seen in a page, split like [Cosmetic]. */
     data class Generic(val hide: List<String>, val consent: List<String>)
 
+    /**
+     * Why a request is blocked: the rule as the list writes it, and that list's `! Title:`.
+     * Either may be null (a list without a title; rules the engine fused into one).
+     */
+    data class Match(val rule: String?, val list: String?)
+
     /** Network rule check. [type] is an adblock request type ("script", "sub_frame", ...). */
-    fun shouldBlock(url: String, sourceUrl: String, type: String): Boolean =
-        handle != 0L && nativeCheck(handle, url, sourceUrl, type)
+    fun shouldBlock(url: String, sourceUrl: String, type: String): Boolean = match(url, sourceUrl, type) != null
+
+    /** Like [shouldBlock], with the rule and list that block the request; null when not blocked. */
+    fun match(url: String, sourceUrl: String, type: String): Match? {
+        if (handle == 0L) return null
+        val json = nativeMatch(handle, url, sourceUrl, type) ?: return null
+        val m = runCatching { EngineJson.parseToJsonElement(json).jsonObject }.getOrNull() ?: return Match(null, null)
+        val list = m["list"]?.jsonPrimitive?.intOrNull
+        return Match(m["rule"]?.jsonPrimitive?.contentOrNull, list?.let { titles.getOrNull(it) })
+    }
+
+    /** Each list's title, in the order the lists were given (the saved engine keeps them). */
+    private val titles: List<String?> by lazy {
+        val json = if (handle != 0L) nativeTitles(handle) else null
+        json?.let { runCatching { EngineJson.decodeFromString(ListSerializer(String.serializer().nullable), it) }.getOrNull() } ?: emptyList()
+    }
 
     fun cosmetic(url: String): Cosmetic {
         val c = rawCosmetic(url)
@@ -96,7 +121,8 @@ class RulesEngine private constructor(private var handle: Long) {
         @JvmStatic private external fun nativeDeserialize(data: ByteArray, resources: String): Long
         @JvmStatic private external fun nativeSerialize(handle: Long): ByteArray?
         @JvmStatic private external fun nativeDestroy(handle: Long)
-        @JvmStatic private external fun nativeCheck(handle: Long, url: String, source: String, type: String): Boolean
+        @JvmStatic private external fun nativeMatch(handle: Long, url: String, source: String, type: String): String?
+        @JvmStatic private external fun nativeTitles(handle: Long): String?
         @JvmStatic private external fun nativeCosmetic(handle: Long, url: String): String?
         @JvmStatic private external fun nativeGeneric(handle: Long, classes: Array<String>, ids: Array<String>, exceptions: Array<String>): String?
     }
