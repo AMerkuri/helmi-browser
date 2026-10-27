@@ -60,9 +60,22 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         var loadMs = -1L
         var firstCallMs = -1L
         var error: String? = null
+        // Memory as the GPU benchmark measures it (PSS over the process without the model), plus
+        // how far the phone's available memory drops: the HTP's buffers are shared DMA memory,
+        // which a process's PSS may not count in full.
+        val baseline = ModelBenchmark.mem()
+        val availBefore = availMem()
+        var peak: ModelBenchmark.Mem? = null
+        var availDrop = 0L
+        fun sample() {
+            val m = ModelBenchmark.mem() - baseline
+            if (peak.let { it == null || m.total > it.total }) peak = m
+            availDrop = maxOf(availDrop, availBefore - availMem())
+        }
         try {
             progress("loading the model on the NPU (a model not compiled for it is compiled now, which takes a while)")
             loadMs = npu.warmUp()
+            sample()
             firstCallMs = npu.classify(rows.first().features, LiteRtClassifier.Reply.FREE).ms
             rows.forEachIndexed { i, row ->
                 val a = npu.classify(row.features, LiteRtClassifier.Reply.FREE)
@@ -73,6 +86,7 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
                 val label = if (Policy.looksLikeChrome(row.features)) "content" else a.label
                 if (label == row.expected) guarded++
                 if (row.expected == "content" && label != "content") contentHidden++
+                sample()
                 progress("NPU: ${i + 1} of $n overlays")
             }
         } catch (t: Throwable) {
@@ -92,6 +106,10 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
                 appendLine("NPU (loaded in $loadMs ms, first call $firstCallMs ms): median ${med(ms)}, p95 ${p95(ms)}, first chunk median ${med(firstChunk)}, invalid $invalid, accuracy ${pct(correct)}, with the header guard ${pct(guarded)}, content hidden $contentHidden/$content")
                 if (ms.size < n) appendLine("Stopped after ${ms.size} of $n records")
             }
+            peak?.let {
+                appendLine("Memory with the model loaded, over the process without it (PSS, largest sample between calls): +$it")
+                appendLine("The phone's available memory dropped by up to ${availDrop / 1_000_000} MB")
+            }
             if (misses.isNotEmpty()) {
                 appendLine("NPU misses:")
                 misses.forEach { appendLine("  $it") }
@@ -110,6 +128,8 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
             }
         }
     }
+
+    private fun availMem() = ActivityManager.MemoryInfo().also { context.getSystemService(ActivityManager::class.java).getMemoryInfo(it) }.availMem
 
     companion object {
         const val TAG = "SereneNpu"
