@@ -177,7 +177,6 @@ class TabCubeTest {
 
                 fun check(label: String) {
                     SystemClock.sleep(1500)
-                    diagnose(scenario, label)
                     try {
                         settled(label) { shot ->
                             assertTrue("the start page should still have its header", hasHeader(shot, page))
@@ -276,51 +275,6 @@ class TabCubeTest {
             !ime
         }
         SystemClock.sleep(1500) // drawn
-    }
-
-    // TEMPORARY: what is on screen, to find why the start page is missing.
-    private fun diagnose(scenario: ActivityScenario<MainActivity>, label: String) {
-        scenario.onActivity { a ->
-            val t = a.tabs.current!!
-            val v = t.webView
-            Log.i("TabCubeDiag", "$label: url='${t.url}' hasPage=${t.hasPage} downloadPage=${t.downloadPage} webView vis=${v.visibility} shown=${v.isShown} alpha=${v.alpha} tx=${v.translationX} ${v.width}x${v.height} parent=${v.parent?.javaClass?.name}")
-            fun dump(view: android.view.View, depth: Int) {
-                val xy = IntArray(2).also { view.getLocationInWindow(it) }
-                Log.i("TabCubeDiag", "  ".repeat(depth) + "${view.javaClass.name} vis=${view.visibility} alpha=${view.alpha} at ${xy[0]},${xy[1]} ${view.width}x${view.height} z=${view.z} layer=${view.layerType}")
-                if (view is android.view.ViewGroup) for (i in 0 until view.childCount) dump(view.getChildAt(i), depth + 1)
-            }
-            dump(a.window.decorView, 0)
-        }
-        scenario.onActivity { a ->
-            Log.i("TabCubeDiag", "cube ${app.serene.ui.TabCube.last} tabs=${a.tabs.tabs.map { it.id }} current=${a.tabs.current?.id}")
-            fun find(v: android.view.View): androidx.compose.ui.platform.ViewRootForTest? =
-                v as? androidx.compose.ui.platform.ViewRootForTest ?: (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { find(g.getChildAt(it)) } }
-            fun sem(n: androidx.compose.ui.semantics.SemanticsNode, depth: Int) {
-                val text = n.config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.Text) { null }?.joinToString()
-                val mods = n.layoutInfo.getModifierInfo().joinToString(",") { it.modifier.javaClass.simpleName }
-                Log.i("TabCubeDiag", "  ".repeat(depth) + "sem #${n.id} text='$text' placed=${n.layoutInfo.isPlaced} attached=${n.layoutInfo.isAttached} size=${n.size} root=${n.boundsInRoot} mods=[$mods]")
-                n.children.forEach { sem(it, depth + 1) }
-            }
-            find(a.window.decorView)?.semanticsOwner?.unmergedRootSemanticsNode?.let { sem(it, 0) }
-            // The layout nodes, by reflection: LayoutNode's children are internal.
-            fun layout(n: Any, depth: Int) {
-                val info = n as androidx.compose.ui.layout.LayoutInfo
-                val mods = info.getModifierInfo().joinToString(",") { it.modifier.javaClass.simpleName }
-                Log.i("TabCubeDiag", "  ".repeat(depth) + "node placed=${info.isPlaced} deactivated=${info.isDeactivated} ${info.width}x${info.height} mods=[$mods]")
-                val m = n.javaClass.methods.firstOrNull { it.name.startsWith("getChildren") && it.parameterCount == 0 && List::class.java.isAssignableFrom(it.returnType) }
-                (m?.invoke(n) as? List<*>)?.forEach { c -> if (c != null) layout(c, depth + 1) }
-            }
-            val owner = find(a.window.decorView)
-            val root = owner?.javaClass?.methods?.firstOrNull { it.name == "getRoot" && it.parameterCount == 0 }?.invoke(owner)
-            if (root != null) layout(root, 0) else Log.i("TabCubeDiag", "no layout root")
-        }
-        fun nodes(n: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
-            n ?: return
-            val r = android.graphics.Rect().also { n.getBoundsInScreen(it) }
-            Log.i("TabCubeDiag", "  ".repeat(depth) + "node ${n.className} text='${n.text}' desc='${n.contentDescription}' visible=${n.isVisibleToUser} $r")
-            for (i in 0 until n.childCount) nodes(n.getChild(i), depth + 1)
-        }
-        nodes(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow, 0)
     }
 
     private fun current(scenario: ActivityScenario<MainActivity>): String {
