@@ -241,16 +241,18 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
  */
 @Composable
 fun TabCubeFaces(cube: TabCube, app: SereneApp) {
-    // A branch each and no early returns: returning early here, after a turn was taken on
-    // during the face's fade, left an empty face in the page's place and lost the start page
-    // under it for every tab after, until the screen was rebuilt.
     val from = cube.from
     val arrived = cube.arrived
     android.util.Log.i("TabCubeDiag", "compose faces showing=${cube.showing} covering=${cube.covering} from=${from?.id} arrived=${arrived?.id}")
-    when {
-        !cube.showing || from == null -> Unit
-        cube.covering && arrived != null -> Face(arrived, null, app, Modifier.graphicsLayer { alpha = cube.coverAlpha }, shade = { 0f })
-        else -> Turning(cube, from, app)
+    // In a Box of their own, always there: as siblings of the page's WebView and start page,
+    // the faces changing in the frame the tab changed (the end of a turn) once left a face in
+    // the start page's place, and the start page was gone for every tab after.
+    Box(Modifier.fillMaxSize()) {
+        when {
+            !cube.showing || from == null -> Unit
+            cube.covering && arrived != null -> Face(arrived, null, app, Modifier.graphicsLayer { alpha = cube.coverAlpha }, shade = { 0f })
+            else -> Turning(cube, from, app)
+        }
     }
 }
 
