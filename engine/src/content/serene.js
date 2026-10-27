@@ -22,6 +22,7 @@
     maxButtons: 8,
     consentParkMs: 10000, // longest a list-matched cookie banner waits for autoconsent
     consentHoldMs: 5000,  // longest the detector waits while autoconsent answers a popup
+    consentFindMs: 1000,  // how long a cookie banner Serene would hide waits for autoconsent to find it
     mutationScanMs: 100,  // a scan runs at most this long after the first DOM change (throttle, not debounce)
     newTokensWaitMs: 300, // longest a scan after DOM changes waits for generic rules for new class/id tokens
   };
@@ -42,6 +43,9 @@
     listHit: false,        // reported a list-matched banner that was on the page
     consent: { lifecycle: null, busySince: 0 }, // this frame's autoconsent progress
     scrollFixed: false,
+    trapsReleasedAt: -Infinity,
+    touchReleasedAt: -Infinity,
+    cookieSeen: new WeakMap(), // cached cookie banners parked for autoconsent -> first seen
     pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
     scanMs: [],
   };
@@ -56,6 +60,20 @@
 
   for (const t of ['pointerdown', 'keydown', 'touchstart']) {
     addEventListener(t, (e) => { if (e.isTrusted) state.lastInput = performance.now(); }, true);
+  }
+  // A page we unlocked can lock itself again with no DOM change for the observer to see (a
+  // CSS-in-JS rule added through the CSSOM) and no scan coming. The user trying to scroll it is
+  // the cue to look again (techspot, #24).
+  for (const t of ['touchstart', 'wheel']) {
+    addEventListener(t, (e) => { if (e.isTrusted && state.scrollFixed && !config.observeOnly && document.body && scrollLocked()) restorePage(); }, { capture: true, passive: true });
+  }
+  // A focus trap that started after we hid its dialog cancels touches from a document listener.
+  // Seen here, after the page's listeners: let it go, unless a modal is still up (#24).
+  for (const t of ['touchstart', 'mousedown']) {
+    addEventListener(t, (e) => {
+      if (!e.isTrusted || !e.defaultPrevented || config.observeOnly || performance.now() - state.touchReleasedAt < 1000) return;
+      if (hiddenEls().length && !otherModal()) { state.touchReleasedAt = performance.now(); releaseTraps(); }
+    }, { passive: true });
   }
 
   // ---------------------------------------------------------------- host messages
@@ -145,6 +163,7 @@
     state.consentParked = false;
     clearTimeout(state.parkTimer);
     renderConsentCss();
+    unparkBanners();
   }
 
   // A list-known banner that was laid out while parked was really on the page: the host counts
@@ -384,23 +403,37 @@
       if (!f) continue;
       state.seen.add(root);
       const id = state.nextId++;
-      state.candidates.set(id, { el: root, buttons: f._buttons, sig: f.sig, iframes: f._iframes, backdrop: f.isBackdrop, modalish: !f.isBackdrop && !f.looksLikeLayout && f.edge !== 'top' && f.coverage > 0.05, seenAt: performance.now() });
+      state.candidates.set(id, { el: root, buttons: f._buttons, sig: f.sig, iframes: f._iframes, backdrop: f.isBackdrop, cookie: f.heuristic.label === 'cookie_consent', modalish: !f.isBackdrop && !f.looksLikeLayout && f.edge !== 'top' && f.coverage > 0.05, seenAt: performance.now() });
       delete f._buttons; delete f._iframes;
       out.push({ id, ...f });
       handleCandidate(id, f);
     }
     if (pending && state.pendingRetries < 10) { state.pendingRetries++; schedule(200); }
+    if (!config.observeOnly && state.consentParked) parkedCookieDeadline();
     // A locked page with nothing visible on top is what filter-list hides and cached hides
     // leave behind (the banner is gone, its scroll lock is not).
     const backdrops = [...state.candidates.values()].filter((c) => c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
+    // Only a candidate still waiting for its verdict holds this back; a quarantine that outlived
+    // its verdict (hidden, or clicked in a frame) used to block it for good (techspot, #24).
     const blocking = [...roots].some((r) => !r.hasAttribute(ATTR) && visible(r) && !backdrops.some((b) => b.el === r) && coverage(r.getBoundingClientRect()) > 0.3)
-      || [...state.candidates.values()].some((c) => c.quarantined);
+      || [...state.candidates.values()].some((c) => c.quarantined && !c.decided);
     const idle = performance.now() - state.lastInput > config.userGestureMs;
     // An empty full-screen layer with no modal on it (the lists or a hide took the modal) only
-    // dims the page and swallows taps. Give a modal 2 s to show up on it first.
+    // dims the page and swallows taps. Give a modal 2 s to show up on it first, unless the
+    // layer wraps a modal we already hid (a consent tool's dimmed wrapper that faded in late).
     const modalUp = [...state.candidates.values()].some((c) => c.modalish && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
-    const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000);
-    if (!config.observeOnly && !blocking && idle && stray.length) { for (const b of stray) hideEl(b.el, 'backdrop'); fixScroll(); }
+    const hidden = hiddenEls();
+    const wrapsHidden = (b) => hidden.some((el) => b.el.contains(el));
+    const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000 || wrapsHidden(b));
+    // Other strays wait for the user to be idle (a tap may have opened them). A wrapper of a modal
+    // we hid does not: the user is touching it to scroll past it, and each touch put it off (#24).
+    const clear = idle ? stray : stray.filter(wrapsHidden);
+    if (!config.observeOnly && !blocking && clear.length) {
+      for (const b of clear) hideEl(b.el, 'backdrop');
+      // Clearing the wrapper of a modal we hid is the hide's own cleanup, which a modal hidden by
+      // a cached verdict never got: let go of its focus trap and keep its page unlocked.
+      if (clear.some(wrapsHidden)) { releaseTraps(); restorePage(); } else fixScroll();
+    }
     else if (!config.observeOnly && !blocking && idle && scrollLocked()) fixScroll();
     else if (state.scrollFixed) restorePage();
     return out;
@@ -638,6 +671,7 @@
     const c = state.candidates.get(v.id);
     if (!c) return;
     if (config.observeOnly) return;
+    c.decided = true;
     if (v.action === 'ignore') { quarantine(v.id, false); return; }
     if (v.action === 'click') {
       let btn = typeof v.target === 'number' ? c.buttons[v.target] : null;
@@ -659,18 +693,78 @@
       }, 900);
       return;
     }
+    // A cookie banner while autoconsent is still at work in this frame waits for it, parked like
+    // the lists' consent matches: hidden, autoconsent could not find it to reject it (techspot, #24).
+    if (c.cookie && state.consentParked) { park(c, v); return; }
     hide(c, v.id);
     send('applied', { id: v.id, action: 'hide', ok: true, source: v.source });
   }
 
+  // Cookie banners hidden by a cached verdict come parked (consent selectors) so autoconsent can
+  // still reject them. Like a fresh one (park), one it has not found in consentFindMs is hidden.
+  function parkedCookieDeadline() {
+    for (const r of state.siteRules) {
+      if (r.action !== 'hide' || r.label !== 'cookie_consent') continue;
+      let els = [];
+      try { els = document.querySelectorAll(r.sig); } catch {}
+      for (const el of els) {
+        if (el.hasAttribute(ATTR)) continue;
+        const t = state.cookieSeen.get(el);
+        if (t == null) { state.cookieSeen.set(el, performance.now()); schedule(config.consentFindMs + 50); continue; }
+        const left = config.consentFindMs - (performance.now() - t);
+        if (left > 0) schedule(left + 50);
+        else if (!AC_BUSY.has(state.consent.lifecycle)) { hideEl(el, 'hidden'); releaseTraps(); restorePage(); }
+      }
+    }
+  }
+
+  function park(c, v) {
+    quarantine(v.id, false);
+    c.el.style.setProperty('opacity', '0', 'important');
+    c.el.style.setProperty('pointer-events', 'none', 'important');
+    c.parked = v;
+    restorePage();
+    // Not found by then: autoconsent has no rule for it, so hide it as before.
+    setTimeout(() => { if (!AC_BUSY.has(state.consent.lifecycle)) unpark(c); }, config.consentFindMs);
+  }
+
+  // Autoconsent is done (or out of time): a parked banner it answered is gone, the rest are hidden.
+  function unparkBanners() {
+    for (const c of state.candidates.values()) unpark(c);
+  }
+
+  function unpark(c) {
+    const v = c.parked;
+    if (!v) return;
+    c.parked = null;
+    c.el.style.removeProperty('opacity');
+    c.el.style.removeProperty('pointer-events');
+    const still = c.el.isConnected && visible(c.el);
+    if (still) hide(c);
+    else restorePage();
+    send('applied', { id: v.id, action: still ? 'hide' : 'autoconsent', ok: true, source: v.source });
+  }
+
   function hide(c) {
     c.el.style.removeProperty('visibility');
+    c.hidden = true;
     hideEl(c.el, 'hidden');
     hideBackdrops(c.el);
     // Backdrops that are not siblings of the modal (pinterest nests them apart) were seen as
     // their own candidates; with the modal gone they only lock the page.
     for (const b of state.candidates.values()) if (b.backdrop && b.el.isConnected && !b.el.hasAttribute(ATTR)) hideEl(b.el, 'backdrop');
+    if (c.modalish) releaseTraps();
     restorePage();
+  }
+
+  // Focus traps (the focus-trap library and the like) cancel every touch and click outside their
+  // dialog from listeners on the document, which outlive the dialog we hid: the page shows but
+  // won't scroll or follow links (techspot's consent tool, #24). Escape is how they let go. Sent
+  // to the body, not the dialog, so the dialog's own key handlers don't take it as an answer.
+  function releaseTraps() {
+    if (!document.body) return;
+    state.trapsReleasedAt = performance.now();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true, composed: true }));
   }
 
   // Full-viewport fixed elements without content next to the modal are its backdrop.
@@ -691,10 +785,24 @@
 
   // Undo scroll locks and blur that modals leave behind, unless another modal is still up.
   function restorePage() {
-    const otherModal = [...state.candidates.values()].some((c) => !c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el) && coverage(c.el.getBoundingClientRect()) > 0.5);
-    if (otherModal) return;
+    if (otherModal()) return;
     state.scrollFixed = true;
     fixScroll();
+  }
+
+  // What Serene hid: candidates it hid, and elements a cached hide verdict hides with CSS before
+  // the detector ever sees them (a reload, techspot #24).
+  function hiddenEls() {
+    const els = [...state.candidates.values()].filter((c) => c.hidden || c.parked).map((c) => c.el);
+    for (const r of state.siteRules) {
+      if (r.action !== 'hide') continue;
+      try { els.push(...document.querySelectorAll(r.sig)); } catch {}
+    }
+    return els;
+  }
+
+  function otherModal() {
+    return [...state.candidates.values()].some((c) => !c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el) && coverage(c.el.getBoundingClientRect()) > 0.5);
   }
 
   function fixScroll() {

@@ -1,6 +1,8 @@
 package app.serene
 
 import android.os.SystemClock
+import android.view.MotionEvent
+import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import app.serene.engine.Classifier
@@ -10,6 +12,7 @@ import app.serene.engine.Features
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -120,6 +123,7 @@ class FixturesTest(private val file: String) {
         gone: exp.gone ? !shown(exp.gone) : null,
         visible: (exp.visible || []).map((s) => [s, shown(s)]),
         clicked: window.__clicked || [],
+        touchPrevented: window.__touchPrevented,
         scrollable: h.overflow !== 'hidden' && b.overflow !== 'hidden' && b.position !== 'fixed',
         // What the content script saw, for failure messages.
         page: window.__serene ? {
@@ -130,6 +134,15 @@ class FixturesTest(private val file: String) {
         } : null,
       });
     })()"""
+
+    /** A tap near the bottom-left corner, sent to the WebView itself so the page gets a trusted touch. */
+    private fun tap(v: WebView) {
+        val down = SystemClock.uptimeMillis()
+        val x = 20f
+        val y = v.height - 20f
+        v.dispatchTouchEvent(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
+        v.dispatchTouchEvent(MotionEvent.obtain(down, down + 50, MotionEvent.ACTION_UP, x, y, 0))
+    }
 
     @Test
     fun fixture() {
@@ -144,7 +157,14 @@ class FixturesTest(private val file: String) {
             // emulator takes seconds to start, which a phone's warm one does not.
             val end = SystemClock.uptimeMillis() + 20_000
             while (SystemClock.uptimeMillis() < end && tab?.session?.log()?.any { it.contains("hello from top") } != true) SystemClock.sleep(100)
-            SystemClock.sleep((exp["waitMs"]?.jsonPrimitive?.intOrNull ?: 2500) + 1500L) // emulators are slower than desktop Chromium
+            val started = SystemClock.uptimeMillis()
+            // taps: ms after load at which the user touches the bottom of the screen (trying to scroll).
+            for (t in exp["taps"]?.jsonArray ?: emptyList()) {
+                SystemClock.sleep(maxOf(0L, started + t.jsonPrimitive.int - SystemClock.uptimeMillis()))
+                scenario.onActivity { tap(tab!!.webView) }
+            }
+            // emulators are slower than desktop Chromium
+            SystemClock.sleep(maxOf(0L, started + (exp["waitMs"]?.jsonPrimitive?.intOrNull ?: 2500) + 1500L - SystemClock.uptimeMillis()))
 
             val latch = CountDownLatch(1)
             var raw: String? = null
@@ -169,6 +189,8 @@ class FixturesTest(private val file: String) {
             exp["clicked"]?.jsonArray?.forEach { c -> assertTrue("should click $c, clicked $clicked\n$log", c.jsonPrimitive.content in clicked) }
             exp["notClicked"]?.jsonArray?.forEach { c -> assertFalse("must not click $c\n$log", c.jsonPrimitive.content in clicked) }
             if (exp["scroll"]?.jsonPrimitive?.booleanOrNull == true) assertEquals("page scrolling should be restored\n$log", true, state["scrollable"]?.jsonPrimitive?.booleanOrNull)
+            // touchable: the fixture records whether the page cancelled the last tap (a focus trap).
+            if (exp["touchable"]?.jsonPrimitive?.booleanOrNull == true) assertEquals("the last tap should reach the page\n$log", false, state["touchPrevented"]?.jsonPrimitive?.booleanOrNull)
 
             val acted = s?.candidates()?.filter { it.action != null && it.action != "ignore" } ?: emptyList()
             when (exp["via"]?.jsonPrimitive?.contentOrNull) {

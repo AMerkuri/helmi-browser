@@ -60,7 +60,11 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
   const page = await context.newPage();
   await page.goto(base + file + query);
   if (exp.tapFirst) { await page.waitForTimeout(300); await page.tap(exp.tapFirst); }
-  await page.waitForTimeout(exp.waitMs ?? 2500);
+  // taps: ms after load at which the user touches the bottom of the screen (trying to scroll).
+  const t0 = Date.now();
+  const until = (ms) => page.waitForTimeout(Math.max(0, ms - (Date.now() - t0)));
+  for (const ms of exp.taps || []) { await until(ms); await page.touchscreen.tap(20, page.viewportSize().height - 20); }
+  await until(exp.waitMs ?? 2500);
   const state = await page.evaluate((exp) => {
     const shown = (sel) => {
       const el = document.querySelector(sel);
@@ -73,7 +77,8 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
       gone: exp.gone ? !shown(exp.gone) : null,
       visible: (exp.visible || []).map((s) => [s, shown(s)]),
       clicked: window.__clicked || [],
-      scrollable: h.overflow !== 'hidden' && b.overflow !== 'hidden' && b.position !== 'fixed',
+      touchPrevented: window.__touchPrevented,
+      scrollable: ![h.overflow, h.overflowY, b.overflow, b.overflowY].includes('hidden') && b.position !== 'fixed',
     };
   }, exp);
   state.exposure = await exposure(page);
@@ -89,6 +94,8 @@ for (const file of FIXTURES) {
     for (const c of exp.clicked || []) assert.ok(state.clicked.includes(c), `should click "${c}", clicked ${JSON.stringify(state.clicked)}`);
     for (const c of exp.notClicked || []) assert.ok(!state.clicked.includes(c), `must not click "${c}"`);
     if (exp.scroll) assert.ok(state.scrollable, 'page scrolling should be restored');
+    // touchable: the fixture records whether the page cancelled the last tap (a focus trap).
+    if (exp.touchable) assert.equal(state.touchPrevented, false, 'the last tap should reach the page');
     if (exp.maxVisibleMs != null) {
       const shown = Math.max(0, ...state.exposure.filter((o) => o.sig.includes(exp.gone.slice(1))).map((o) => o.visibleMs));
       assert.ok(shown <= exp.maxVisibleMs, `${exp.gone} was on screen for ${shown} ms (at most ${exp.maxVisibleMs})`);
@@ -133,4 +140,32 @@ test('second visit uses the site cache, not the model', async () => {
   const second = await runFixture('unknown-language.html', { cache });
   assert.equal(second.llmCalls.length, 0, 'model should not run again');
   assert.ok(second.state.gone);
+});
+
+// On a reload the cached CSS hides the dialog before the detector ever sees it (techspot, #24).
+test('a cached hide: on the next visit the dimmed wrapper still goes while the user touches it', async () => {
+  const cache = new VerdictCache();
+  await runFixture('cookie-dim-wrapper-lock.html', { cache });
+  const { state } = await runFixture('cookie-dim-wrapper-lock.html', { cache });
+  assert.ok(state.gone, '.pv-shell should be gone');
+  assert.ok(state.scrollable, 'page scrolling should be restored');
+  const shown = Math.max(0, ...state.exposure.filter((o) => o.sig.includes('pv-shell')).map((o) => o.visibleMs));
+  assert.ok(shown <= 600, `.pv-shell was on screen for ${shown} ms (at most 600)`);
+});
+
+test('a cached hide: on the next visit a focus trap still lets go', async () => {
+  const cache = new VerdictCache();
+  await runFixture('cookie-focus-trap-late.html', { cache });
+  const { state } = await runFixture('cookie-focus-trap-late.html', { cache });
+  assert.ok(state.gone, '#pv-ui should be gone');
+  assert.ok(state.clicked.includes('story'), `should click "story", clicked ${JSON.stringify(state.clicked)}`);
+  assert.equal(state.touchPrevented, false, 'the last tap should reach the page');
+});
+
+test('a cached cookie banner is parked, not hidden, so autoconsent still rejects it on the next visit', async () => {
+  const cache = new VerdictCache();
+  await runFixture('cookie-quantcast-style.html', { cache });
+  const { state } = await runFixture('cookie-quantcast-style.html', { cache });
+  assert.ok(state.gone, '#qc-cmp2-ui should be gone');
+  assert.deepEqual(state.clicked, ['reject']);
 });

@@ -1,0 +1,12 @@
+<!doctype html><title>Consent dialog inside a dimmed wrapper that fades in after it</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px} .pv-shell{transition:opacity .2s}</style><script>window.__clicked=[];function clk(n,el){__clicked.push(n);document.getElementById('pv-root').remove()}</script>
+<script type="application/json" id="expect">{"gone":".pv-shell","visible":["#article","#masthead"],"notClicked":["agree","options"],"scroll":true,"via":"heuristic","waitMs":3000,"maxVisibleMs":600}</script>
+<header id="masthead" style="position:sticky;top:0;background:#223;color:#fff;padding:12px;z-index:10">Gadget Digest <a href="#" style="color:#fff">Reviews</a> <a href="#" style="color:#fff">Downloads</a></header>
+<article id="article"><h1>Five ways to tidy up a cluttered taskbar</h1><p>Most of the icons pinned to a new laptop's taskbar are never opened. A few minutes in the settings can clear them out.</p><p>Start by unpinning the apps you do not use, then turn off the widgets button and the search box.</p><p>Third-party tools can go further, but the built-in options cover most needs.</p><p style="height:1500px">Long content.</p></article>
+<script>
+// The consent tool mounts its dialog inside a full-screen dimmed wrapper (in a container that is
+// not itself positioned). The dialog is visible at once; the wrapper is transparent and fades in
+// a little later, so the detector sees the dialog first and the empty wrapper only after the
+// dialog is hidden. No scroll lock: the wrapper itself swallows every touch.
+setTimeout(()=>{document.body.insertAdjacentHTML('beforeend',`<div id="pv-root"><div class="pv-shell" style="position:fixed;inset:0;background:rgba(33,41,52,.66);display:flex;align-items:center;justify-content:center;z-index:2147483647;opacity:0"><div id="pv-ui" role="dialog" aria-modal="true" style="background:#fff;width:85%;height:70vh;overflow:auto;padding:16px"><h2>We value your privacy</h2><p>We and our partners store and access information on your device, such as cookies and device identifiers, and process personal data for personalised advertising, content measurement and audience insights. You can review and manage your choices at any time.</p><button onclick="clk('options',this)">More options</button> <button onclick="clk('agree',this)">Agree</button></div></div></div>`)},400);
+setTimeout(()=>{document.querySelector('.pv-shell').style.opacity='1'},1500);
+</script>
