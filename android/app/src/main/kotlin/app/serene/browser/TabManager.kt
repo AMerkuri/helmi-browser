@@ -5,6 +5,7 @@ import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.serene.SereneApp
 
@@ -53,14 +54,63 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     // The tab being left, as it was last on screen, for its card in the tab switcher.
     private fun leave() { current?.let { TabPreviews.capture(it) } }
 
-    fun close(tab: Tab) {
+    /** A closed tab that Undo can still bring back: [index] is where it was, [standIn] the blank tab opened for it if it was the last. */
+    class Closed(val tab: Tab, val index: Int, val wasCurrent: Boolean, val standIn: Tab?)
+
+    /**
+     * The tab closed last, while its "Closed …" bar is up. It is kept whole, WebView and all, so
+     * Undo brings it back with its history, scroll position and form fields; only one at a time.
+     */
+    var closed by mutableStateOf<Closed?>(null)
+        private set
+
+    /** Told when Undo has put a closed tab back, so the tab switcher can drop its card back in. */
+    var onReopen: ((Tab) -> Unit)? = null
+
+    /** Closes [tab]; with [undo], it stays [closed] until [reopen] or [forget]. */
+    fun close(tab: Tab, undo: Boolean = true) {
         val i = tabs.indexOf(tab)
         if (i < 0) return
+        val wasCurrent = i == currentIndex
         tabs.removeAt(i)
-        TabPreviews.remove(tab)
-        tab.destroy()
-        if (tabs.isEmpty()) open()
+        closed?.let { forget(it) }
+        val standIn = if (tabs.isEmpty()) open() else null
         currentIndex = (if (i < currentIndex) currentIndex - 1 else currentIndex.coerceAtMost(tabs.lastIndex)).coerceAtLeast(0)
+        if (undo) {
+            tab.pause()
+            closed = Closed(tab, i, wasCurrent, standIn)
+        } else {
+            TabPreviews.remove(tab)
+            tab.destroy()
+        }
+    }
+
+    /** Undo: puts the [closed] tab back where it was, and back on screen if it was. */
+    fun reopen(c: Closed) {
+        if (closed !== c) return
+        closed = null
+        // The blank tab opened when the last one closed goes again, unless it was used.
+        val standIn = c.standIn?.takeIf { tabs.size == 1 && tabs[0] === it && it.url.isEmpty() }
+        if (standIn != null) {
+            tabs.clear()
+            TabPreviews.remove(standIn)
+            standIn.destroy()
+        }
+        val at = c.index.coerceIn(0, tabs.size)
+        if (c.wasCurrent && standIn == null) leave()
+        tabs.add(at, c.tab)
+        c.tab.resume()
+        if (c.wasCurrent || standIn != null) currentIndex = at
+        else if (at <= currentIndex) currentIndex++
+        onReopen?.invoke(c.tab)
+    }
+
+    /** The [closed] tab's bar went away: it is gone for good. */
+    fun forget(c: Closed? = closed) {
+        if (c == null || closed !== c) return
+        closed = null
+        TabPreviews.remove(c.tab)
+        c.tab.destroy()
     }
 
     fun save() {

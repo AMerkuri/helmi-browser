@@ -162,8 +162,9 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     // fade in: it is the page as on screen.
     val cover = remember { Animatable(if (origin != null && TabPreviews.get(origin) != null) 1f else 0f) }
     var zoomId by remember { mutableLongStateOf(origin?.id ?: -1L) }
-    // After a tab is closed, the cards after it move up into its place: [gap] goes from 1 to 0.
-    val gap = remember { Animatable(0f) }
+    // After a tab is closed, the cards after it move up into its place: [gap] goes from 1 to 0;
+    // after Undo, from -1 to 0, as they make room for it again.
+    val gap = remember { Motion(0f, scope) }
     var gapFrom by remember { mutableIntStateOf(Int.MAX_VALUE) }
     // The middle card pushed up to close it.
     val lift = remember { Motion(0f, scope) }
@@ -250,13 +251,34 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
             if (k <= tabs.tabs.lastIndex) {
                 // The cards after it move up into its place.
                 gapFrom = k
-                gap.snapTo(1f)
-                gap.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 300f))
-                gapFrom = Int.MAX_VALUE
+                gap.set(1f)
+                val settle = gap.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 300f))
+                settle.join()
+                if (!settle.isCancelled) gapFrom = Int.MAX_VALUE
             } else {
                 // It was the last card: the one before it comes to the middle.
                 scroll.animateTo(tabs.tabs.lastIndex.toFloat(), spring(dampingRatio = 0.85f, stiffness = 300f))
             }
+        }
+    }
+
+    /** Undo on the "Closed …" bar: [tab]'s card drops back into its place, from [height] up, and the cards after it make room. */
+    fun reopened(tab: Tab, height: Float) {
+        val k = tabs.tabs.indexOf(tab)
+        if (k < 0 || leaving) return
+        // Set now, before the next frame, so the card never shows in its place before it drops.
+        gapFrom = k + 1
+        gap.set(-1f)
+        liftId = tab.id
+        lift.set(-height)
+        scroll.animateTo(k.toFloat(), spring(dampingRatio = 0.85f, stiffness = 300f))
+        scope.launch {
+            val settle = gap.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 300f))
+            val drop = lift.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 300f))
+            settle.join()
+            if (!settle.isCancelled) gapFrom = Int.MAX_VALUE
+            drop.join()
+            if (!drop.isCancelled && liftId == tab.id) liftId = -1L
         }
     }
 
@@ -274,6 +296,10 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         val reflH = cardH * REFLECTION
         val perCard = layout.perCard
         val count = tabs.tabs.size
+        DisposableEffect(layout) {
+            tabs.onReopen = { reopened(it, layout.cardHeight) }
+            onDispose { tabs.onReopen = null }
+        }
 
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - zoom.value }.background(Color.Black))
         // While the card is smaller than the page, the page's place stays black around it and
@@ -577,7 +603,8 @@ internal suspend fun awaitDrawn(tab: Tab) {
     }
 }
 
-private fun cardTitle(tab: Tab) = tab.title.ifBlank { host(tab) ?: "New tab" }
+/** What a tab is called on its card and in the "Closed …" bar: its title, else its site. */
+internal fun cardTitle(tab: Tab) = tab.title.ifBlank { host(tab) ?: "New tab" }
 
 private fun host(tab: Tab) = tab.url.takeIf { it.startsWith("http") }?.let { android.net.Uri.parse(it).host }
 

@@ -15,23 +15,38 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.dp
 import app.serene.browser.FilePickerHost
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
 import app.serene.download.DownloadService
 import app.serene.ui.BrowserScreen
+import app.serene.ui.ClosedTabBar
 import app.serene.ui.CoverFlowTabs
 import app.serene.ui.DownloadsScreen
 import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
+import app.serene.ui.cardTitle
 import app.serene.ui.applyNightMode
 import app.serene.ui.nightUiMode
 import kotlinx.coroutines.flow.drop
@@ -47,6 +62,8 @@ class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting var pageBounds by mutableStateOf(Rect.Zero)
         private set
     private var openingTabs = false
+    /** "Closed <page>", with Undo. */
+    @VisibleForTesting val snackbar = SnackbarHostState()
 
     // The Theme setting this activity was created with, for API < 31 (see attachBaseContext).
     private var startTheme = ThemeMode.SYSTEM
@@ -106,17 +123,36 @@ class MainActivity : ComponentActivity(), FilePickerHost {
             }
             val darkSites = app.settings.darkSites
             LaunchedEffect(darkSites) { tabs.tabs.forEach { it.applyDarkening() } }
+            // As in Chrome: the closed tab can come back until its bar goes, or the next one closes.
+            val closed = tabs.closed
+            LaunchedEffect(closed) {
+                if (closed == null) return@LaunchedEffect
+                val r = snackbar.showSnackbar("Closed ${cardTitle(closed.tab)}", actionLabel = "Undo", duration = SnackbarDuration.Short)
+                if (r == SnackbarResult.ActionPerformed) tabs.reopen(closed) else tabs.forget(closed)
+            }
             SereneTheme {
                 BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
-                when (screen) {
-                    // The tab switcher is drawn over the browser, which shows through as a card
-                    // grows into its page.
-                    Screen.Browser, Screen.Tabs -> Box(Modifier.fillMaxSize()) {
-                        BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it; tabs.sizeHidden(it.width.toInt(), it.height.toInt()) }, covered = screen == Screen.Tabs)
-                        if (screen == Screen.Tabs) CoverFlowTabs(tabs, pageBounds, onDone = { screen = Screen.Browser })
+                Box(Modifier.fillMaxSize()) {
+                    when (screen) {
+                        // The tab switcher is drawn over the browser, which shows through as a card
+                        // grows into its page.
+                        Screen.Browser, Screen.Tabs -> Box(Modifier.fillMaxSize()) {
+                            BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it; tabs.sizeHidden(it.width.toInt(), it.height.toInt()) }, covered = screen == Screen.Tabs)
+                            if (screen == Screen.Tabs) CoverFlowTabs(tabs, pageBounds, onDone = { screen = Screen.Browser })
+                        }
+                        Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
+                        Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
                     }
-                    Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
-                    Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
+                    // Over every screen, so its timer runs out (and the tab is let go) wherever you are.
+                    // Just above the bottom bar (with the bar's own 12 dp), and the tab switcher's buttons.
+                    SnackbarHost(
+                        snackbar,
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .widthIn(max = 600.dp)
+                            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                            .padding(bottom = 52.dp),
+                    ) { ClosedTabBar(it) }
                 }
             }
         }
@@ -182,6 +218,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
     }
 
     override fun onDestroy() {
+        tabs.forget()
         tabs.tabs.forEach { it.destroy() }
         super.onDestroy()
     }

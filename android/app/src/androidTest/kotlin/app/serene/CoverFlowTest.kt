@@ -24,8 +24,8 @@ import kotlin.concurrent.thread
 
 /**
  * The tab switcher: each tab's card shows its page, a tap at the side brings that card to the
- * middle, a tap in the middle opens its tab, and pushing the middle card up closes its tab.
- * Three pages of one colour each, so the cards can be told apart on a screenshot.
+ * middle, a tap in the middle opens its tab, and pushing the middle card up closes its tab, which
+ * the "Closed …" bar's Undo brings back. Three pages of one colour each, so the cards can be told apart on a screenshot.
  */
 @RunWith(AndroidJUnit4::class)
 class CoverFlowTest {
@@ -53,12 +53,18 @@ class CoverFlowTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 // Three tabs, red, green and blue; each is on screen before the next opens, so
-                // leaving it takes its picture.
+                // leaving it takes its picture. Green has a page before it, to go back to.
+                var green: Tab? = null
                 for (name in colours.keys) {
                     var tab: Tab? = null
-                    scenario.onActivity { a ->
-                        val url = "http://127.0.0.1:${server.localPort}/$name"
-                        tab = if (name == "red") a.tabs.current!!.apply { load(url) } else a.tabs.open(url)
+                    val url = "http://127.0.0.1:${server.localPort}/$name"
+                    if (name == "green") {
+                        scenario.onActivity { a -> tab = a.tabs.open("http://127.0.0.1:${server.localPort}/start") }
+                        waitFor("green's first page loads") { tab?.title == "start" && tab?.progress == 100 }
+                        scenario.onActivity { tab!!.load(url) }
+                        green = tab
+                    } else {
+                        scenario.onActivity { a -> tab = if (name == "red") a.tabs.current!!.apply { load(url) } else a.tabs.open(url) }
                     }
                     waitFor("$name loads") { tab?.title == name && tab?.progress == 100 }
                     SystemClock.sleep(1500) // drawn
@@ -94,6 +100,26 @@ class CoverFlowTest {
                 scenario.onActivity { a -> assertEquals(listOf("red", "blue"), a.tabs.tabs.map { it.title }) }
                 assertCards(scenario, "after closing green", middle = "blue", left = "red")
 
+                // "Closed green" with Undo: green comes back in its place, with its history.
+                waitFor("the Closed green bar") { closedBar(scenario) == "Closed green" }
+                shot("Closed bar")
+                scenario.onActivity { a -> a.snackbar.currentSnackbarData!!.performAction() }
+                waitFor("green comes back") { var n = 0; scenario.onActivity { n = it.tabs.tabs.size }; n == 3 }
+                SystemClock.sleep(1000)
+                scenario.onActivity { a ->
+                    assertEquals(listOf("red", "green", "blue"), a.tabs.tabs.map { it.title })
+                    assertTrue("the same tab, not a new one", a.tabs.tabs[1] === green)
+                    assertTrue("green keeps its history", green!!.webView.canGoBack())
+                    assertEquals(green, a.tabs.current)
+                }
+                assertCards(scenario, "after undo", middle = "green", left = "red")
+
+                // Closed again, and the bar left to time out: then it is gone for good.
+                swipeUp(scenario)
+                waitFor("green closes again") { var n = 0; scenario.onActivity { n = it.tabs.tabs.size }; n == 2 }
+                waitFor("the bar times out", timeoutMs = 15_000) { var gone = false; scenario.onActivity { gone = it.tabs.closed == null }; gone }
+                assertEquals(null, closedBar(scenario))
+
                 // Back returns to the tab the switcher was opened from, or the middle one if it is gone.
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
                 waitFor("back closes the switcher") { screen(scenario) == Screen.Browser }
@@ -102,6 +128,18 @@ class CoverFlowTest {
         } finally {
             server.close()
         }
+    }
+
+    private fun closedBar(scenario: ActivityScenario<MainActivity>): String? {
+        var m: String? = null
+        scenario.onActivity { m = it.snackbar.currentSnackbarData?.visuals?.message }
+        return m
+    }
+
+    private fun shot(label: String) {
+        val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.copy(Bitmap.Config.ARGB_8888, false)
+        assertNotNull("no screenshot", shot)
+        logScreenshot(shot!!, label)
     }
 
     private fun screen(scenario: ActivityScenario<MainActivity>): Screen {
