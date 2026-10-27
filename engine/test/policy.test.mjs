@@ -10,8 +10,8 @@ test('only decline/close buttons count as safe click targets', () => {
   for (const s of ['Reject all', 'Nur notwendige Cookies', 'Continuer sans accepter', 'No thanks', '×', 'Not now', 'Rifiuta']) assert.ok(isSafeTarget(s), s);
   for (const s of ['Accept all', 'Allow', 'Subscribe', 'Open in app', 'Sign in', 'Got it', 'Alle akzeptieren', 'Yes, notify me', undefined]) assert.ok(!isSafeTarget(s), s);
   // Beyond Latin script: decline words count, agree words never do.
-  for (const s of ['拒否する', '同意しない', '閉じる', '拒绝', '不同意', '거부', '동의하지 않음', 'Отклонить', 'Не сейчас', 'Reddet', 'Stäng']) assert.ok(isSafeTarget(s), s);
-  for (const s of ['同意する', '同意して閉じる', '接受', '동의', 'Принять', 'Kabul et', 'Godkänn alla']) assert.ok(!isSafeTarget(s), s);
+  for (const s of ['拒否する', '同意しない', '閉じる', '拒绝', '不同意', '거부', '동의하지 않음', 'Отклонить', 'Не сейчас', 'Reddet', 'Stäng', 'Keeldu kõigist']) assert.ok(isSafeTarget(s), s);
+  for (const s of ['同意する', '同意して閉じる', '接受', '동의', 'Принять', 'Kabul et', 'Godkänn alla', 'Nõustu kõigiga']) assert.ok(!isSafeTarget(s), s);
 });
 
 test('a model that picks "Accept" is overruled', () => {

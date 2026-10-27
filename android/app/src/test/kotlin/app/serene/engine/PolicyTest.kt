@@ -17,8 +17,8 @@ class PolicyTest {
         for (s in listOf("Reject all", "Nur notwendige Cookies", "Continuer sans accepter", "No thanks", "×", "Not now", "Rifiuta")) assertTrue(s, Policy.isSafeTarget(s))
         for (s in listOf("Accept all", "Allow", "Subscribe", "Open in app", "Sign in", "Got it", "Alle akzeptieren", "Yes, notify me", null)) assertFalse("$s", Policy.isSafeTarget(s))
         // Beyond Latin script: decline words count, agree words never do.
-        for (s in listOf("拒否する", "同意しない", "閉じる", "拒绝", "不同意", "거부", "동의하지 않음", "Отклонить", "Не сейчас", "Reddet", "Stäng")) assertTrue(s, Policy.isSafeTarget(s))
-        for (s in listOf("同意する", "同意して閉じる", "接受", "동의", "Принять", "Kabul et", "Godkänn alla")) assertFalse(s, Policy.isSafeTarget(s))
+        for (s in listOf("拒否する", "同意しない", "閉じる", "拒绝", "不同意", "거부", "동의하지 않음", "Отклонить", "Не сейчас", "Reddet", "Stäng", "Keeldu kõigist")) assertTrue(s, Policy.isSafeTarget(s))
+        for (s in listOf("同意する", "同意して閉じる", "接受", "동의", "Принять", "Kabul et", "Godkänn alla", "Nõustu kõigiga")) assertFalse(s, Policy.isSafeTarget(s))
     }
 
     @Test fun modelPickingAcceptIsOverruled() {

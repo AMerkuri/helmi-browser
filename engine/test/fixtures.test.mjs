@@ -172,6 +172,22 @@ test('a cached hide: on the next visit a focus trap still lets go', async () => 
   assert.equal(state.touchPrevented, false, 'the last tap should reach the page');
 });
 
+// lhv.ee (#48): the model once called an Estonian cookie dialog content, and that ignore was cached.
+test('a cached ignore goes back to the host once the heuristics know the overlay, an undo does not', async () => {
+  const file = 'cookie-estonian.html', sig = 'div#et-cookie-dialog';
+  const stale = new VerdictCache();
+  stale.put(base + file, { sig, label: 'content', action: 'ignore', source: 'llm' });
+  const again = await runFixture(file, { cache: stale });
+  assert.ok(again.state.gone, '#et-cookie-dialog should be gone');
+  assert.deepEqual(again.state.clicked, ['keeldu']);
+  assert.equal(stale.rulesFor(base + file).find((r) => r.sig === sig).action, 'click', 'the new verdict replaces the cached one');
+  const undone = new VerdictCache();
+  undone.undo(base + file, sig);
+  const kept = await runFixture(file, { cache: undone });
+  assert.ok(!kept.state.gone, 'the user put it back: leave it');
+  assert.deepEqual(kept.state.clicked, []);
+});
+
 test('a cached cookie banner is parked, not hidden, so autoconsent still rejects it on the next visit', async () => {
   const cache = new VerdictCache();
   await runFixture('cookie-quantcast-style.html', { cache });
