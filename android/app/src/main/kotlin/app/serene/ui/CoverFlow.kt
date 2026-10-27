@@ -173,8 +173,8 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
 
     // Captures now would take this screen instead of the page.
     DisposableEffect(Unit) {
-        TabPreviews.covered = true
-        onDispose { TabPreviews.covered = false }
+        TabPreviews.cover(true)
+        onDispose { TabPreviews.cover(false) }
     }
     val focus = LocalFocusManager.current
     LaunchedEffect(Unit) {
@@ -500,7 +500,7 @@ private fun TabCard(
 
 /** A tab without a picture (a new tab, a page not yet seen): its site and title. */
 @Composable
-private fun TitleCard(tab: Tab) {
+internal fun TitleCard(tab: Tab) {
     val host = host(tab)
     Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         if (host == null) {
@@ -516,7 +516,7 @@ private fun TitleCard(tab: Tab) {
 }
 
 /** The picture filling the card, cut to the card's shape from the top, as the page sits under the address bar. */
-private fun DrawScope.drawCover(image: ImageBitmap, height: Float = size.height) {
+internal fun DrawScope.drawCover(image: ImageBitmap, height: Float = size.height) {
     val w = size.width
     val s = max(w / image.width, height / image.height)
     val srcW = (w / s).roundToInt().coerceAtMost(image.width)
@@ -567,7 +567,7 @@ fun settleOn(at: Float, velocity: Float): Int = when {
  * Waits until [tab]'s WebView, just put on screen, has drawn its page: a frame for it to be
  * attached, then until its content is ready to draw, then that frame. At most 800 ms.
  */
-private suspend fun awaitDrawn(tab: Tab) {
+internal suspend fun awaitDrawn(tab: Tab) {
     withTimeoutOrNull(800) {
         withFrameNanos { }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.VISUAL_STATE_CALLBACK) && tab.webView.isAttachedToWindow) {

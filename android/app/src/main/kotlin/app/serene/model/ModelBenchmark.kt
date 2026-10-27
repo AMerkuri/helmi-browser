@@ -50,9 +50,11 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
         override fun toString() = "${mb(total)} (native ${mb(native)}, graphics ${mb(graphics)})"
     }
 
-    private fun mem(): Mem {
-        val mi = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
-        return Mem(mi.totalPss, mi.nativePss, mi.getMemoryStat("summary.graphics")?.toIntOrNull() ?: 0)
+    companion object {
+        fun mem(): Mem {
+            val mi = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }
+            return Mem(mi.totalPss, mi.nativePss, mi.getMemoryStat("summary.graphics")?.toIntOrNull() ?: 0)
+        }
     }
 
     fun records(): List<Row> = context.assets.open("labeled-features.jsonl").bufferedReader().useLines { lines ->

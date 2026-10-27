@@ -8,6 +8,7 @@ import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -17,6 +18,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -80,6 +85,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,6 +97,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInWindow
@@ -101,7 +108,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -112,11 +118,13 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
+import app.serene.engine.siteOf
 import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
 import java.io.File
@@ -136,6 +144,12 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     HistoryBackHandler(tab)
     // A swipe or pull left half way (another tab, another screen) puts its page back.
     DisposableEffect(tab) { onDispose { tab.swipe.reset(); tab.pull.reset() } }
+    // A sideways drag on the bottom bar turns the cube to the tab beside this one.
+    val scope = rememberCoroutineScope()
+    val cube = remember { TabCube(tabs, scope) }
+    DisposableEffect(Unit) { onDispose { cube.reset() } }
+    val window = LocalActivity.current?.window
+    val focusManager = LocalFocusManager.current
 
     // Android 13+: the download notification needs permission. Ask once, at the first download.
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -173,7 +187,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                     .navigationBarsPadding()
                     .imePadding(),
             ) {
-                UrlBar(app, tab, covered, onShield = { showSite = true })
+                UrlBar(app, tab, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
                 if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
                 else Spacer(Modifier.height(2.dp))
                 val density = LocalDensity.current
@@ -182,7 +196,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                         tab.swipe.width = it.width.toFloat()
                         tab.swipe.flingVelocity = with(density) { 800.dp.toPx() }
                         tab.pull.trigger = with(density) { 72.dp.toPx() }
-                    }.onGloballyPositioned { onPageBounds(it.boundsInRoot()) },
+                        cube.width = it.width.toFloat()
+                        cube.flingVelocity = with(density) { 800.dp.toPx() }
+                    }.onGloballyPositioned { onPageBounds(it.boundsInRoot()); cube.bounds = it.boundsInWindow() },
                 ) {
                     val startPage = tab.url.isEmpty() || tab.url == "about:blank"
                     val downloadPage = tab.downloadPage
@@ -212,11 +228,22 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                     // target covers the WebView until the new page has drawn.
                     if (swipe.active && swipe.targetOnTop) SwipeTarget(swipe)
                     PullIndicator(tab)
+                    TabCubeFaces(cube, app)
                 }
-                BottomBar(
-                    app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
-                    onReader = openReader,
-                )
+                // The buttons still take taps: a drag starts only once the finger has moved.
+                Column(
+                    Modifier.draggable(
+                        rememberDraggableState { cube.drag(it) },
+                        Orientation.Horizontal,
+                        onDragStarted = { focusManager.clearFocus(); cube.start(window) },
+                        onDragStopped = { cube.release(it) },
+                    ),
+                ) {
+                    BottomBar(
+                        app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
+                        onReader = openReader,
+                    )
+                }
             }
             reader?.let { page ->
                 ReaderView(
@@ -244,7 +271,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, onShield: () -> Unit) {
+private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, autofocus: Boolean, onShield: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     // The state-based field: dragging the cursor handle past the edge keeps scrolling the text,
     // where the TextFieldValue one stopped a character past what was on screen.
@@ -271,8 +298,9 @@ private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, onShield: () -> U
             scroll.scrollTo(0)
         }
     }
-    // A new tab starts with the keyboard up, once the switcher (if any) is gone.
-    LaunchedEffect(tab.id, covered) { if (!covered && tab.url.isEmpty()) focus.requestFocus() }
+    // A new tab starts with the keyboard up, once the switcher (if any) is gone. Not one turned
+    // to on the bar's cube: that is flipping through tabs, not starting one.
+    LaunchedEffect(tab.id, covered) { if (!covered && autofocus && tab.url.isEmpty()) focus.requestFocus() }
     // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome.
     val imeVisible = WindowInsets.isImeVisible
     var imeWasVisible by remember { mutableStateOf(false) }
@@ -396,6 +424,17 @@ private fun BottomBar(
                         onClick = { close(); app.settings.setSiteEnabled(site, !enabled); tab.reload() },
                     )
                 }
+                // Chrome's ⋮ › Dark theme: this site darkened or not, the setting until switched here.
+                // Only in the dark theme: WebView darkens nothing in the light one.
+                if (onPage && isSystemInDarkTheme() && WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                    val darkSite = siteOf(tab.url)
+                    val dark = app.settings.darkSite(darkSite)
+                    DropdownMenuItem(
+                        text = { Text("Dark theme") },
+                        trailingIcon = { Switch(checked = dark, onCheckedChange = null) },
+                        onClick = { close(); app.settings.setDarkSite(darkSite, !dark) },
+                    )
+                }
                 DropdownMenuItem(text = { Text("What Serene did here") }, onClick = { close(); onSite() })
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { close(); onOpen(Screen.Settings) })
             }
@@ -440,27 +479,6 @@ private object AboveAnchor : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
         val x = if (layoutDirection == LayoutDirection.Ltr) anchorBounds.right - popupContentSize.width else anchorBounds.left
         return IntOffset(x.coerceAtLeast(0), anchorBounds.top - popupContentSize.height)
-    }
-}
-
-@Composable
-private fun StartPage(app: SereneApp) {
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(64.dp))
-            Icon(painterResource(R.drawable.ic_shield), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
-            Spacer(Modifier.height(12.dp))
-            Text("Serene", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Cookie banners, newsletter pop-ups and other overlays are cleared for you.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(24.dp))
-            val model = if (app.models.readyFile() != null && app.settings.modelEnabled) "on-device model ready" else "filter lists and heuristics (no model)"
-            Text("Engine: $model", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
     }
 }
 

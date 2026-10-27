@@ -5,3 +5,4 @@ local.properties
 *.iml
 .kotlin/
 rules-jni/target/
+__pycache__/

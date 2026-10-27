@@ -178,6 +178,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         super.onStop()
         tabs.save()
         TabPreviews.save(this, tabs.tabs)
+        (application as SereneApp).stats.save()
     }
 
     override fun onDestroy() {

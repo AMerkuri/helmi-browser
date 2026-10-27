@@ -6,7 +6,7 @@ Android browser that removes page annoyances (cookie banners, newsletter boxes, 
 
 - `engine/`: the engine in JS. `src/content/serene.js` is the content script (it ships in the app unchanged); `src/host/` is the host side (rules, policy, cache, prompt). Fixture pages with their expected verdicts are in `test/fixtures/`.
 - `android/`: the app (Kotlin, Compose, WebView). `app/src/main/kotlin/app/serene/engine/` is the Kotlin port of `engine/src/host` (`Policy.kt` mirrors `policy.mjs`, `PolicyTest.kt` mirrors `policy.test.mjs`). `rules-jni/` is adblock-rust over JNI.
-- `.github/ISSUE_TEMPLATE/missed-popup.yml`: the form the app's "Report missed popup" fills in. Its field ids are the query parameters set in `android/.../report/IssueReport.kt`, so rename them in both places.
+- `.github/ISSUE_TEMPLATE/missed-popup.yml`: the form the app's "Report missed popup" fills in. Its field ids are the query parameters set in `android/.../report/IssueReport.kt`, so rename them in both places. Same for `npu-model.yml` and `android/.../report/NpuRequest.kt` ("Request a model for this phone's NPU").
 
 ## Rules
 

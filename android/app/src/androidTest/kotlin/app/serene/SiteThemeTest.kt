@@ -27,7 +27,8 @@ import kotlin.concurrent.thread
  * with no dark theme is darkened and its pictures keep their colors, a drawing included (WebView
  * would invert that one); a page with its own dark theme shows it as is. With the setting off, or
  * in the light theme, the light page stays light. The theme changes while the page is open, as
- * when the phone switches to dark.
+ * when the phone switches to dark. A site's own choice (⋮ › Dark theme) overrides the setting for
+ * that site only.
  */
 @RunWith(AndroidJUnit4::class)
 class SiteThemeTest {
@@ -59,6 +60,20 @@ class SiteThemeTest {
                 setTheme(app, ThemeMode.DARK, darkSites = false)
                 expect(tab!!, "dark theme, dark sites off", prefersDark = true, background = WHITE, pictures = true)
 
+                // ⋮ › Dark theme: the site's own choice wins over the setting, both ways, and
+                // stays with the site: another site (localhost) follows the setting.
+                setDarkSite(app, SITE, true)
+                expect(tab!!, "dark sites off, on for the site", prefersDark = true, background = DARK, pictures = true)
+                setTheme(app, ThemeMode.DARK, darkSites = true)
+                setDarkSite(app, SITE, false)
+                expect(tab!!, "dark sites on, off for the site", prefersDark = true, background = WHITE, pictures = true)
+                load(tab!!, "http://localhost:${server.localPort}/light.html", "Serene light page")
+                expect(tab!!, "dark sites on, another site", prefersDark = true, background = DARK, pictures = true)
+                load(tab!!, "http://$SITE:${server.localPort}/light.html", "Serene light page")
+                expect(tab!!, "dark sites on, back on the site that is off", prefersDark = true, background = WHITE, pictures = true)
+                InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.resetDarkSite(SITE) }
+                expect(tab!!, "the site back on the setting", prefersDark = true, background = DARK, pictures = true)
+
                 setTheme(app, ThemeMode.DARK, darkSites = true)
                 load(tab!!, "http://127.0.0.1:${server.localPort}/native.html", "Serene native dark page")
                 expect(tab!!, "dark theme, page with its own dark theme", prefersDark = true, background = Color.rgb(0xff, 0xee, 0x88), pictures = false)
@@ -68,6 +83,7 @@ class SiteThemeTest {
                 InstrumentationRegistry.getInstrumentation().runOnMainSync {
                     app.settings.theme = ThemeMode.SYSTEM
                     app.settings.darkSites = true
+                    app.settings.resetDarkSite(SITE)
                 }
                 server.close()
             }
@@ -80,6 +96,9 @@ class SiteThemeTest {
             app.settings.theme = theme
             app.settings.darkSites = darkSites
         }
+
+    private fun setDarkSite(app: SereneApp, site: String, on: Boolean) =
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.setDarkSite(site, on) }
 
     private fun load(tab: Tab, url: String, title: String) {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { tab.load(url) }
@@ -188,6 +207,7 @@ class SiteThemeTest {
     companion object {
         private const val WHITE = Color.WHITE
         private const val DARK = 1 // any dark background: WebView picks the shade
+        private const val SITE = "127.0.0.1"
 
         private const val PICTURES =
             "<img src=photo.png style='position:absolute;left:20px;top:60px;width:100px;height:100px'>" +

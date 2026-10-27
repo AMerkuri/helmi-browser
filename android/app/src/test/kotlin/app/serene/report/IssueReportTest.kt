@@ -51,6 +51,30 @@ class IssueReportTest {
         assertFalse(url.contains("s3cr3t"))
     }
 
+    @Test fun dropsQueryStringsInsideTheLogAndHtml() {
+        val r = buildJsonObject {
+            for ((k, v) in report()) put(k, v)
+            put("log", JsonArray(listOf(
+                JsonPrimitive("350ms hello from top https://news.example.com/story?session=s3cr3t#top"),
+                JsonPrimitive("815ms hello from frame https://login.example.net/frame?state=st4te99&origin=x"),
+                JsonPrimitive("900ms blocked script https://ads.example.org/tag.js"),
+            )))
+            put("snapshot", buildJsonObject {
+                put("overlays", JsonArray(listOf(buildJsonObject {
+                    put("sig", "div.nl-box")
+                    put("html", "<a href=\"https://news.example.com/unsub?email=a%40b.c&amp;id=7\">Unsubscribe</a><img src='https://cdn.example.com/logo.png#token=xyz'>")
+                })))
+            })
+        }
+        val url = IssueReport.url(r, "n")
+        for (secret in listOf("s3cr3t", "st4te99", "a%40b.c", "token=xyz")) assertFalse(secret, URLDecoder.decode(url, "UTF-8").contains(secret))
+        val p = params(url)
+        assertTrue(p.getValue("engine").contains("hello from top https://news.example.com/story\n"))
+        assertTrue(p.getValue("engine").contains("hello from frame https://login.example.net/frame\n"))
+        assertTrue(p.getValue("engine").contains("blocked script https://ads.example.org/tag.js"))
+        assertTrue(p.getValue("overlay").contains("<a href=\"https://news.example.com/unsub\">Unsubscribe</a><img src='https://cdn.example.com/logo.png'>"))
+    }
+
     @Test fun trimsToTheUrlLimit() {
         val url = IssueReport.url(report(logLines = 200, html = "<div>" + "x".repeat(6000) + "</div>"), "note")
         assertTrue("${url.length}", url.length <= IssueReport.MAX_URL)

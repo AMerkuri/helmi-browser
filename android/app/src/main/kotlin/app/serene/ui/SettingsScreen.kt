@@ -2,8 +2,12 @@ package app.serene.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
 import android.text.format.DateUtils
 import android.text.format.Formatter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +34,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +57,8 @@ import app.serene.ThemeMode
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
+import app.serene.model.NpuBenchmark
+import app.serene.report.NpuRequest
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,13 +89,19 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             )
             ListItem(
                 headlineContent = { Text("Browsing data") },
-                supportingContent = { Text("Cookies and site storage for every site, including consent choices.") },
-                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { } }) { Text("Clear") } },
+                supportingContent = { Text("Cookies and site storage for every site, including consent choices, and the most cleaned-up sites on the new tab page.") },
+                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { }; app.stats.forgetSites() }) { Text("Clear") } },
             )
             ListItem(
                 headlineContent = { Text("Learned site rules") },
                 supportingContent = { Text("Decisions remembered for ${remember(tick) { app.engine.cache.siteCount() }} sites, so the model runs about once per site.") },
                 trailingContent = { OutlinedButton(onClick = { app.engine.cache.clear() }) { Text("Forget") } },
+            )
+
+            ListItem(
+                headlineContent = { Text("Statistics") },
+                supportingContent = { Text("The totals on the new tab page, counted since ${DateUtils.formatDateTime(ctx, app.stats.totals.since, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR)}.") },
+                trailingContent = { OutlinedButton(onClick = { app.stats.reset() }) { Text("Reset") } },
             )
 
             Section("On-device model")
@@ -118,6 +131,16 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 "Darkens sites that have no dark theme of their own. Sites with one use it, and pictures keep their colors.",
                 s.darkSites, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.darkSites = it }
+            // Sites switched in ⋮ › Dark theme; X puts one back on the setting above.
+            s.darkSiteChoices.toSortedMap().forEach { (site, on) ->
+                ListItem(
+                    headlineContent = { Text(site) },
+                    supportingContent = { Text(if (on) "Dark theme on" else "Dark theme off") },
+                    trailingContent = {
+                        IconButton(onClick = { s.resetDarkSite(site) }) { Icon(Icons.Filled.Close, "Use the setting for $site") }
+                    },
+                )
+            }
 
             Section("Search")
             SearchEngine.entries.forEach { e ->
@@ -157,19 +180,30 @@ private fun ModelSection(app: SereneApp) {
     val s = app.settings
     val ctx = LocalContext.current
     val m = app.models
+    fun pick(id: String) {
+        if (id == s.modelId) return
+        m.select(id)
+        app.unloadModel() // the old one, now rather than after its idle timeout
+    }
     Text(
         "Qwen3-0.6B runs on the phone and only looks at overlays the filter lists and heuristics are unsure about. " +
             "Nothing is sent anywhere. Without it Serene still works, using lists and heuristics only.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp),
     )
-    ModelCatalog.all.forEach { spec ->
-        Row(Modifier.fillMaxWidth().clickable { m.select(spec.id) }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = s.modelId == spec.id, onClick = { m.select(spec.id) })
+    ModelCatalog.available.forEach { spec ->
+        Row(Modifier.fillMaxWidth().clickable { pick(spec.id) }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = m.spec.id == spec.id, onClick = { pick(spec.id) })
             Column {
                 Text("${spec.name} · ${Formatter.formatShortFileSize(ctx, spec.sizeBytes)}")
                 Text(spec.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+    }
+    // A Snapdragon whose NPU has no model yet: ask for one (.github/ISSUE_TEMPLATE/npu-model.yml).
+    if (NpuBenchmark.supported && ModelCatalog.available.none { it.npu }) {
+        TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(NpuRequest.url()))) }, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text("Request a model for this phone's NPU")
         }
     }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -186,7 +220,7 @@ private fun ModelSection(app: SereneApp) {
             ModelState.Ready -> {
                 Text("Downloaded. Status: ${app.classifierInfo()}", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(6.dp))
-                OutlinedButton(onClick = m::delete) { Text("Delete model") }
+                OutlinedButton(onClick = { m.delete(); app.unloadModel() }) { Text("Delete model") }
                 Spacer(Modifier.height(12.dp))
                 BenchmarkSection(app)
             }
@@ -196,7 +230,7 @@ private fun ModelSection(app: SereneApp) {
             }
         }
     }
-    SwitchRow("Use the model", "For overlays the heuristics are unsure about.", s.modelEnabled) { s.modelEnabled = it }
+    SwitchRow("Use the model", "For overlays the heuristics are unsure about.", s.modelEnabled) { s.modelEnabled = it; if (!it) app.unloadModel() }
     SwitchRow("Download on Wi-Fi only", null, s.wifiOnlyDownloads) { s.wifiOnlyDownloads = it }
     SwitchRow("Skip the model in battery saver", "Lists and heuristics only while battery saver is on.", s.skipModelOnBatterySaver) { s.skipModelOnBatterySaver = it }
 }
@@ -205,25 +239,71 @@ private fun ModelSection(app: SereneApp) {
 @Composable
 private fun BenchmarkSection(app: SereneApp) {
     val ctx = LocalContext.current
-    Text("Model benchmark", style = MaterialTheme.typography.bodyMedium)
+    // A model compiled for the NPU runs only there: its benchmark is NpuBenchmarkRow's.
+    if (!app.models.spec.npu) {
+        Text("Model benchmark", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "Runs 57 sample overlays through the model twice, to measure speed and accuracy on this phone. Takes a few minutes; keep the screen on.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        val progress = app.benchmarkProgress
+        if (progress != null) {
+            Text("Running: $progress")
+        } else {
+            OutlinedButton(onClick = app::runBenchmark, enabled = app.npuBenchmarkProgress == null) { Text(if (app.benchmarkReport == null) "Run benchmark" else "Run again") }
+        }
+        app.benchmarkReport?.let { report ->
+            Spacer(Modifier.height(6.dp))
+            Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+            Spacer(Modifier.height(6.dp))
+            Button(onClick = {
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene model benchmark", report))
+            }) { Text("Copy results") }
+        }
+    }
+    if (NpuBenchmark.supported) NpuBenchmarkRow(app)
+}
+
+// The same overlays on the Qualcomm NPU (NpuBenchmark), in a separate process.
+@Composable
+private fun NpuBenchmarkRow(app: SereneApp) {
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) { app.refreshNpuModel() }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(app::importNpuModel) }
+    val downloaded = app.models.spec.npu // this section only shows once the model is downloaded
+    Spacer(Modifier.height(12.dp))
+    Text(if (downloaded) "NPU benchmark" else "Model benchmark on the NPU", style = MaterialTheme.typography.bodyMedium)
     Text(
-        "Runs 57 sample overlays through the model twice, to measure speed and accuracy on this phone. Takes a few minutes; keep the screen on.",
+        when {
+            app.npuCompiledModel -> "Runs the sample overlays on the NPU with the NPU model picked by hand (${app.npuCompiledModelInfo}), in a separate process. Takes a minute."
+            downloaded -> "Runs the sample overlays through the model on the NPU, in a separate process, to measure speed, accuracy and memory. Takes a minute."
+            else -> "For testing an npu-model build from GitHub Actions: pick its .zip (or the .litertlm in it) to run it on the NPU."
+        },
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(6.dp))
-    val progress = app.benchmarkProgress
+    val progress = app.npuBenchmarkProgress
     if (progress != null) {
         Text("Running: $progress")
     } else {
-        OutlinedButton(onClick = app::runBenchmark) { Text(if (app.benchmarkReport == null) "Run benchmark" else "Run again") }
+        if (downloaded || app.npuCompiledModel) {
+            OutlinedButton(onClick = app::runNpuBenchmark, enabled = app.benchmarkProgress == null) {
+                Text(if (app.npuBenchmarkReport == null) "Run NPU benchmark" else "Run NPU benchmark again")
+            }
+        }
+        Row {
+            TextButton(onClick = { pick.launch(arrayOf("*/*")) }) { Text(if (app.npuCompiledModel) "Replace picked NPU model" else "Pick NPU model") }
+            if (app.npuCompiledModel) TextButton(onClick = app::deleteNpuModel) { Text("Remove picked NPU model") }
+        }
     }
-    app.benchmarkReport?.let { report ->
+    app.npuBenchmarkReport?.let { report ->
         Spacer(Modifier.height(6.dp))
         Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
         Spacer(Modifier.height(6.dp))
         Button(onClick = {
-            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene model benchmark", report))
-        }) { Text("Copy results") }
+            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene NPU benchmark", report))
+        }) { Text("Copy NPU results") }
     }
 }
 
