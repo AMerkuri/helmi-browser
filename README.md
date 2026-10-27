@@ -6,4 +6,4 @@ Status: MVP Android app. Stack decisions: [docs/decisions.md](docs/decisions.md)
 
 Reader mode: [docs/reader.md](docs/reader.md).
 
-License: [GPL-3.0](LICENSE). The app bundles [autoconsent](https://github.com/duckduckgo/autoconsent) (MPL-2.0), [Readability](https://github.com/mozilla/readability) (Apache-2.0) and [adblock-rust](https://github.com/brave/adblock-rust) (MPL-2.0), each under its own license.
+License: [GPL-3.0](LICENSE). The app bundles [autoconsent](https://github.com/duckduckgo/autoconsent) (MPL-2.0), [Readability](https://github.com/mozilla/readability) (Apache-2.0), [uBlock Origin](https://github.com/gorhill/uBlock)'s scriptlets (GPL-3.0) and [adblock-rust](https://github.com/brave/adblock-rust) (MPL-2.0), each under its own license.

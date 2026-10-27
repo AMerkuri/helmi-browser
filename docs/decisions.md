@@ -39,7 +39,7 @@ Flow per navigation:
 2. Page start → `engine.url_cosmetic_resources(url)` → hide selectors + scriptlets injected by the document-start script.
 3. After DOM settles → page sends class/id sets → `engine.hidden_class_id_selectors` → more CSS (generic rules).
 
-Lists: EasyList Cookie List and Fanboy's Annoyances (GPLv3 / CC BY-SA), uBlock filters – Annoyances and Cookie Notices (GPLv3). Fetching them at runtime from their upstream URLs keeps list licensing separate from app code and keeps rules fresh (refresh every 1–4 days, over Wi-Fi / unmetered by default). Ship a small compiled snapshot only if first-run-offline matters.
+Lists: EasyList Cookie List and Fanboy's Annoyances (GPLv3 / CC BY-SA), uBlock filters – Annoyances and Cookie Notices (GPLv3). Fetching them at runtime from their upstream URLs keeps list licensing separate from app code and keeps rules fresh (refresh every 1–4 days, over Wi-Fi / unmetered by default). Ship a small compiled snapshot only if first-run-offline matters. uBO's scriptlets (GPLv3) are the exception: there is no upstream file adblock-rust can read, so `npm run build` turns a pinned uBO release into `engine/dist/scriptlets.json`, which the app ships as an asset; the app is GPL-3.0 too.
 
 Rules alone catch most cookie banners on big sites. The LLM is for the long tail: small sites, newsletter and "special offer" modals, custom login walls, and new CMP variants the lists haven't caught yet.
 

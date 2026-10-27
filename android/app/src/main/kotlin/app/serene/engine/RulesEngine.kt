@@ -30,6 +30,9 @@ class RulesEngine private constructor(private var handle: Long) {
      */
     var consent: RulesEngine? = null
 
+    /** One filter list. [trusted] lists may inject the scriptlets uBO reserves for its own lists. */
+    data class ListText(val text: String, val trusted: Boolean = false)
+
     /** Generic selectors for the class/id tokens seen in a page, split like [Cosmetic]. */
     data class Generic(val hide: List<String>, val consent: List<String>)
 
@@ -77,15 +80,19 @@ class RulesEngine private constructor(private var handle: Long) {
             System.loadLibrary("serene_rules")
         }
 
-        /** Parse filter lists. Takes a second or two on a phone for ~65k rules: call off the main thread. */
-        fun fromLists(lists: List<String>, resourcesJson: String): RulesEngine? =
-            nativeCreate(lists.toTypedArray(), resourcesJson).takeIf { it != 0L }?.let(::RulesEngine)
+        /**
+         * Parse filter lists. Takes a second or two on a phone for ~65k rules: call off the main thread.
+         * [resourcesJson]: uBO's scriptlets, as engine/dist/scriptlets.json or a bare resource array.
+         */
+        fun fromLists(lists: List<ListText>, resourcesJson: String): RulesEngine? =
+            nativeCreate(lists.map { it.text }.toTypedArray(), lists.map { it.trusted }.toBooleanArray(), resourcesJson)
+                .takeIf { it != 0L }?.let(::RulesEngine)
 
         /** Load an engine saved with [serialize]: much faster than parsing the lists again. */
         fun fromSerialized(data: ByteArray, resourcesJson: String): RulesEngine? =
             nativeDeserialize(data, resourcesJson).takeIf { it != 0L }?.let(::RulesEngine)
 
-        @JvmStatic private external fun nativeCreate(lists: Array<String>, resources: String): Long
+        @JvmStatic private external fun nativeCreate(lists: Array<String>, trusted: BooleanArray, resources: String): Long
         @JvmStatic private external fun nativeDeserialize(data: ByteArray, resources: String): Long
         @JvmStatic private external fun nativeSerialize(handle: Long): ByteArray?
         @JvmStatic private external fun nativeDestroy(handle: Long)

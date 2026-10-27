@@ -7,13 +7,18 @@ import path from 'node:path';
 // files. Fanboy's Annoyance List already includes the EasyList Cookie List.
 // `consent` marks the cookie-banner rules: the whole list, or the EasyList Cookie sections of a
 // combined list. Those banners are parked rather than hidden while autoconsent answers them.
+// `trusted` lists may use the scriptlets uBO reserves for its own lists (trusted-click-element,
+// trusted-set-cookie, ...): uBO's lists, as in uBO. Any other list is parsed without that permission.
 export const DEFAULT_LISTS = [
   { name: 'fanboy-annoyance.txt', url: 'https://raw.githubusercontent.com/easylist/easylist/gh-pages/fanboy-annoyance.txt', consent: 'easylist-cookie-sections' },
-  { name: 'annoyances-cookies.txt', url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt', consent: 'all' },
-  { name: 'annoyances-others.txt', url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-others.txt' },
+  { name: 'annoyances-cookies.txt', url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt', consent: 'all', trusted: true },
+  { name: 'annoyances-others.txt', url: 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-others.txt', trusted: true },
 ];
-// uBO scriptlets/redirect resources in the format adblock-rust's useResources() expects.
-export const RESOURCES = { name: 'resources.json', url: 'https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json' };
+// adblock-rust permission bit for trusted scriptlets (build.mjs sets it on uBO's requiresTrust ones).
+export const TRUSTED = 1;
+// uBO's scriptlets in the format adblock-rust's useResources() expects, built into dist/ by
+// build.mjs from a pinned uBO release, so the app ships them instead of downloading them.
+const SCRIPTLETS = new URL('../../dist/scriptlets.json', import.meta.url);
 
 const MAX_AGE_MS = 4 * 24 * 3600 * 1000;
 
@@ -53,8 +58,8 @@ export async function loadLists(dir, opts = {}) {
   const lists = [];
   for (const l of opts.lists ?? DEFAULT_LISTS) {
     const text = await fetchCached(dir, l, opts);
-    lists.push({ name: l.name, text, consentText: consentPart(text, l.consent) });
+    lists.push({ name: l.name, text, consentText: consentPart(text, l.consent), trusted: !!l.trusted });
   }
-  const resources = JSON.parse(await fetchCached(dir, RESOURCES, opts));
+  const { resources } = JSON.parse(await fs.readFile(SCRIPTLETS, 'utf8'));
   return { lists, resources };
 }
