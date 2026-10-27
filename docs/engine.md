@@ -362,8 +362,7 @@ Done in [android/](../android); its README maps each piece below to the Kotlin f
 The app's new tab page shows lifetime totals ([`Stats.kt`](../android/app/src/main/kotlin/app/serene/stats/Stats.kt), saved to `stats.json`; the engine reports through `EngineEvents`):
 
 - *Annoyances cleared*, by label: candidates the engine clicked away or hid (cached rules too), cookie banners autoconsent opted out of, and cookie banners the lists hid (`listHit`). An element counts once per page, and a page has at most one cookie banner however many layers dealt with it. Other elements the lists' cosmetic rules hide are not counted: nothing tells a real pop-up from a hidden empty box.
-- *Requests blocked*, by request type, and *data saved* from them. The app never fetches a blocked request, so its size is a typical one for its type. [`harness/blocked-sizes.mjs`](../engine/harness/blocked-sizes.mjs) measured that on the 30 crawl sites (from the US, 2026-10-26) by loading each with nothing blocked: the annoyance lists would block only 27 requests, 25 of them scripts (cookie, newsletter and chat widgets), 27 KB on average (median 7 KB). Scripts count 27 KB; the rarer types get small, cautious sizes. What a blocked script would have loaded in turn is not counted.
-- *Time saved*: 3 s per annoyance, a guess at closing one by hand.
+- *Requests blocked* by the lists, by request type. Few: these are annoyance lists, not ad or tracker lists; on the 30 crawl sites (from the US, 2026-10-26) they would block 27 requests, 25 of them cookie, newsletter and chat widget scripts. Data and time saved were tried and dropped (Artur, 2026-10-26): both could only be estimates.
 - Tracking refused (autoconsent opt-outs), pages visited with Serene on, model calls and their average time, and the three sites with the most blocked requests and annoyances (at most 200 sites are kept, the busiest; Clear browsing data forgets them).
 
 ## Known gaps

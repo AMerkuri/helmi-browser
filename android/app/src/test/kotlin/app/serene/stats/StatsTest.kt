@@ -11,15 +11,14 @@ import org.junit.Test
 
 class StatsTest {
     @Test
-    fun totalsAddUpAndEstimate() {
+    fun totalsAddUp() {
         var t = Totals(since = 0)
         repeat(3) { t = t.withBlocked("example.com", "script") }
         t = t.withBlocked("example.com", "image").withBlocked("news.example", "xmlhttprequest")
         t = t.withCleared("news.example", "cookie_consent").withCleared("news.example", "newsletter").withPage().withModelCall(800)
         assertEquals(5, t.requestsBlocked)
         assertEquals(2, t.annoyances)
-        assertEquals(3 * 27_000L + 10_000 + 2_000, t.bytesSaved)
-        assertEquals(6, t.secondsSaved)
+        assertEquals(3L, t.requests["script"])
         assertEquals(listOf("example.com" to 4L, "news.example" to 3L), t.busiestSites(5))
         // Saved and read back as the app does.
         assertEquals(t, EngineJson.decodeFromString(Totals.serializer(), EngineJson.encodeToString(Totals.serializer(), t)))
@@ -33,15 +32,6 @@ class StatsTest {
         assertTrue(t.sites.size <= Totals.MAX_SITES)
         assertEquals(5L, t.sites["busy.example"])
         assertEquals(Totals.MAX_SITES + 5L, t.requestsBlocked) // the totals themselves stay
-    }
-
-    @Test
-    fun durations() {
-        assertEquals("45 s", formatDuration(45))
-        assertEquals("12 min", formatDuration(12 * 60 + 5))
-        assertEquals("3 h 5 min", formatDuration(3 * 3600 + 5 * 60))
-        assertEquals("2 h", formatDuration(7200))
-        assertEquals("2 d 4 h", formatDuration(52 * 3600))
     }
 
     /** A page has one cookie banner, however many ways it was dealt with. */
