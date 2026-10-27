@@ -36,6 +36,7 @@ import java.text.NumberFormat
 /** A blank tab: what Serene is, and the totals of what it has cleared so far. */
 @Composable
 fun StartPage(app: SereneApp) {
+    androidx.compose.runtime.DisposableEffect(Unit) { val id = System.identityHashCode(this); android.util.Log.i("TabCubeDiag", "start page enter $id"); onDispose { android.util.Log.i("TabCubeDiag", "start page leave $id") } }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),

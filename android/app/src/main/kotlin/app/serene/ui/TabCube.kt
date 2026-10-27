@@ -246,6 +246,7 @@ fun TabCubeFaces(cube: TabCube, app: SereneApp) {
     // under it for every tab after, until the screen was rebuilt.
     val from = cube.from
     val arrived = cube.arrived
+    android.util.Log.i("TabCubeDiag", "compose faces showing=${cube.showing} covering=${cube.covering} from=${from?.id} arrived=${arrived?.id}")
     when {
         !cube.showing || from == null -> Unit
         cube.covering && arrived != null -> Face(arrived, null, app, Modifier.graphicsLayer { alpha = cube.coverAlpha }, shade = { 0f })
@@ -284,6 +285,7 @@ private fun Modifier.cubeFace(pos: () -> Float) = graphicsLayer {
 /** A tab's page on a face: [image], else its switcher picture, else its start page or title. */
 @Composable
 private fun Face(tab: Tab, image: ImageBitmap?, app: SereneApp, modifier: Modifier, shade: () -> Float) {
+    androidx.compose.runtime.DisposableEffect(Unit) { android.util.Log.i("TabCubeDiag", "face enter tab=${tab.id}"); onDispose { android.util.Log.i("TabCubeDiag", "face leave tab=${tab.id}") } }
     val preview = TabPreviews.get(tab)
     val shown = image ?: remember(preview) { preview?.asImageBitmap() }
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {

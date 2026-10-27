@@ -302,6 +302,17 @@ class TabCubeTest {
                 n.children.forEach { sem(it, depth + 1) }
             }
             find(a.window.decorView)?.semanticsOwner?.unmergedRootSemanticsNode?.let { sem(it, 0) }
+            // The layout nodes, by reflection: LayoutNode's children are internal.
+            fun layout(n: Any, depth: Int) {
+                val info = n as androidx.compose.ui.layout.LayoutInfo
+                val mods = info.getModifierInfo().joinToString(",") { it.modifier.javaClass.simpleName }
+                Log.i("TabCubeDiag", "  ".repeat(depth) + "node placed=${info.isPlaced} deactivated=${info.isDeactivated} ${info.width}x${info.height} mods=[$mods]")
+                val m = n.javaClass.methods.firstOrNull { it.name.startsWith("getChildren") && it.parameterCount == 0 && List::class.java.isAssignableFrom(it.returnType) }
+                (m?.invoke(n) as? List<*>)?.forEach { c -> if (c != null) layout(c, depth + 1) }
+            }
+            val owner = find(a.window.decorView)
+            val root = owner?.javaClass?.methods?.firstOrNull { it.name == "getRoot" && it.parameterCount == 0 }?.invoke(owner)
+            if (root != null) layout(root, 0) else Log.i("TabCubeDiag", "no layout root")
         }
         fun nodes(n: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
             n ?: return
