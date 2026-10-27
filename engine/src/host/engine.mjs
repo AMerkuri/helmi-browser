@@ -78,8 +78,10 @@ class PageSession {
     if (this.e.autoconsent && !this.e.contentConfig.observeOnly) out.autoconsent = this.e.autoconsent.forFrame(msg.url, frame.isTop);
     if (frame.isTop) {
       out.siteRules = this.e.cache.rulesFor(msg.url);
-      const cached = this.e.cache.cssFor(msg.url);
+      const parkCookies = !!out.autoconsent;
+      const cached = this.e.cache.cssFor(msg.url, { parkCookies });
       if (cached) out.css += '\n' + cached;
+      if (parkCookies) out.consentSelectors = [...out.consentSelectors, ...this.e.cache.cookieSelectorsFor(msg.url)];
     }
     frame.send(out);
   }

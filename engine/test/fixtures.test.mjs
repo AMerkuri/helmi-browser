@@ -158,3 +158,11 @@ test('a cached hide: on the next visit a focus trap still lets go', async () => 
   assert.ok(state.clicked.includes('story'), `should click "story", clicked ${JSON.stringify(state.clicked)}`);
   assert.equal(state.touchPrevented, false, 'the last tap should reach the page');
 });
+
+test('a cached cookie banner is parked, not hidden, so autoconsent still rejects it on the next visit', async () => {
+  const cache = new VerdictCache();
+  await runFixture('cookie-quantcast-style.html', { cache });
+  const { state } = await runFixture('cookie-quantcast-style.html', { cache });
+  assert.ok(state.gone, '#qc-cmp2-ui should be gone');
+  assert.deepEqual(state.clicked, ['reject']);
+});

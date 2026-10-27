@@ -22,6 +22,7 @@
     maxButtons: 8,
     consentParkMs: 10000, // longest a list-matched cookie banner waits for autoconsent
     consentHoldMs: 5000,  // longest the detector waits while autoconsent answers a popup
+    consentFindMs: 1000,  // how long a cookie banner Serene would hide waits for autoconsent to find it
     mutationScanMs: 100,  // a scan runs at most this long after the first DOM change (throttle, not debounce)
     newTokensWaitMs: 300, // longest a scan after DOM changes waits for generic rules for new class/id tokens
   };
@@ -42,6 +43,8 @@
     consent: { lifecycle: null, busySince: 0 }, // this frame's autoconsent progress
     scrollFixed: false,
     trapsReleasedAt: -Infinity,
+    touchReleasedAt: -Infinity,
+    cookieSeen: new WeakMap(), // cached cookie banners parked for autoconsent -> first seen
     pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
     scanMs: [],
   };
@@ -67,8 +70,8 @@
   // Seen here, after the page's listeners: let it go, unless a modal is still up (#24).
   for (const t of ['touchstart', 'mousedown']) {
     addEventListener(t, (e) => {
-      if (!e.isTrusted || !e.defaultPrevented || config.observeOnly || performance.now() - state.trapsReleasedAt < 1000) return;
-      if (hiddenEls().length && !otherModal()) releaseTraps();
+      if (!e.isTrusted || !e.defaultPrevented || config.observeOnly || performance.now() - state.touchReleasedAt < 1000) return;
+      if (hiddenEls().length && !otherModal()) { state.touchReleasedAt = performance.now(); releaseTraps(); }
     }, { passive: true });
   }
 
@@ -158,6 +161,7 @@
     state.consentParked = false;
     clearTimeout(state.parkTimer);
     renderConsentCss();
+    unparkBanners();
   }
 
   const AC_BUSY = new Set(['openPopupDetected', 'runningOptOut']);
@@ -382,12 +386,13 @@
       if (!f) continue;
       state.seen.add(root);
       const id = state.nextId++;
-      state.candidates.set(id, { el: root, buttons: f._buttons, sig: f.sig, iframes: f._iframes, backdrop: f.isBackdrop, modalish: !f.isBackdrop && !f.looksLikeLayout && f.edge !== 'top' && f.coverage > 0.05, seenAt: performance.now() });
+      state.candidates.set(id, { el: root, buttons: f._buttons, sig: f.sig, iframes: f._iframes, backdrop: f.isBackdrop, cookie: f.heuristic.label === 'cookie_consent', modalish: !f.isBackdrop && !f.looksLikeLayout && f.edge !== 'top' && f.coverage > 0.05, seenAt: performance.now() });
       delete f._buttons; delete f._iframes;
       out.push({ id, ...f });
       handleCandidate(id, f);
     }
     if (pending && state.pendingRetries < 10) { state.pendingRetries++; schedule(200); }
+    if (!config.observeOnly && state.consentParked) parkedCookieDeadline();
     // A locked page with nothing visible on top is what filter-list hides and cached hides
     // leave behind (the banner is gone, its scroll lock is not).
     const backdrops = [...state.candidates.values()].filter((c) => c.backdrop && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
@@ -671,8 +676,56 @@
       }, 900);
       return;
     }
+    // A cookie banner while autoconsent is still at work in this frame waits for it, parked like
+    // the lists' consent matches: hidden, autoconsent could not find it to reject it (techspot, #24).
+    if (c.cookie && state.consentParked) { park(c, v); return; }
     hide(c, v.id);
     send('applied', { id: v.id, action: 'hide', ok: true, source: v.source });
+  }
+
+  // Cookie banners hidden by a cached verdict come parked (consent selectors) so autoconsent can
+  // still reject them. Like a fresh one (park), one it has not found in consentFindMs is hidden.
+  function parkedCookieDeadline() {
+    for (const r of state.siteRules) {
+      if (r.action !== 'hide' || r.label !== 'cookie_consent') continue;
+      let els = [];
+      try { els = document.querySelectorAll(r.sig); } catch {}
+      for (const el of els) {
+        if (el.hasAttribute(ATTR)) continue;
+        const t = state.cookieSeen.get(el);
+        if (t == null) { state.cookieSeen.set(el, performance.now()); schedule(config.consentFindMs + 50); continue; }
+        const left = config.consentFindMs - (performance.now() - t);
+        if (left > 0) schedule(left + 50);
+        else if (!AC_BUSY.has(state.consent.lifecycle)) { hideEl(el, 'hidden'); releaseTraps(); restorePage(); }
+      }
+    }
+  }
+
+  function park(c, v) {
+    quarantine(v.id, false);
+    c.el.style.setProperty('opacity', '0', 'important');
+    c.el.style.setProperty('pointer-events', 'none', 'important');
+    c.parked = v;
+    restorePage();
+    // Not found by then: autoconsent has no rule for it, so hide it as before.
+    setTimeout(() => { if (!AC_BUSY.has(state.consent.lifecycle)) unpark(c); }, config.consentFindMs);
+  }
+
+  // Autoconsent is done (or out of time): a parked banner it answered is gone, the rest are hidden.
+  function unparkBanners() {
+    for (const c of state.candidates.values()) unpark(c);
+  }
+
+  function unpark(c) {
+    const v = c.parked;
+    if (!v) return;
+    c.parked = null;
+    c.el.style.removeProperty('opacity');
+    c.el.style.removeProperty('pointer-events');
+    const still = c.el.isConnected && visible(c.el);
+    if (still) hide(c);
+    else restorePage();
+    send('applied', { id: v.id, action: still ? 'hide' : 'autoconsent', ok: true, source: v.source });
   }
 
   function hide(c) {
@@ -723,7 +776,7 @@
   // What Serene hid: candidates it hid, and elements a cached hide verdict hides with CSS before
   // the detector ever sees them (a reload, techspot #24).
   function hiddenEls() {
-    const els = [...state.candidates.values()].filter((c) => c.hidden).map((c) => c.el);
+    const els = [...state.candidates.values()].filter((c) => c.hidden || c.parked).map((c) => c.el);
     for (const r of state.siteRules) {
       if (r.action !== 'hide') continue;
       try { els.push(...document.querySelectorAll(r.sig)); } catch {}

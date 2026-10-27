@@ -96,6 +96,10 @@ test('cache keys by registrable domain and emits CSS for hide verdicts', () => {
   c.put('https://b.example.com/y', { sig: 'div > div', label: 'newsletter', action: 'hide', source: 'llm' });
   assert.equal(c.rulesFor('https://example.com/').length, 2);
   assert.equal(c.cssFor('https://example.com/'), 'div.nl-modal{display:none!important}');
+  // With autoconsent on, a cookie banner is parked as a consent selector instead of hidden.
+  c.put('https://example.com/', { sig: 'div#cmp', label: 'cookie_consent', action: 'hide', source: 'heuristic' });
+  assert.equal(c.cssFor('https://example.com/', { parkCookies: true }), 'div.nl-modal{display:none!important}');
+  assert.deepEqual(c.cookieSelectorsFor('https://example.com/'), ['div#cmp']);
   c.undo('https://example.com/', 'div.nl-modal');
   assert.equal(c.rulesFor('https://example.com/')[0].action, 'ignore');
 });
