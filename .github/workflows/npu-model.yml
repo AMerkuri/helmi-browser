@@ -2,13 +2,12 @@ name: npu-model
 
 # Builds Qwen3-0.6B compiled ahead of time for the Snapdragon 8 Elite's NPU (android/npu-model)
 # and uploads it as an artifact. In the app, Settings → On-device model → Pick NPU model takes
-# the artifact's .zip as downloaded, and the NPU benchmark then runs it.
+# the artifact's .zip as downloaded, and the NPU benchmark then runs it; once it passes on a
+# phone, npu-model-release publishes it. Started by hand only (Actions › npu-model › Run
+# workflow, on the branch to build): a build takes 15-30 minutes and every one needs a phone
+# test, and a push trigger also fired whenever a branch merged main or touched this file.
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - android/npu-model/**
-      - .github/workflows/npu-model.yml
 
 concurrency:
   group: npu-model-${{ github.ref }}
