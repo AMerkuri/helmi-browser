@@ -75,7 +75,7 @@ navigation
 - A hidden dialog's focus trap (listeners on the document that cancel every touch and click outside the dialog) outlives the dialog, so the page shows but won't scroll. The engine sends Escape, which is how such traps let go: once when it hides a modal, and again if a touch is cancelled later with a dialog hidden and no other modal up.
 - On a later visit a cached hide verdict hides the dialog with CSS before the detector sees it. Elements matched by cached hide rules count as hidden too, so the dialog's dimmed wrapper is still cleared at once (which also sends Escape and keeps the page unlocked), and a cancelled touch still lets go of the trap.
 
-**Cache.** Verdicts are keyed by `(eTLD+1, selector signature)`. Signatures skip hashed class names. Hide verdicts with a usable selector go out as CSS at document start, so the overlay never flashes. Click verdicts store the button *label*, not its index. `undo()` stores an `ignore` rule. On the second visit to a fixture site, the model is not called again (tested).
+**Cache.** Verdicts are keyed by `(eTLD+1, selector signature)`. Signatures skip hashed class names. Hide verdicts with a usable selector go out as CSS at document start, so the overlay never flashes. Click verdicts store the button *label*, not its index. `undo()` stores an `ignore` rule (with the label it replaced); the site sheet lists these under "Shown on this site because you pressed Undo" with Hide again, which removes the rule so the next load judges the element afresh. On the second visit to a fixture site, the model is not called again (tested).
 
 ## Results so far
 

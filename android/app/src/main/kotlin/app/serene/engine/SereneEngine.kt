@@ -307,8 +307,18 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     /** The user says this was not an annoyance: leave it alone on this site from now on. */
     fun undo(rec: CandidateRecord) {
         val url = topUrl ?: rec.features.url
-        e.cache.undo(url, rec.features.sig)
+        e.cache.undo(url, rec.features.sig, rec.label?.takeIf { it != "content" })
         log("undo ${rec.features.sig}")
+    }
+
+    /** Elements the user undid on this site, which Helmi leaves alone until hidden again. */
+    fun undone(): List<SiteRule> = topUrl?.let(e.cache::undone) ?: emptyList()
+
+    /** Reverse an undo: drop the allow rule so the element is judged afresh on the next load. */
+    fun hideAgain(rule: SiteRule) {
+        val url = topUrl ?: return
+        e.cache.remove(url, rule.sig)
+        log("hide again ${rule.sig}")
     }
 
     /** Autoconsent progress in one frame: found a CMP popup, opted out (or failed), finished. */

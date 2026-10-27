@@ -18,13 +18,27 @@ export class VerdictCache {
     const site = siteOf(url);
     const list = (this.sites[site] ??= []);
     const i = list.findIndex((r) => r.sig === rule.sig);
-    const entry = { sig: rule.sig, label: rule.label, action: rule.action, buttonLabel: rule.buttonLabel, source: rule.source, ts: Date.now() };
+    const entry = { sig: rule.sig, label: rule.label, action: rule.action, buttonLabel: rule.buttonLabel, source: rule.source, was: rule.was, ts: Date.now() };
     if (i >= 0) list[i] = entry; else list.push(entry);
     this.save();
   }
 
-  /** User pressed undo: remember the element as content for this site. */
-  undo(url, sig) { this.put(url, { sig, label: 'content', action: 'ignore', source: 'user' }); }
+  /** User pressed undo: remember the element as content for this site. `was` keeps what it was
+   *  taken for, so the site sheet can name it and offer to hide it again. */
+  undo(url, sig, was = null) { this.put(url, { sig, label: 'content', action: 'ignore', source: 'user', was: was ?? undefined }); }
+
+  /** Elements the user undid on this site. */
+  undone(url) { return this.rulesFor(url).filter((r) => r.source === 'user'); }
+
+  /** Drop one rule, so the element is judged afresh on the next load (reverses an undo). */
+  remove(url, sig) {
+    const site = siteOf(url);
+    const list = this.sites[site];
+    if (!list) return;
+    this.sites[site] = list.filter((r) => r.sig !== sig);
+    if (!this.sites[site].length) delete this.sites[site];
+    this.save();
+  }
 
   save() { if (this.file) fs.writeFileSync(this.file, JSON.stringify(this.sites, null, 1)); }
 

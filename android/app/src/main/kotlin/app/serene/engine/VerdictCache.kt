@@ -24,6 +24,8 @@ data class SiteRule(
     val action: String,
     val buttonLabel: String? = null,
     val source: String,
+    /** For an undo: the label the element had before the user said it was content. */
+    val was: String? = null,
     val ts: Long = System.currentTimeMillis(),
 )
 
@@ -54,8 +56,22 @@ class VerdictCache(private val file: File? = null) {
         save()
     }
 
-    /** User pressed undo: remember the element as content for this site. */
-    fun undo(url: String, sig: String) = put(url, SiteRule(sig = sig, label = "content", action = "ignore", source = "user"))
+    /** User pressed undo: remember the element as content for this site. [was] keeps what it was
+     *  taken for, so the site sheet can name it and offer to hide it again. */
+    fun undo(url: String, sig: String, was: String? = null) =
+        put(url, SiteRule(sig = sig, label = "content", action = "ignore", source = "user", was = was))
+
+    /** Elements the user undid on this site. */
+    fun undone(url: String): List<SiteRule> = rulesFor(url).filter { it.source == "user" }
+
+    /** Drop one rule, so the element is judged afresh on the next load (reverses an undo). */
+    @Synchronized fun remove(url: String, sig: String) {
+        val site = siteOf(url)
+        val list = sites[site] ?: return
+        list.removeAll { it.sig == sig }
+        if (list.isEmpty()) sites.remove(site)
+        save()
+    }
 
     /** Forget everything learned for one site, or for all sites. */
     @Synchronized fun clear(site: String? = null) {
