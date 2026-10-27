@@ -296,7 +296,7 @@ class TabCubeTest {
             fun find(v: android.view.View): androidx.compose.ui.platform.ViewRootForTest? =
                 v as? androidx.compose.ui.platform.ViewRootForTest ?: (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { find(g.getChildAt(it)) } }
             fun sem(n: androidx.compose.ui.semantics.SemanticsNode, depth: Int) {
-                val text = n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString()
+                val text = n.config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.Text) { null }?.joinToString()
                 val mods = n.layoutInfo.getModifierInfo().joinToString(",") { it.modifier.javaClass.simpleName }
                 Log.i("TabCubeDiag", "  ".repeat(depth) + "sem #${n.id} text='$text' placed=${n.layoutInfo.isPlaced} attached=${n.layoutInfo.isAttached} size=${n.size} root=${n.boundsInRoot} mods=[$mods]")
                 n.children.forEach { sem(it, depth + 1) }
