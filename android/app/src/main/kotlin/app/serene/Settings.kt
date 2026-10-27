@@ -26,12 +26,8 @@ class Settings(context: Context) {
     /** Use the model for uncertain overlays once it is downloaded. */
     var modelEnabled: Boolean get() = modelEnabledPref.state; set(v) = modelEnabledPref.set(v)
 
-    private val modelIdPref = string("model_id", ModelCatalog.DEFAULT.id)
+    private val modelIdPref = string("model_id", ModelCatalog.default.id) // the NPU model on a phone that has one
     var modelId: String get() = modelIdPref.state; set(v) = modelIdPref.set(v)
-
-    private val useNpuPref = bool("use_npu", false)
-    /** Browse with the model compiled for the NPU when one is imported (SereneApp.npuModelForBrowsing). */
-    var useNpu: Boolean get() = useNpuPref.state; set(v) = useNpuPref.set(v)
 
     private val skipOnSaverPref = bool("skip_model_battery_saver", true)
     var skipModelOnBatterySaver: Boolean get() = skipOnSaverPref.state; set(v) = skipOnSaverPref.set(v)

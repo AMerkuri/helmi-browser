@@ -2,6 +2,8 @@ package app.serene.ui
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -56,6 +58,7 @@ import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
 import app.serene.model.NpuBenchmark
+import app.serene.report.NpuRequest
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -188,13 +191,19 @@ private fun ModelSection(app: SereneApp) {
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp),
     )
-    ModelCatalog.all.forEach { spec ->
+    ModelCatalog.available.forEach { spec ->
         Row(Modifier.fillMaxWidth().clickable { pick(spec.id) }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = s.modelId == spec.id, onClick = { pick(spec.id) })
+            RadioButton(selected = m.spec.id == spec.id, onClick = { pick(spec.id) })
             Column {
                 Text("${spec.name} · ${Formatter.formatShortFileSize(ctx, spec.sizeBytes)}")
                 Text(spec.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+    }
+    // A Snapdragon whose NPU has no model yet: ask for one (.github/ISSUE_TEMPLATE/npu-model.yml).
+    if (NpuBenchmark.supported && ModelCatalog.available.none { it.npu }) {
+        TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(NpuRequest.url()))) }, modifier = Modifier.padding(horizontal = 8.dp)) {
+            Text("Request a model for this phone's NPU")
         }
     }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -230,25 +239,28 @@ private fun ModelSection(app: SereneApp) {
 @Composable
 private fun BenchmarkSection(app: SereneApp) {
     val ctx = LocalContext.current
-    Text("Model benchmark", style = MaterialTheme.typography.bodyMedium)
-    Text(
-        "Runs 57 sample overlays through the model twice, to measure speed and accuracy on this phone. Takes a few minutes; keep the screen on.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(6.dp))
-    val progress = app.benchmarkProgress
-    if (progress != null) {
-        Text("Running: $progress")
-    } else {
-        OutlinedButton(onClick = app::runBenchmark, enabled = app.npuBenchmarkProgress == null) { Text(if (app.benchmarkReport == null) "Run benchmark" else "Run again") }
-    }
-    app.benchmarkReport?.let { report ->
+    // A model compiled for the NPU runs only there: its benchmark is NpuBenchmarkRow's.
+    if (!app.models.spec.npu) {
+        Text("Model benchmark", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "Runs 57 sample overlays through the model twice, to measure speed and accuracy on this phone. Takes a few minutes; keep the screen on.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(6.dp))
-        Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
-        Spacer(Modifier.height(6.dp))
-        Button(onClick = {
-            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene model benchmark", report))
-        }) { Text("Copy results") }
+        val progress = app.benchmarkProgress
+        if (progress != null) {
+            Text("Running: $progress")
+        } else {
+            OutlinedButton(onClick = app::runBenchmark, enabled = app.npuBenchmarkProgress == null) { Text(if (app.benchmarkReport == null) "Run benchmark" else "Run again") }
+        }
+        app.benchmarkReport?.let { report ->
+            Spacer(Modifier.height(6.dp))
+            Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+            Spacer(Modifier.height(6.dp))
+            Button(onClick = {
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene model benchmark", report))
+            }) { Text("Copy results") }
+        }
     }
     if (NpuBenchmark.supported) NpuBenchmarkRow(app)
 }
@@ -259,12 +271,14 @@ private fun NpuBenchmarkRow(app: SereneApp) {
     val ctx = LocalContext.current
     LaunchedEffect(Unit) { app.refreshNpuModel() }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(app::importNpuModel) }
+    val downloaded = app.models.spec.npu // this section only shows once the model is downloaded
     Spacer(Modifier.height(12.dp))
+    Text(if (downloaded) "NPU benchmark" else "Model benchmark on the NPU", style = MaterialTheme.typography.bodyMedium)
     Text(
-        if (app.npuCompiledModel) {
-            "Experimental: the same overlays on the NPU, with the model compiled for it (${app.npuCompiledModelInfo})."
-        } else {
-            "Experimental: the same overlays on the NPU, with the downloaded model compiled for it on the phone (slow). Pick the compiled NPU model (the .zip from GitHub Actions, or the .litertlm in it) to run that instead."
+        when {
+            app.npuCompiledModel -> "Runs the sample overlays on the NPU with the NPU model picked by hand (${app.npuCompiledModelInfo}), in a separate process. Takes a minute."
+            downloaded -> "Runs the sample overlays through the model on the NPU, in a separate process, to measure speed, accuracy and memory. Takes a minute."
+            else -> "For testing an npu-model build from GitHub Actions: pick its .zip (or the .litertlm in it) to run it on the NPU."
         },
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -273,22 +287,15 @@ private fun NpuBenchmarkRow(app: SereneApp) {
     if (progress != null) {
         Text("Running: $progress")
     } else {
-        OutlinedButton(onClick = app::runNpuBenchmark, enabled = app.benchmarkProgress == null) {
-            Text(if (app.npuBenchmarkReport == null) "Run NPU benchmark" else "Run NPU benchmark again")
+        if (downloaded || app.npuCompiledModel) {
+            OutlinedButton(onClick = app::runNpuBenchmark, enabled = app.benchmarkProgress == null) {
+                Text(if (app.npuBenchmarkReport == null) "Run NPU benchmark" else "Run NPU benchmark again")
+            }
         }
         Row {
-            TextButton(onClick = { pick.launch(arrayOf("*/*")) }) { Text(if (app.npuCompiledModel) "Replace NPU model" else "Pick NPU model") }
-            if (app.npuCompiledModel) TextButton(onClick = app::deleteNpuModel) { Text("Remove NPU model") }
+            TextButton(onClick = { pick.launch(arrayOf("*/*")) }) { Text(if (app.npuCompiledModel) "Replace picked NPU model" else "Pick NPU model") }
+            if (app.npuCompiledModel) TextButton(onClick = app::deleteNpuModel) { Text("Remove picked NPU model") }
         }
-    }
-    if (app.npuCompiledModel) {
-        val s = app.settings
-        SwitchRow(
-            "Run the model on the NPU",
-            app.npuFailed?.let { "It failed to load, so browsing uses the downloaded model until Serene restarts: $it" }
-                ?: "Browsing uses the compiled NPU model instead of the downloaded one: about 3x faster, about as accurate.",
-            s.useNpu,
-        ) { s.useNpu = it; app.npuFailed = null; app.unloadModel() }
     }
     app.npuBenchmarkReport?.let { report ->
         Spacer(Modifier.height(6.dp))

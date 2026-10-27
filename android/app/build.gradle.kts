@@ -66,12 +66,15 @@ android {
         // Compressed native libs: a much smaller APK to download and sideload. The Qualcomm NPU
         // libraries need them extracted too: the DSP loads its half (the Skel) from a file path.
         jniLibs.useLegacyPackaging = true
-        // The QNN runtime ships every Hexagon generation and the DSP and GPU backends. The NPU
-        // benchmark only needs the HTP backend, its on-device compiler (HtpPrepare, for models
-        // not compiled ahead of time) and the V79 halves, the Snapdragon 8 Elite's (SM8750).
+        // The QNN runtime ships every Hexagon generation, the DSP and GPU backends and the HTP's
+        // on-device compiler (HtpPrepare, 85 MB, for models not compiled ahead of time). Serene's
+        // NPU models are compiled ahead of time (android/npu-model), so it keeps the HTP backend
+        // and the halves for the chips there is a model for: V79, the Snapdragon 8 Elite (SM8750).
+        // A model for another chip (ModelCatalog) needs that generation's Stub and Skel kept.
         jniLibs.excludes += listOf(
             "**/libQnnDsp*.so",
             "**/libQnnGpu.so",
+            "**/libQnnHtpPrepare.so",
             "**/libQnnHtpV68*.so",
             "**/libQnnHtpV69*.so",
             "**/libQnnHtpV73*.so",

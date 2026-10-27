@@ -39,14 +39,25 @@ data class ModelSpec(
     val url: String,
     val sizeBytes: Long,
     val sha256: String,
-)
+    /**
+     * For a model compiled ahead of time for an NPU: the chip it runs on (Build.SOC_MODEL). It
+     * runs on the NPU only, with [NpuBenchmark.CHATML]. Null: any phone, on the GPU or CPU.
+     */
+    val soc: String? = null,
+) {
+    val npu: Boolean get() = soc != null
+}
 
-/** Models from huggingface.co/litert-community; sizes and hashes from the Hugging Face API. */
+/**
+ * Models from huggingface.co/litert-community (sizes and hashes from the Hugging Face API), and
+ * the ones compiled for an NPU by the npu-model workflow, published as releases of this repo by
+ * npu-model-release (sizes and hashes from the workflow's summary).
+ */
 object ModelCatalog {
     val DEFAULT = ModelSpec(
         id = "qwen3-0.6b-int8",
         name = "Qwen3-0.6B",
-        note = "Default. INT8 weights, the build the engine was evaluated with.",
+        note = "INT8 weights, the build the engine was evaluated with. The default on phones without an NPU model.",
         file = "Qwen3-0.6B.litertlm",
         url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm",
         sizeBytes = 613_722_264,
@@ -61,8 +72,28 @@ object ModelCatalog {
         sizeBytes = 344_671_744,
         sha256 = "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856",
     )
-    val all = listOf(DEFAULT, SMALL)
-    fun byId(id: String) = all.firstOrNull { it.id == id } ?: DEFAULT
+    /** npu-model run 9: 369 ms a call on a Galaxy Z Fold 7, +698 MB, 72% (docs/engine.md). */
+    val NPU_SM8750 = ModelSpec(
+        id = "qwen3-0.6b-npu-sm8750",
+        name = "Qwen3-0.6B (NPU)",
+        note = "Compiled for this phone's NPU. About 3x faster than INT8 on the GPU and a third of its memory, at about the same accuracy.",
+        file = "Qwen3-0.6B.sm8750.litertlm",
+        url = "https://github.com/AMerkuri/serene-browser/releases/download/npu-qwen3-0.6b-sm8750-1/Qwen3-0.6B.sm8750.litertlm",
+        sizeBytes = 780_882_290,
+        sha256 = "6ca25db5e511d2f9c92d5c200cc4784551f7c3d92642943568945da5de1a3081",
+        soc = "SM8750",
+    )
+    val all = listOf(DEFAULT, SMALL, NPU_SM8750)
+
+    private val soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else ""
+
+    /** The models this phone can run. */
+    val available: List<ModelSpec> get() = all.filter { it.soc == null || it.soc.equals(soc, ignoreCase = true) }
+
+    /** The model compiled for this phone's NPU if there is one, else INT8. */
+    val default: ModelSpec get() = available.firstOrNull { it.npu } ?: DEFAULT
+
+    fun byId(id: String) = available.firstOrNull { it.id == id } ?: default
 }
 
 class SereneApp : Application() {
@@ -136,7 +167,7 @@ class SereneApp : Application() {
     fun classifierNow(): Classifier? {
         classifierOverride?.let { return it }
         if (!settings.modelEnabled) return null
-        if (npuModelForBrowsing() == null && models.readyFile() == null) return null
+        models.readyFile() ?: return null
         if (settings.skipModelOnBatterySaver && getSystemService(PowerManager::class.java).isPowerSaveMode) return null
         val mem = ActivityManager.MemoryInfo().also { getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
         if (mem.lowMemory) return null
@@ -144,22 +175,19 @@ class SereneApp : Application() {
     }
 
     /**
-     * The model browsing uses, whether or not it may run right now: the NPU model when that is
-     * switched on ([npuModelForBrowsing]), else the downloaded one. The benchmark asks for the
-     * downloaded one ([npu] false).
+     * The downloaded model, whether or not browsing may use it right now (the benchmark uses it
+     * too). A model compiled for the NPU runs there, with its chat template.
      */
-    fun liteRtClassifier(npu: Boolean = true): LiteRtClassifier? {
+    fun liteRtClassifier(): LiteRtClassifier? {
+        val file = models.readyFile() ?: return null
+        val spec = models.spec
         synchronized(this) {
             val c = classifier
-            // An NPU model that failed to load is not tried again until the app restarts.
-            if (c != null && c.modelFile == NpuBenchmark.compiledModel(this) && !c.loaded && c.lastError != null) npuFailed = c.lastError
-            val npuFile = if (npu) npuModelForBrowsing() else null
-            val file = npuFile ?: models.readyFile() ?: return null
             if (c != null && c.modelFile == file) return c
             c?.let { old -> scope.launch { old.unload() } }
-            val made = if (npuFile != null) {
+            val made = if (spec.npu) {
                 LiteRtClassifier(
-                    npuFile, cacheDir,
+                    file, cacheDir,
                     backends = listOf({ Backend.NPU(nativeLibraryDir = applicationInfo.nativeLibraryDir) }),
                     chatTemplate = NpuBenchmark.CHATML,
                 )
@@ -169,17 +197,6 @@ class SereneApp : Application() {
             return made.also { classifier = it }
         }
     }
-
-    /** Why the NPU model failed to load this session, if it did; browsing is back on the downloaded model. */
-    var npuFailed by mutableStateOf<String?>(null)
-
-    /**
-     * The model compiled for the NPU, when it is imported, the phone can run it and "Run the model
-     * on the NPU" is on. On a Galaxy Z Fold 7 it took 369 ms a call against 1099 ms for the GPU,
-     * at about the same accuracy (docs/engine.md).
-     */
-    private fun npuModelForBrowsing(): File? =
-        NpuBenchmark.compiledModel(this).takeIf { settings.useNpu && npuFailed == null && NpuBenchmark.supported && it.exists() }
 
     /** Frees the model now if it is loaded; it loads again on the next uncertain overlay. */
     fun unloadModel() {
@@ -207,7 +224,8 @@ class SereneApp : Application() {
 
     fun runBenchmark() {
         if (benchmarkProgress != null || npuBenchmarkProgress != null) return
-        val c = liteRtClassifier(npu = false) ?: return
+        if (models.spec.npu) return runNpuBenchmark()
+        val c = liteRtClassifier() ?: return
         benchmarkProgress = "loading the model"
         scope.launch {
             benchmarkReport = try {
@@ -227,7 +245,10 @@ class SereneApp : Application() {
     var npuBenchmarkProgress by mutableStateOf<String?>(null)
         private set
 
-    /** The NPU benchmark runs the model compiled for the NPU when one is imported, else the downloaded one. */
+    /**
+     * The NPU benchmark runs a model imported by hand when there is one (to try an npu-model build
+     * before it is released), else the downloaded NPU model.
+     */
     var npuCompiledModel by mutableStateOf(false)
         private set
     /** Its size and import time, when there is one. */
@@ -242,8 +263,6 @@ class SereneApp : Application() {
 
     fun importNpuModel(uri: Uri) {
         if (npuBenchmarkProgress != null) return
-        unloadModel() // it may be the model being replaced
-        npuFailed = null
         npuBenchmarkProgress = "importing the NPU model"
         scope.launch {
             try {
@@ -260,16 +279,15 @@ class SereneApp : Application() {
     }
 
     fun deleteNpuModel() {
-        unloadModel()
         NpuBenchmark.compiledModel(this).delete()
         refreshNpuModel()
     }
 
     fun runNpuBenchmark() {
         if (npuBenchmarkProgress != null || benchmarkProgress != null) return
-        val compiled = NpuBenchmark.compiledModel(this).takeIf { it.exists() }
-        val file = compiled ?: models.readyFile() ?: return
-        val name = if (compiled != null) "${NpuBenchmark.COMPILED_NAME} (${NpuBenchmark.describe(compiled)})" else "${models.spec.name}, compiled on the phone"
+        val imported = NpuBenchmark.compiledModel(this).takeIf { it.exists() }
+        val file = imported ?: models.readyFile()?.takeIf { models.spec.npu } ?: return
+        val name = if (imported != null) "${NpuBenchmark.COMPILED_NAME}, imported (${NpuBenchmark.describe(imported)})" else "${models.spec.name}, ${models.spec.file}"
         npuBenchmarkProgress = "starting"
         scope.launch {
             // One model in memory at a time: the NPU process loads its own copy.

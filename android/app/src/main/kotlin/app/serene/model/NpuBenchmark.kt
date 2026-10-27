@@ -28,12 +28,12 @@ import java.util.Locale
 import java.util.zip.ZipInputStream
 
 /**
- * The model benchmark on the Qualcomm NPU (Hexagon HTP), through LiteRT-LM's Backend.NPU. It runs
- * the model compiled ahead of time for the SM8750 (android/npu-model) once that is imported
- * ([importCompiled]). Otherwise LiteRT-LM takes its generic path with the downloaded .litertlm:
- * LiteRT's Qualcomm compiler plugin compiles the parts of the graph the HTP supports when the
- * model loads, and the rest runs on the CPU. The libraries come from
- * Maven (litert-npu-runtime-qualcomm, qnn-runtime) and sit in the app's nativeLibraryDir.
+ * The model benchmark on the Qualcomm NPU (Hexagon HTP), through LiteRT-LM's Backend.NPU, with a
+ * model compiled ahead of time for the phone's chip (android/npu-model): the downloaded one
+ * (ModelCatalog), or one picked by hand to try a build before it is released ([importCompiled]).
+ * The libraries come from Maven (litert-npu-runtime-qualcomm, qnn-runtime) and sit in the app's
+ * nativeLibraryDir. Models not compiled ahead of time don't run: the app leaves out the HTP's
+ * on-device compiler (libQnnHtpPrepare.so, 85 MB), and that path took 3.8-7.9 s a call anyway.
  *
  * It runs in its own process (NpuBenchmarkService, android:process=":npu"), because a failure in
  * the vendor libraries can abort the process instead of throwing. The two processes talk through
@@ -73,7 +73,7 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
             availDrop = maxOf(availDrop, availBefore - availMem())
         }
         try {
-            progress("loading the model on the NPU (a model not compiled for it is compiled now, which takes a while)")
+            progress("loading the model on the NPU")
             loadMs = npu.warmUp()
             sample()
             firstCallMs = npu.classify(rows.first().features, LiteRtClassifier.Reply.FREE).ms
