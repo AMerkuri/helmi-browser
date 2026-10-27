@@ -1,3 +1,5 @@
+<img src="docs/assets/helmi-icon.svg" width="96" alt="Helmi: a brass ship's wheel on verdigris">
+
 # Helmi
 
 An Android browser that uses a small on-device language model, together with community filter lists, to remove page annoyances: cookie banners, newsletter modals, notification pre-prompts, paywall teasers and similar overlays.
