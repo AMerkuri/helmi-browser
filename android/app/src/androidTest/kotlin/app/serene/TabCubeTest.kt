@@ -291,6 +291,18 @@ class TabCubeTest {
             }
             dump(a.window.decorView, 0)
         }
+        scenario.onActivity { a ->
+            Log.i("TabCubeDiag", "cube ${app.serene.ui.TabCube.last} tabs=${a.tabs.tabs.map { it.id }} current=${a.tabs.current?.id}")
+            fun find(v: android.view.View): androidx.compose.ui.platform.ViewRootForTest? =
+                v as? androidx.compose.ui.platform.ViewRootForTest ?: (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { find(g.getChildAt(it)) } }
+            fun sem(n: androidx.compose.ui.semantics.SemanticsNode, depth: Int) {
+                val text = n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.joinToString()
+                val mods = n.layoutInfo.getModifierInfo().joinToString(",") { it.modifier.javaClass.simpleName }
+                Log.i("TabCubeDiag", "  ".repeat(depth) + "sem #${n.id} text='$text' placed=${n.layoutInfo.isPlaced} attached=${n.layoutInfo.isAttached} size=${n.size} root=${n.boundsInRoot} mods=[$mods]")
+                n.children.forEach { sem(it, depth + 1) }
+            }
+            find(a.window.decorView)?.semanticsOwner?.unmergedRootSemanticsNode?.let { sem(it, 0) }
+        }
         fun nodes(n: android.view.accessibility.AccessibilityNodeInfo?, depth: Int) {
             n ?: return
             val r = android.graphics.Rect().also { n.getBoundsInScreen(it) }

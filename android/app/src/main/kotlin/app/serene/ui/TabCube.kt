@@ -61,6 +61,11 @@ private const val CAMERA = 2f
  * turn ends, that face covers the tab's page until its WebView has drawn, then fades into it.
  */
 class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
+    // TEMPORARY: for TabCubeTest's diagnosis of the missing start page.
+    init { last = this }
+    override fun toString() = "TabCube(showing=$showing covering=$covering coverAlpha=$coverAlpha turn=$turn target=$target dragging=$dragging from=${from?.id} arrived=${arrived?.id} picture=${picture != null} job=${job?.isActive} covers=$covers)"
+    companion object { @JvmStatic var last: TabCube? = null }
+
     /** How far the cube has turned: 0 is the tab the drag started on, 1 the next one, -1 the one before. */
     var turn by mutableFloatStateOf(0f)
         private set
