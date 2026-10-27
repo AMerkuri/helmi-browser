@@ -241,15 +241,23 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
  */
 @Composable
 fun TabCubeFaces(cube: TabCube, app: SereneApp) {
-    if (!cube.showing) return
+    // A branch each and no early returns: returning early here, after a turn was taken on
+    // during the face's fade, left an empty face in the page's place and lost the start page
+    // under it for every tab after, until the screen was rebuilt.
+    val from = cube.from
+    val arrived = cube.arrived
+    when {
+        !cube.showing || from == null -> Unit
+        cube.covering && arrived != null -> Face(arrived, null, app, Modifier.graphicsLayer { alpha = cube.coverAlpha }, shade = { 0f })
+        else -> Turning(cube, from, app)
+    }
+}
+
+/** The page the drag started on and the tab beside it, turned about the edge they share, on black. */
+@Composable
+private fun Turning(cube: TabCube, from: Tab, app: SereneApp) {
     val picture = cube.picture
     val image = remember(picture) { picture?.asImageBitmap() }
-    val from = cube.from ?: return
-    val arrived = cube.arrived
-    if (cube.covering && arrived != null) {
-        Face(arrived, null, app, Modifier.graphicsLayer { alpha = cube.coverAlpha }, shade = { 0f })
-        return
-    }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Face(from, image, app, Modifier.cubeFace { -cube.turn }, shade = { SHADE * abs(cube.turn) })
         val dir by remember { derivedStateOf { cube.turn.sign.toInt() } }
