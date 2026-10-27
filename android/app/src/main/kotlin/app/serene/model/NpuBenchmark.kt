@@ -28,10 +28,11 @@ import java.util.Locale
 import java.util.zip.ZipInputStream
 
 /**
- * The model benchmark on the Qualcomm NPU (Hexagon HTP), through LiteRT-LM's Backend.NPU. There is
- * no Qwen3-0.6B build compiled ahead of time for a Snapdragon, so LiteRT-LM takes its generic path
- * with the plain .litertlm file: LiteRT's Qualcomm compiler plugin compiles the parts of the graph
- * the HTP supports when the model loads, and the rest runs on the CPU. The libraries come from
+ * The model benchmark on the Qualcomm NPU (Hexagon HTP), through LiteRT-LM's Backend.NPU. It runs
+ * the model compiled ahead of time for the SM8750 (android/npu-model) once that is imported
+ * ([importCompiled]). Otherwise LiteRT-LM takes its generic path with the downloaded .litertlm:
+ * LiteRT's Qualcomm compiler plugin compiles the parts of the graph the HTP supports when the
+ * model loads, and the rest runs on the CPU. The libraries come from
  * Maven (litert-npu-runtime-qualcomm, qnn-runtime) and sit in the app's nativeLibraryDir.
  *
  * It runs in its own process (NpuBenchmarkService, android:process=":npu"), because a failure in
@@ -130,7 +131,7 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
          * list of parts ("tried to use + operator on unsupported types string and sequence"). This
          * renders the same text the calibration prompts used: system, user, an empty think block.
          */
-        private const val CHATML =
+        const val CHATML =
             "{%- for m in messages -%}" +
                 "{%- set c = m.content if m.content is string else (m.content | map(attribute='text') | join('')) -%}" +
                 "<|im_start|>{{ m.role }}\n{{ c }}<|im_end|>\n" +

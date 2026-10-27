@@ -29,6 +29,10 @@ class Settings(context: Context) {
     private val modelIdPref = string("model_id", ModelCatalog.DEFAULT.id)
     var modelId: String get() = modelIdPref.state; set(v) = modelIdPref.set(v)
 
+    private val useNpuPref = bool("use_npu", false)
+    /** Browse with the model compiled for the NPU when one is imported (SereneApp.npuModelForBrowsing). */
+    var useNpu: Boolean get() = useNpuPref.state; set(v) = useNpuPref.set(v)
+
     private val skipOnSaverPref = bool("skip_model_battery_saver", true)
     var skipModelOnBatterySaver: Boolean get() = skipOnSaverPref.state; set(v) = skipOnSaverPref.set(v)
 

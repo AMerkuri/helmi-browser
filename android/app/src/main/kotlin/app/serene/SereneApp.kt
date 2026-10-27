@@ -24,6 +24,7 @@ import app.serene.model.NpuBenchmark
 import app.serene.reader.ReaderPrefs
 import app.serene.stats.Stats
 import app.serene.ui.applyNightMode
+import com.google.ai.edge.litertlm.Backend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -135,23 +136,50 @@ class SereneApp : Application() {
     fun classifierNow(): Classifier? {
         classifierOverride?.let { return it }
         if (!settings.modelEnabled) return null
-        val file = models.readyFile() ?: return null
+        if (npuModelForBrowsing() == null && models.readyFile() == null) return null
         if (settings.skipModelOnBatterySaver && getSystemService(PowerManager::class.java).isPowerSaveMode) return null
         val mem = ActivityManager.MemoryInfo().also { getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
         if (mem.lowMemory) return null
         return liteRtClassifier()
     }
 
-    /** The downloaded model, whether or not browsing may use it right now (the benchmark uses it too). */
-    fun liteRtClassifier(): LiteRtClassifier? {
-        val file = models.readyFile() ?: return null
+    /**
+     * The model browsing uses, whether or not it may run right now: the NPU model when that is
+     * switched on ([npuModelForBrowsing]), else the downloaded one. The benchmark asks for the
+     * downloaded one ([npu] false).
+     */
+    fun liteRtClassifier(npu: Boolean = true): LiteRtClassifier? {
         synchronized(this) {
             val c = classifier
+            // An NPU model that failed to load is not tried again until the app restarts.
+            if (c != null && c.modelFile == NpuBenchmark.compiledModel(this) && !c.loaded && c.lastError != null) npuFailed = c.lastError
+            val npuFile = if (npu) npuModelForBrowsing() else null
+            val file = npuFile ?: models.readyFile() ?: return null
             if (c != null && c.modelFile == file) return c
             c?.let { old -> scope.launch { old.unload() } }
-            return LiteRtClassifier(file, cacheDir).also { classifier = it }
+            val made = if (npuFile != null) {
+                LiteRtClassifier(
+                    npuFile, cacheDir,
+                    backends = listOf({ Backend.NPU(nativeLibraryDir = applicationInfo.nativeLibraryDir) }),
+                    chatTemplate = NpuBenchmark.CHATML,
+                )
+            } else {
+                LiteRtClassifier(file, cacheDir)
+            }
+            return made.also { classifier = it }
         }
     }
+
+    /** Why the NPU model failed to load this session, if it did; browsing is back on the downloaded model. */
+    var npuFailed by mutableStateOf<String?>(null)
+
+    /**
+     * The model compiled for the NPU, when it is imported, the phone can run it and "Run the model
+     * on the NPU" is on. On a Galaxy Z Fold 7 it took 369 ms a call against 1099 ms for the GPU,
+     * at about the same accuracy (docs/engine.md).
+     */
+    private fun npuModelForBrowsing(): File? =
+        NpuBenchmark.compiledModel(this).takeIf { settings.useNpu && npuFailed == null && NpuBenchmark.supported && it.exists() }
 
     /** Frees the model now if it is loaded; it loads again on the next uncertain overlay. */
     fun unloadModel() {
@@ -179,7 +207,7 @@ class SereneApp : Application() {
 
     fun runBenchmark() {
         if (benchmarkProgress != null || npuBenchmarkProgress != null) return
-        val c = liteRtClassifier() ?: return
+        val c = liteRtClassifier(npu = false) ?: return
         benchmarkProgress = "loading the model"
         scope.launch {
             benchmarkReport = try {
@@ -214,6 +242,8 @@ class SereneApp : Application() {
 
     fun importNpuModel(uri: Uri) {
         if (npuBenchmarkProgress != null) return
+        unloadModel() // it may be the model being replaced
+        npuFailed = null
         npuBenchmarkProgress = "importing the NPU model"
         scope.launch {
             try {
@@ -230,6 +260,7 @@ class SereneApp : Application() {
     }
 
     fun deleteNpuModel() {
+        unloadModel()
         NpuBenchmark.compiledModel(this).delete()
         refreshNpuModel()
     }

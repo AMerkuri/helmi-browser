@@ -281,6 +281,15 @@ private fun NpuBenchmarkRow(app: SereneApp) {
             if (app.npuCompiledModel) TextButton(onClick = app::deleteNpuModel) { Text("Remove NPU model") }
         }
     }
+    if (app.npuCompiledModel) {
+        val s = app.settings
+        SwitchRow(
+            "Run the model on the NPU",
+            app.npuFailed?.let { "It failed to load, so browsing uses the downloaded model until Serene restarts: $it" }
+                ?: "Browsing uses the compiled NPU model instead of the downloaded one: about 3x faster, about as accurate.",
+            s.useNpu,
+        ) { s.useNpu = it; app.npuFailed = null; app.unloadModel() }
+    }
     app.npuBenchmarkReport?.let { report ->
         Spacer(Modifier.height(6.dp))
         Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
