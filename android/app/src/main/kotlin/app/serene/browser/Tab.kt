@@ -152,7 +152,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             // <input type=file>: GitHub's attach button, upload forms. The activity shows the picker.
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
                 (view.context as? FilePickerHost)?.pickFiles(params) { callback.onReceiveValue(it) } ?: false
-            // Page errors go in the page log ("What Serene did here", reports, e2e failures).
+            // Page errors go in the page log ("What Helmi did here", reports, e2e failures).
             override fun onConsoleMessage(m: ConsoleMessage): Boolean {
                 if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR || m.messageLevel() == ConsoleMessage.MessageLevel.WARNING) {
                     current?.note("console ${m.messageLevel().name.lowercase()}: ${m.message().take(200)} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})")
@@ -568,7 +568,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         val dataUrl = msg["url"]?.jsonPrimitive?.contentOrNull
         if (dataUrl == null || !dataUrl.startsWith("data:")) {
             Log.w(TAG, "blob download failed: ${msg["error"]?.jsonPrimitive?.contentOrNull}")
-            Toast.makeText(webView.context, "Serene couldn't save this file", Toast.LENGTH_SHORT).show()
+            Toast.makeText(webView.context, "Helmi couldn't save this file", Toast.LENGTH_SHORT).show()
             return
         }
         downloadBar = app.downloads.start(dataUrl, ua, null, null, null, id)

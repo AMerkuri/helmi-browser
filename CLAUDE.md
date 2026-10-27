@@ -1,6 +1,6 @@
-# Serene
+# Helmi (formerly Serene)
 
-Android browser that removes page annoyances (cookie banners, newsletter boxes, app banners, paywall teasers) with filter lists, an overlay detector and a small on-device model. Read [README.md](README.md), then [docs/engine.md](docs/engine.md) for how the engine decides.
+Android browser that removes page annoyances (cookie banners, newsletter boxes, app banners, paywall teasers) with filter lists, an overlay detector and a small on-device model. The app shows the name Helmi (app id `app.helmi.browser`); code, packages and the engine still say serene (the repo is now helmi-browser), so keep user-visible text as Helmi. Read [README.md](README.md), then [docs/engine.md](docs/engine.md) for how the engine decides.
 
 ## Layout
 

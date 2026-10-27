@@ -16,7 +16,7 @@ import java.net.URLEncoder
  * submits a prefilled form from their own GitHub account. No token in the app.
  */
 object IssueReport {
-    const val REPO = "AMerkuri/serene-browser"
+    const val REPO = "AMerkuri/helmi-browser"
     private const val TEMPLATE = "missed-popup.yml"
 
     /** GitHub and browsers take longer URLs, but past ~8 KB some proxies and servers give up. */

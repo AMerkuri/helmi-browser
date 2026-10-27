@@ -2,14 +2,14 @@
 # (app/src/main/kotlin/app/serene/report/IssueReport.kt). The field ids are the query
 # parameters it sets, so rename them in both places.
 name: Missed popup
-description: A cookie banner, newsletter box, app banner or other overlay that Serene did not remove, or removed by mistake.
+description: A cookie banner, newsletter box, app banner or other overlay that Helmi did not remove, or removed by mistake.
 title: "Missed popup: "
 labels: [missed-popup]
 body:
   - type: markdown
     attributes:
       value: |
-        The quickest way to file this is **Report missed popup** in the Serene menu, which fills in everything below. Issues are public, so check the page address and the page snippet before you submit.
+        The quickest way to file this is **Report missed popup** in the Helmi menu, which fills in everything below. Issues are public, so check the page address and the page snippet before you submit.
   - type: input
     id: url
     attributes:
@@ -22,13 +22,13 @@ body:
     id: note
     attributes:
       label: What happened
-      description: What was on screen, and what Serene should have done.
-      placeholder: Newsletter box after scrolling halfway, Serene left it up.
+      description: What was on screen, and what Helmi should have done.
+      placeholder: Newsletter box after scrolling halfway, Helmi left it up.
   - type: input
     id: app
     attributes:
       label: App and device
-      description: Serene version, device, Android and WebView versions.
+      description: Helmi version, device, Android and WebView versions.
   - type: textarea
     id: engine
     attributes:
@@ -45,4 +45,4 @@ body:
     id: screenshot
     attributes:
       label: Screenshot
-      description: The app copies its screenshot to the clipboard and saves it to Pictures/Serene. Long-press here and paste it, or tap the attach bar below the box and pick it.
+      description: The app copies its screenshot to the clipboard and saves it to Pictures/Helmi. Long-press here and paste it, or tap the attach bar below the box and pick it.

@@ -88,7 +88,7 @@ fun ContextMenu(app: SereneApp, tab: Tab, pressed: Pressed, onDismiss: () -> Uni
         onDismiss()
         app.scope.launch(Dispatchers.Main) {
             val img = image?.await()
-            if (img == null) Toast.makeText(context, "Serene couldn't get this picture", Toast.LENGTH_SHORT).show() else act(img)
+            if (img == null) Toast.makeText(context, "Helmi couldn't get this picture", Toast.LENGTH_SHORT).show() else act(img)
         }
         Unit
     }

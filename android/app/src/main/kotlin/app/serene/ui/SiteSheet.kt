@@ -64,7 +64,7 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
             if (site != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Serene on this site", style = MaterialTheme.typography.titleMedium)
+                        Text("Helmi on this site", style = MaterialTheme.typography.titleMedium)
                         Text(
                             if (!app.settings.engineEnabled) "Turned off for all sites in settings" else "Off: the page loads exactly as the site sends it",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -111,11 +111,11 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 TextButton(onClick = {
                     val text = buildString {
                         appendLine("${tab.url}")
-                        appendLine("Serene ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA}) · ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
+                        appendLine("Helmi ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA}) · ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
                         appendLine("${s.blockedRequests.get()} requests blocked · cookies rejected: ${s.consentRejected().joinToString().ifEmpty { "no" }}")
                         s.log().forEach { appendLine(it) }
                     }
-                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene page log", text))
+                    ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Helmi page log", text))
                     Toast.makeText(ctx, "Page log copied", Toast.LENGTH_SHORT).show()
                 }) { Text("Copy page log") }
             }

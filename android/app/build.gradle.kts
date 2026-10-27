@@ -12,7 +12,7 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "app.serene.browser"
+        applicationId = "app.helmi.browser"
         minSdk = 26
         targetSdk = 36
         // CI run number, so each build installs over the previous one.

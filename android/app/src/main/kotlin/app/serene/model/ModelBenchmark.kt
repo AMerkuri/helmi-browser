@@ -87,7 +87,7 @@ class ModelBenchmark(private val context: Context, private val classifier: LiteR
         fun p95(xs: List<Long>) = xs.sorted().let { if (it.isEmpty()) "–" else "${it[minOf(it.size - 1, (it.size * 95) / 100)]} ms" }
         val soc = if (Build.VERSION.SDK_INT >= 31) " · ${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}" else ""
         return buildString {
-            appendLine("Serene model benchmark")
+            appendLine("Helmi model benchmark")
             appendLine("App ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA})")
             appendLine("Phone: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}$soc")
             appendLine("Model: $modelName, free reply cut off after the label")

@@ -108,10 +108,10 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             ModelSection(app)
 
             if (s.disabledSites.isNotEmpty()) {
-                Section("Serene is off on")
+                Section("Helmi is off on")
                 s.disabledSites.sorted().forEach { site ->
                     ListItem(headlineContent = { Text(site) }, trailingContent = {
-                        IconButton(onClick = { s.setSiteEnabled(site, true) }) { Icon(Icons.Filled.Close, "Turn Serene back on for $site") }
+                        IconButton(onClick = { s.setSiteEnabled(site, true) }) { Icon(Icons.Filled.Close, "Turn Helmi back on for $site") }
                     })
                 }
             }
@@ -167,7 +167,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             Section("About")
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)
             ListItem(
-                headlineContent = { Text("Serene ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}, ${BuildConfig.GIT_SHA})") },
+                headlineContent = { Text("Helmi ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}, ${BuildConfig.GIT_SHA})") },
                 supportingContent = { Text("WebView ${wv?.versionName ?: "?"} · document-start scripts ${if (Tab.documentStartSupported) "supported" else "not supported (fallback)"} · passkeys ${if (Tab.webAuthnSupported) "supported" else "not supported by this WebView"}") },
             )
             Spacer(Modifier.height(32.dp))
@@ -187,7 +187,7 @@ private fun ModelSection(app: SereneApp) {
     }
     Text(
         "Qwen3-0.6B runs on the phone and only looks at overlays the filter lists and heuristics are unsure about. " +
-            "Nothing is sent anywhere. Without it Serene still works, using lists and heuristics only.",
+            "Nothing is sent anywhere. Without it Helmi still works, using lists and heuristics only.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp),
     )
@@ -258,7 +258,7 @@ private fun BenchmarkSection(app: SereneApp) {
             Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
             Spacer(Modifier.height(6.dp))
             Button(onClick = {
-                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene model benchmark", report))
+                ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Helmi model benchmark", report))
             }) { Text("Copy results") }
         }
     }
@@ -302,7 +302,7 @@ private fun NpuBenchmarkRow(app: SereneApp) {
         Text(report, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
         Spacer(Modifier.height(6.dp))
         Button(onClick = {
-            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Serene NPU benchmark", report))
+            ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Helmi NPU benchmark", report))
         }) { Text("Copy NPU results") }
     }
 }

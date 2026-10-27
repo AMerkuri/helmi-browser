@@ -16,7 +16,7 @@
          history swipe (BrowserScreen). On by default from Android 16; this turns it on for 13-15. -->
     <application
         android:name=".SereneApp"
-        android:label="Serene"
+        android:label="Helmi"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Serene"
@@ -38,7 +38,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Lets Serene be picked as the default browser. -->
+            <!-- Lets Helmi be picked as the default browser. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
