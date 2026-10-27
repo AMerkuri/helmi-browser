@@ -78,7 +78,7 @@ object ModelCatalog {
         name = "Qwen3-0.6B (NPU)",
         note = "Compiled for this phone's NPU. About 3x faster than INT8 on the GPU and a third of its memory, at about the same accuracy.",
         file = "Qwen3-0.6B.sm8750.litertlm",
-        url = "https://github.com/AMerkuri/serene-browser/releases/download/npu-qwen3-0.6b-sm8750-1/Qwen3-0.6B.sm8750.litertlm",
+        url = "https://github.com/AMerkuri/helmi-browser/releases/download/npu-qwen3-0.6b-sm8750-1/Qwen3-0.6B.sm8750.litertlm",
         sizeBytes = 780_882_290,
         sha256 = "6ca25db5e511d2f9c92d5c200cc4784551f7c3d92642943568945da5de1a3081",
         soc = "SM8750",
