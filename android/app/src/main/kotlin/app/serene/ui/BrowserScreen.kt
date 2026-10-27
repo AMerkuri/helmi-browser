@@ -169,7 +169,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     // The page's article from engine/dist/reader.js.
     val openReader = {
         ReaderPage.extract(tab.webView) { page ->
-            if (page == null) Toast.makeText(context, "Serene found no article on this page", Toast.LENGTH_SHORT).show()
+            if (page == null) Toast.makeText(context, "Helmi found no article on this page", Toast.LENGTH_SHORT).show()
             else reader = page
         }
     }
@@ -378,7 +378,7 @@ private fun ShieldButton(app: SereneApp, tab: Tab, onClick: () -> Unit) {
         BadgedBox(badge = { if (count > 0 && on) Badge { Text(if (count > 99) "99+" else "$count") } }) {
             Icon(
                 painterResource(if (on) R.drawable.ic_shield else R.drawable.ic_shield_off),
-                contentDescription = "Serene on this site",
+                contentDescription = "Helmi on this site",
                 tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -418,7 +418,7 @@ private fun BottomBar(
                 if (site != null) {
                     val enabled = app.settings.isSiteEnabled(site)
                     DropdownMenuItem(
-                        text = { Text("Serene on $site") },
+                        text = { Text("Helmi on $site") },
                         trailingIcon = { Switch(checked = enabled, onCheckedChange = null, enabled = app.settings.engineEnabled) },
                         enabled = app.settings.engineEnabled,
                         onClick = { close(); app.settings.setSiteEnabled(site, !enabled); tab.reload() },
@@ -435,7 +435,7 @@ private fun BottomBar(
                         onClick = { close(); app.settings.setDarkSite(darkSite, !dark) },
                     )
                 }
-                DropdownMenuItem(text = { Text("What Serene did here") }, onClick = { close(); onSite() })
+                DropdownMenuItem(text = { Text("What Helmi did here") }, onClick = { close(); onSite() })
                 DropdownMenuItem(text = { Text("Settings") }, onClick = { close(); onOpen(Screen.Settings) })
             }
         }
@@ -490,7 +490,7 @@ private fun ReportDialog(onDismiss: () -> Unit, onIssue: (String) -> Unit, onSha
         title = { Text("Report missed popup") },
         text = {
             Column {
-                Text("Serene saved a screenshot and what its detector sees on this page. Add a note if it helps.", style = MaterialTheme.typography.bodyMedium)
+                Text("Helmi saved a screenshot and what its detector sees on this page. Add a note if it helps.", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(value = note, onValueChange = { note = it }, placeholder = { Text("e.g. newsletter box after scrolling") }, minLines = 2)
                 Spacer(Modifier.height(12.dp))

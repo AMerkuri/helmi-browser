@@ -73,11 +73,11 @@ jobs:
       - name: Name the APK
         id: apk
         run: |
-          name="serene-${{ github.run_number }}-$(git rev-parse --short HEAD)"
+          name="helmi-${{ github.run_number }}-$(git rev-parse --short HEAD)"
           mkdir -p out
           cp app/build/outputs/apk/debug/app-debug.apk "out/$name.apk"
           echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "### Serene debug APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Helmi debug APK" >> "$GITHUB_STEP_SUMMARY"
           echo "Download **$name** under Artifacts below, unzip it on the phone and open the .apk. Builds share one debug key, so each one installs over the last." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         id: upload
@@ -157,7 +157,7 @@ jobs:
             adb install -r "$(find apks -name app-debug.apk)"
             adb install -r "$(find apks -name app-debug-androidTest.apk)"
             adb logcat -c
-            adb shell am instrument -w -r app.serene.browser.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt
+            adb shell am instrument -w -r app.helmi.browser.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt
             adb logcat -d -v time > logcat.txt
             adb logcat -d -b crash > crash.txt
             cat crash.txt

@@ -62,7 +62,7 @@ class ModelManager(private val context: Context, private val settings: Settings,
         dir.mkdirs()
         partFile(s).delete()
         val req = DownloadManager.Request(Uri.parse(s.url))
-            .setTitle("Serene model: ${s.name}")
+            .setTitle("Helmi model: ${s.name}")
             .setDescription("On-device model for the annoyance blocker")
             .setDestinationUri(Uri.fromFile(partFile(s)))
             .setAllowedOverMetered(!settings.wifiOnlyDownloads)

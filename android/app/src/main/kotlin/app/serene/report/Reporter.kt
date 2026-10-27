@@ -184,8 +184,8 @@ object Reporter {
             val saved = runCatching { saveToPictures(context, shot) }.getOrNull()
             val uri = saved ?: FileProvider.getUriForFile(context, "${context.packageName}.reports", shot)
             context.getSystemService(ClipboardManager::class.java)
-                .setPrimaryClip(ClipData.newUri(context.contentResolver, "Serene screenshot", uri))
-            val where = if (saved != null) " and saved to Pictures/Serene" else ""
+                .setPrimaryClip(ClipData.newUri(context.contentResolver, "Helmi screenshot", uri))
+            val where = if (saved != null) " and saved to Pictures/Helmi" else ""
             Toast.makeText(context, "Screenshot copied$where. Paste or attach it in the Screenshot box.", Toast.LENGTH_LONG).show()
         }
         open(IssueReport.url(report, note))
@@ -197,7 +197,7 @@ object Reporter {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "serene-report-${png.parentFile?.name}.png")
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Serene")
+            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Helmi")
         }
         val resolver = context.contentResolver
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
@@ -211,14 +211,14 @@ object Reporter {
         val files = dir.listFiles()?.sortedBy { it.name } ?: return
         val uris = ArrayList<Uri>(files.map { FileProvider.getUriForFile(context, "${context.packageName}.reports", it) })
         val text = buildString {
-            appendLine("Serene missed a popup on $url")
+            appendLine("Helmi missed a popup on $url")
             if (note.isNotBlank()) appendLine(note)
             appendLine()
             appendLine("Attached: report.json (what the detector saw, what the engine did) and a screenshot.")
         }
         val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
             type = "*/*"
-            putExtra(Intent.EXTRA_SUBJECT, "Serene: missed popup on ${Uri.parse(url).host ?: url}")
+            putExtra(Intent.EXTRA_SUBJECT, "Helmi: missed popup on ${Uri.parse(url).host ?: url}")
             putExtra(Intent.EXTRA_TEXT, text)
             putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
             clipData = ClipData.newRawUri("report", uris.first()).also { c -> uris.drop(1).forEach { c.addItem(ClipData.Item(it)) } }

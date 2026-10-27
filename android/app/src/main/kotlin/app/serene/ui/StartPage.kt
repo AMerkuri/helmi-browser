@@ -33,7 +33,7 @@ import app.serene.stats.CATEGORY_NAMES
 import app.serene.stats.Totals
 import java.text.NumberFormat
 
-/** A blank tab: what Serene is, and the totals of what it has cleared so far. */
+/** A blank tab: what Helmi is, and the totals of what it has cleared so far. */
 @Composable
 fun StartPage(app: SereneApp) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -41,9 +41,9 @@ fun StartPage(app: SereneApp) {
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(painterResource(R.drawable.ic_shield), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
+            Icon(painterResource(R.drawable.ic_helm), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp))
             Spacer(Modifier.height(12.dp))
-            Text("Serene", style = MaterialTheme.typography.headlineMedium)
+            Text("Helmi", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(8.dp))
             Text(
                 "Cookie banners, newsletter pop-ups and other overlays are cleared for you.",
@@ -69,7 +69,7 @@ private fun StatsPanel(t: Totals) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     if (t.annoyances == 0L && t.requestsBlocked == 0L) {
         Text(
-            "As you browse, the totals of what Serene clears show up here.",
+            "As you browse, the totals of what Helmi clears show up here.",
             style = MaterialTheme.typography.bodySmall,
             color = muted,
             textAlign = TextAlign.Center,
@@ -97,7 +97,7 @@ private fun StatsPanel(t: Totals) {
     HorizontalDivider()
     Spacer(Modifier.height(8.dp))
     if (t.consentRejected > 0) Line("Tracking refused on cookie pop-ups", n.format(t.consentRejected))
-    Line("Pages visited with Serene on", n.format(t.pages))
+    Line("Pages visited with Helmi on", n.format(t.pages))
     if (t.modelCalls > 0) {
         Line("On-device model decisions", "${n.format(t.modelCalls)} · %.1f s each".format(t.modelMs / 1000.0 / t.modelCalls))
     }

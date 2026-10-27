@@ -2,14 +2,14 @@
 # this form with the phone filled in (app/src/main/kotlin/app/serene/report/NpuRequest.kt). The
 # field ids are the query parameters it sets, so rename them in both places.
 name: NPU model request
-description: Ask for Serene's model compiled for your phone's NPU (Snapdragon).
+description: Ask for Helmi's model compiled for your phone's NPU (Snapdragon).
 title: "NPU model for "
 labels: [npu-model]
 body:
   - type: markdown
     attributes:
       value: |
-        Serene's model runs about 3x faster on a phone's NPU, but it has to be compiled for each chip. The quickest way to file this is **Request a model for this phone's NPU** in Serene's settings, which fills in everything below.
+        Helmi's model runs about 3x faster on a phone's NPU, but it has to be compiled for each chip. The quickest way to file this is **Request a model for this phone's NPU** in Helmi's settings, which fills in everything below.
 
         Once a build exists, we'll ask you to run the NPU benchmark in Settings and paste its report here, because we can only test on chips we have.
   - type: input
@@ -35,7 +35,7 @@ body:
   - type: input
     id: app
     attributes:
-      label: Serene version
+      label: Helmi version
       placeholder: 0.1.0 build 162
   - type: textarea
     id: note

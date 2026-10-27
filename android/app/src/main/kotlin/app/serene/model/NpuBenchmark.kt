@@ -196,7 +196,7 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         private fun header(modelName: String, records: Int?): String {
             val soc = if (Build.VERSION.SDK_INT >= 31) " · ${Build.SOC_MANUFACTURER} ${Build.SOC_MODEL}" else ""
             return listOfNotNull(
-                "Serene model benchmark (NPU)",
+                "Helmi model benchmark (NPU)",
                 "App ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA})",
                 "Phone: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}$soc",
                 "Model: $modelName, free reply cut off after the label",
