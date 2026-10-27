@@ -5,8 +5,6 @@ name: android
 # it packages as assets (see android/app/build.gradle.kts). Docs-only changes skip it.
 on:
   pull_request:
-    # ready_for_review starts the e2e a draft skipped.
-    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'android/**'
       - 'engine/src/content/**'
@@ -35,7 +33,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # usually 3 to 5; a hung Gradle daemon would otherwise bill up to 6 hours
+    timeout-minutes: 20 # usually 3 to 5; a hung Gradle daemon would otherwise hold the runner up to 6 hours
     permissions:
       contents: read
       pull-requests: write # the APK link in the PR description
@@ -86,8 +84,7 @@ jobs:
         with:
           name: ${{ steps.apk.outputs.name }}
           path: android/out/*.apk
-          # Each APK is ~43 MB and there are dozens of builds a day; storage past 500 MB is billed.
-          retention-days: 7
+          retention-days: 30
       # Keep a "Debug APK" section in the PR description pointing at this run's artifact.
       # Fork PRs get a read-only token, so they skip it.
       - name: Link the APK in the PR description
@@ -104,7 +101,7 @@ jobs:
             const section = [
               start,
               '### Debug APK',
-              `[Download ${name}](${url}) (built from ${sha}, kept 7 days). Unzip it on the phone and open the .apk; it installs over earlier builds.`,
+              `[Download ${name}](${url}) (built from ${sha}, kept 30 days). Unzip it on the phone and open the .apk; it installs over earlier builds.`,
               end,
             ].join('\n');
             const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
@@ -129,13 +126,10 @@ jobs:
 
   # The engine's fixture pages in the real app on an emulator: system WebView, document-start
   # script, SereneBridge, adblock-rust over JNI and the Kotlin policy, end to end.
-  # Skipped on draft PRs to save minutes (it is about half the bill): a branch still being
-  # worked on gets the APK and unit tests, and e2e runs once it is marked ready for review.
   e2e:
     needs: build
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # usually 6; a stuck emulator would otherwise bill up to 6 hours
+    timeout-minutes: 20 # usually 6; a stuck emulator would otherwise hold the runner up to 6 hours
     steps:
       - uses: actions/download-artifact@v4
         with:
