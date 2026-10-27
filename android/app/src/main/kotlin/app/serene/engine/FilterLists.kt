@@ -38,11 +38,12 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String, p
 
     // v2: lists parsed with the trusted permission. An engine saved without it would keep
     // dropping uBO's trusted scriptlets, so it is not reused.
-    private val engineFile = File(dir, "engine-v2.dat")
-    private val consentFile = File(dir, "consent-v2.dat")
+    // v3: parsed in debug mode, so a blocked request names its rule and list (the site sheet).
+    private val engineFile = File(dir, "engine-v3.dat")
+    private val consentFile = File(dir, "consent-v3.dat")
     // Which lists (and which own rules) the saved engine was built from.
-    private val keyFile = File(dir, "engine-v2.key")
-    private val legacy = listOf("engine.dat", "consent.dat", "resources.json").map { File(dir, it) }
+    private val keyFile = File(dir, "engine-v3.key")
+    private val legacy = listOf("engine.dat", "consent.dat", "resources.json", "engine-v2.dat", "consent-v2.dat", "engine-v2.key").map { File(dir, it) }
 
     /** Last download or parse problem per list file. */
     private val errors = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -87,8 +88,9 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String, p
         val present = sources.mapNotNull { s -> File(dir, s.name).takeIf(File::exists)?.let { s to it.readText() } }.filter { (s, text) ->
             if (s.custom && ruleCount(text) == 0) { errors[s.name] = "no rules in this file"; false } else true
         }
-        val lists = present.map { (s, text) -> RulesEngine.ListText(text, s.trusted) } +
-            listOfNotNull(sel.myFilters.takeIf { it.isNotBlank() }?.let { RulesEngine.ListText(it) })
+        // Every list gets a title, so the site sheet can say which one blocked a request.
+        val lists = present.map { (s, text) -> RulesEngine.ListText(titled(text, if (s.custom) s.url else s.name), s.trusted) } +
+            listOfNotNull(sel.myFilters.takeIf { it.isNotBlank() }?.let { RulesEngine.ListText(titled(it, MY_FILTERS)) })
         if (lists.isEmpty()) return null
         val res = scriptlets()
         val key = cacheKey(present.map { it.first }, sel.myFilters)
@@ -154,6 +156,8 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String, p
         /** Bigger lists (EasyList, EasyPrivacy, AdGuard Popups) refresh only on unmetered networks. */
         const val METERED_MAX_BYTES = 1_000_000L
         const val ALL = "all"
+        /** The title the user's own rules go by in the site sheet. */
+        const val MY_FILTERS = "My filters"
         const val EASYLIST_COOKIE_SECTIONS = "easylist-cookie-sections"
         const val ANNOYANCES = "annoyances"
         const val ADS = "ads"
@@ -250,6 +254,12 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String, p
 
         /** A list's `! Title:` header, or null. */
         fun listTitle(text: String): String? = TITLE.find(text.take(HEADER_CHARS))?.groupValues?.get(1)?.trim()
+
+        /**
+         * [text] headed by its title as [listTitle] reads it (else [fallback]), on a first line in
+         * the one form adblock-rust reads: it stops at a blank line and wants exactly "Title: ".
+         */
+        fun titled(text: String, fallback: String): String = "! Title: ${listTitle(text) ?: fallback}\n$text"
 
         /** Lines that are rules: not comments, headers or blank. */
         fun ruleCount(text: String): Int = text.lineSequence().count { line ->

@@ -61,4 +61,11 @@ class FilterListsTest {
         assertEquals(1, FilterLists.ruleCount("<!doctype html><html>"))
         assertEquals(0, FilterLists.ruleCount("! only comments\n\n"))
     }
+
+    @Test fun everyListIsTitledForTheEngine() {
+        assertEquals("! Title: My list\n! Title: My list\n||a.example^", FilterLists.titled("! Title: My list\n||a.example^", "x"))
+        // Titles adblock-rust would miss (after a blank line, a flag before the colon) are repeated first.
+        assertTrue(FilterLists.titled("[Adblock Plus 2.0]\n\n! Title 🇬🇧: Nordic\n", "x").startsWith("! Title: Nordic\n"))
+        assertEquals("! Title: My filters\n##.promo", FilterLists.titled("##.promo", FilterLists.MY_FILTERS))
+    }
 }

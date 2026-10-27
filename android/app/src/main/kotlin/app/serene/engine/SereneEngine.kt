@@ -82,6 +82,12 @@ data class CandidateRecord(
     val applied: String? = null,
 )
 
+/** A request the lists blocked: the rule and the list's title, when the engine knows them. */
+data class BlockedRequest(val url: String, val type: String, val list: String?, val rule: String?)
+
+/** Blocked requests kept per page for the site sheet; the count goes on past it. */
+private const val MAX_BLOCKED = 300
+
 class PageSession internal constructor(private val e: SereneEngine, private val onChange: () -> Unit) {
     private val frames = ConcurrentHashMap<String, FrameRef>()               // origin -> frame (consent iframes)
     private val frameSummaries = ConcurrentHashMap<String, Features>()       // origin -> {text, buttons, heuristic}
@@ -97,6 +103,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     @Volatile var enabled = true
         private set
     val blockedRequests = AtomicInteger(0)
+    private val blocked = CopyOnWriteArrayList<BlockedRequest>()
     val startedAt = System.currentTimeMillis()
 
     /** Candidates in the order they were seen, with what was done about them. */
@@ -104,6 +111,9 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
 
     /** What the engine acted on: everything that was not left alone. */
     fun actions(): List<CandidateRecord> = candidates().filter { it.action == "click" || it.action == "hide" || (it.cached && it.action != "ignore") }
+
+    /** Requests the lists blocked on this page, first to last (the first [MAX_BLOCKED] kept). */
+    fun blocked(): List<BlockedRequest> = blocked.toList()
 
     fun log(): List<String> = logLines.toList()
 
@@ -120,14 +130,13 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         val rules = e.rules ?: return false
         if (sourceUrl == null || !enabled) return false
         if (e.autoconsent != null && e.allowConsentTools && ConsentTools.matches(url)) return false
-        val blocked = rules.shouldBlock(url, sourceUrl, type)
-        if (blocked) {
-            blockedRequests.incrementAndGet()
-            e.events?.blocked(siteOf(sourceUrl), type)
-            log("blocked $type ${url.take(120)}")
-            onChange()
-        }
-        return blocked
+        val m = rules.match(url, sourceUrl, type) ?: return false
+        blockedRequests.incrementAndGet()
+        if (blocked.size < MAX_BLOCKED) blocked += BlockedRequest(url, type, m.list, m.rule)
+        e.events?.blocked(siteOf(sourceUrl), type)
+        log("blocked $type ${url.take(120)} by ${m.rule ?: "?"} (${m.list ?: "untitled list"})")
+        onChange()
+        return true
     }
 
     /** A message from a frame's content script. */
