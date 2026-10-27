@@ -8,26 +8,41 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use adblock::lists::{FilterSet, ParseOptions};
 use adblock::request::Request;
-use adblock::resources::Resource;
+use adblock::resources::{PermissionMask, Resource};
 use adblock::Engine;
-use jni::objects::{JByteArray, JClass, JObjectArray, JString};
+use jni::objects::{JBooleanArray, JByteArray, JClass, JObjectArray, JString};
 use jni::sys::{jboolean, jbyteArray, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 use serde_json::{json, Value};
 
-/// Build an engine from filter list texts plus Brave's resources.json (uBO scriptlets).
-pub fn build(lists: Vec<String>, resources_json: &str) -> Engine {
+/// Permission bit for uBO's trusted scriptlets (engine/build.mjs sets it on those resources).
+const TRUSTED: PermissionMask = PermissionMask::from_bits(1);
+
+/// Build an engine from filter list texts, each with whether it is trusted (may inject uBO's
+/// trusted scriptlets), plus uBO's scriptlets (engine/dist/scriptlets.json).
+pub fn build(lists: Vec<(String, bool)>, resources_json: &str) -> Engine {
     let mut set = FilterSet::new(false);
-    for text in lists {
-        set.add_filter_list(text, ParseOptions::default());
+    for (text, trusted) in lists {
+        let permissions = if trusted { TRUSTED } else { PermissionMask::default() };
+        set.add_filter_list(text, ParseOptions { permissions, ..ParseOptions::default() });
     }
     let mut engine = Engine::new_with_filter_set(set);
     use_resources(&mut engine, resources_json);
     engine
 }
 
+/// scriptlets.json is `{ "source": ..., "resources": [...] }`; a bare array works too.
+fn parse_resources(resources_json: &str) -> Option<Vec<Resource>> {
+    let mut v: Value = serde_json::from_str(resources_json).ok()?;
+    let arr = match v.get_mut("resources") {
+        Some(r) => r.take(),
+        None => v,
+    };
+    serde_json::from_value(arr).ok()
+}
+
 fn use_resources(engine: &mut Engine, resources_json: &str) {
-    if let Ok(res) = serde_json::from_str::<Vec<Resource>>(resources_json) {
+    if let Some(res) = parse_resources(resources_json) {
         engine.use_resources(res);
     }
 }
@@ -104,9 +119,15 @@ pub extern "system" fn Java_app_serene_engine_RulesEngine_nativeCreate(
     mut env: JNIEnv,
     _: JClass,
     lists: JObjectArray,
+    trusted: JBooleanArray,
     resources: JString,
 ) -> jlong {
-    let lists = jstrings(&mut env, &lists);
+    let texts = jstrings(&mut env, &lists);
+    let mut flags = vec![JNI_FALSE; texts.len()];
+    if !trusted.is_null() {
+        let _ = env.get_boolean_array_region(&trusted, 0, &mut flags);
+    }
+    let lists = texts.into_iter().zip(flags).map(|(t, f)| (t, f == JNI_TRUE)).collect();
     let resources = jstr(&mut env, &resources);
     catch_unwind(move || into_handle(build(lists, &resources))).unwrap_or(0)
 }
@@ -203,7 +224,7 @@ mod tests {
 
     #[test]
     fn network_and_cosmetic() {
-        let e = build(vec![LIST.to_string()], "[]");
+        let e = build(vec![(LIST.to_string(), false)], "[]");
         assert!(check(&e, "https://cdn.cookielaw.org/otSDKStub.js", "https://example.com/", "script"));
         assert!(!check(&e, "https://example.com/app.js", "https://example.com/", "script"));
         let c = cosmetic(&e, "https://www.example.com/a");
@@ -215,14 +236,43 @@ mod tests {
 
     #[test]
     fn serialize_roundtrip() {
-        let e = build(vec![LIST.to_string()], "[]");
+        let e = build(vec![(LIST.to_string(), false)], "[]");
         let mut d = Engine::default();
         d.deserialize(&e.serialize()).unwrap();
         assert!(check(&d, "https://cdn.cookielaw.org/otSDKStub.js", "https://example.com/", "script"));
     }
+
+    #[test]
+    fn trusted_scriptlets_need_a_trusted_list() {
+        // Stand-ins in the shape engine/build.mjs writes: function-style, trusted ones with permission 1.
+        let b64 = |s: &str| base64_encode(s.as_bytes());
+        let res = json!({ "source": "test", "resources": [
+            { "name": "set-constant.js", "aliases": ["set.js"], "kind": { "mime": "application/javascript" }, "content": b64("function setConstant(a, b) {}") },
+            { "name": "trusted-click-element.js", "kind": { "mime": "application/javascript" }, "content": b64("function trustedClickElement(a) {}"), "permission": 1 },
+        ]})
+        .to_string();
+        let rules = "example.com##+js(set, foo, false)\nexample.com##+js(trusted-click-element, #reject)";
+        let script = |trusted| cosmetic(&build(vec![(rules.to_string(), trusted)], &res), "https://example.com/")["script"].as_str().unwrap().to_string();
+        let (untrusted, trusted) = (script(false), script(true));
+        assert!(untrusted.contains("setConstant(\"foo\", \"false\")"), "{untrusted}");
+        assert!(!untrusted.contains("trustedClickElement(\""));
+        assert!(trusted.contains("trustedClickElement(\"#reject\")"), "{trusted}");
+    }
+
+    fn base64_encode(data: &[u8]) -> String {
+        const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for c in data.chunks(3) {
+            let n = c.iter().enumerate().fold(0u32, |n, (i, &b)| n | (b as u32) << (16 - 8 * i));
+            for i in 0..4 {
+                out.push(if i <= c.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            }
+        }
+        out
+    }
 }
 
-/// Real lists: `SERENE_LISTS_DIR=<dir with the three lists + resources.json> cargo test --release -- --ignored`.
+/// Real lists: `SERENE_LISTS_DIR=<dir with the three lists> cargo test --release -- --ignored`.
 #[cfg(test)]
 mod real_lists {
     use super::*;
@@ -232,11 +282,13 @@ mod real_lists {
     fn real_lists_parse_and_match() {
         let dir = std::env::var("SERENE_LISTS_DIR").expect("SERENE_LISTS_DIR");
         let read = |n: &str| std::fs::read_to_string(format!("{dir}/{n}")).unwrap();
-        let lists = ["fanboy-annoyance.txt", "annoyances-cookies.txt", "annoyances-others.txt"].map(read).to_vec();
-        let resources = read("resources.json");
-        assert!(serde_json::from_str::<Vec<Resource>>(&resources).is_ok(), "resources.json must deserialize");
+        let lists = [("fanboy-annoyance.txt", false), ("annoyances-cookies.txt", true), ("annoyances-others.txt", true)]
+            .map(|(n, trusted)| (read(n), trusted))
+            .to_vec();
+        let resources = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../engine/dist/scriptlets.json")).unwrap();
+        assert!(parse_resources(&resources).is_some_and(|r| !r.is_empty()), "scriptlets.json must deserialize");
         let t = std::time::Instant::now();
-        let e = build(lists, &resources);
+        let e = build(lists.clone(), &resources);
         eprintln!("built in {:?}, serialized {} bytes", t.elapsed(), e.serialize().len());
         let c = cosmetic(&e, "https://www.stackoverflow.com/");
         assert!(!c["hideSelectors"].as_array().unwrap().is_empty() || !c["script"].as_str().unwrap().is_empty());
@@ -245,5 +297,15 @@ mod real_lists {
         let mut d = Engine::default();
         d.deserialize(&e.serialize()).unwrap();
         eprintln!("deserialized in {:?}", t.elapsed());
+        // uBO Cookie Notices' trusted scriptlets survive the saved engine (FilterLists reuses it).
+        use_resources(&mut d, &resources);
+        let site = lists[1].0.lines().find_map(|l| {
+            let (domains, _) = l.split_once("##+js(trusted-click-element,")?;
+            let d = domains.split(',').next()?;
+            d.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-').then(|| d.to_string())
+        });
+        let site = site.expect("a trusted-click-element rule");
+        let script = cosmetic(&d, &format!("https://{site}/"))["script"].as_str().unwrap().to_string();
+        assert!(script.contains("trustedClickElement("), "no trusted-click-element on {site}");
     }
 }

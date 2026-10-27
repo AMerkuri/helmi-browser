@@ -1,11 +1,12 @@
 // Rules layer: Brave's adblock-rust (same crate we will ship over JNI on Android).
 import { createRequire } from 'node:module';
+import { TRUSTED } from './lists.mjs';
 const adblock = createRequire(import.meta.url)('adblock-rs');
 
 export class RulesEngine {
   constructor({ lists, resources }) {
     const filterSet = new adblock.FilterSet(false);
-    for (const l of lists) filterSet.addFilters(l.text, { format: 'Standard' });
+    for (const l of lists) filterSet.addFilters(l.text, { format: 'Standard', permissions: l.trusted ? TRUSTED : 0 });
     this.engine = new adblock.Engine(filterSet);
     if (resources) this.engine.useResources(resources);
     // A second, smaller engine with only the cookie-banner rules tells which of the main

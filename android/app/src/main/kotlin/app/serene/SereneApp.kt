@@ -88,7 +88,7 @@ class SereneApp : Application() {
         models.refresh()
         downloads = Downloads(this)
         readerPrefs = ReaderPrefs(this)
-        lists = FilterLists(File(filesDir, "lists"))
+        lists = FilterLists(File(filesDir, "lists")) { assets.open("scriptlets.json").bufferedReader().use { it.readText() } }
         engine = SereneEngine(
             rules = null, // heuristics only until the lists are loaded
             cache = VerdictCache(File(filesDir, "site-rules.json")),

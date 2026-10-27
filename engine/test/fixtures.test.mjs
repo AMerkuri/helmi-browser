@@ -19,7 +19,7 @@ const expectOf = (file) => JSON.parse(/<script type="application\/json" id="expe
 
 const FIXTURES = fs.readdirSync(DIR).filter((f) => f.endsWith('.html') && !expectOf(f).frameOnly).sort();
 
-let server, base, browser, rules;
+let server, base, browser, lists, rules;
 const autoconsent = new AutoconsentRules();
 
 before(async () => {
@@ -35,7 +35,8 @@ before(async () => {
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}/`;
-  rules = new RulesEngine(await loadLists(new URL('../.cache/lists/', import.meta.url).pathname));
+  lists = await loadLists(new URL('../.cache/lists/', import.meta.url).pathname);
+  rules = new RulesEngine(lists);
   browser = await launch();
 });
 
@@ -52,10 +53,13 @@ function stubClassifier(calls) {
   };
 }
 
-async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0 } = {}) {
+// A fixture's own `rules` are added to the lists as one more list, trusted like uBO's unless
+// `trusted` is false.
+async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0, trusted = true } = {}) {
   const exp = expectOf(file);
   const events = [], llmCalls = [];
-  const engine = new SereneEngine({ rules, classifier: stubClassifier(llmCalls), cache, autoconsent: withAutoconsent ? autoconsent : null });
+  const fixtureRules = exp.rules ? new RulesEngine({ ...lists, lists: [...lists.lists, { name: file, text: exp.rules, trusted }] }) : rules;
+  const engine = new SereneEngine({ rules: fixtureRules, classifier: stubClassifier(llmCalls), cache, autoconsent: withAutoconsent ? autoconsent : null });
   const context = await newContext(browser, { engine, onEvent: (e) => events.push(e), probe: true, hostDelayMs });
   const page = await context.newPage();
   await page.goto(base + file + query);
@@ -124,6 +128,12 @@ test('without autoconsent a list-known banner in another language is only hidden
   assert.ok(state.gone, 'banner should be hidden by the lists');
   assert.deepEqual(state.clicked, [], 'nothing pressed: the decline list has no Greek');
   assert.ok(!events.some((e) => e.type === 'autoconsent'));
+});
+
+test('a trusted scriptlet from an untrusted list does nothing', async () => {
+  const { state } = await runFixture('scriptlet-click.html', { trusted: false });
+  assert.deepEqual(state.clicked, [], 'trusted-click-element needs a trusted list');
+  assert.ok(!state.gone, 'the bar should stay');
 });
 
 test('second visit uses the site cache, not the model', async () => {

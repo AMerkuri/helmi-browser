@@ -8,28 +8,33 @@ import java.net.URL
 /**
  * Filter list download, on-disk cache and engine build. Port of engine/src/host/lists.mjs.
  * Lists are fetched at runtime from upstream (never bundled) and refreshed every 4 days. The
- * parsed engine is saved next to them, so later launches skip parsing.
+ * parsed engine is saved next to them, so later launches skip parsing. [scriptlets] reads uBO's
+ * scriptlets, which the app ships (engine/dist/scriptlets.json, built by `npm run build`).
  */
-class FilterLists(private val dir: File) {
-    /** [consent]: which part of the list is cookie-banner rules (see [consentPart]). */
-    data class Source(val name: String, val url: String, val consent: String? = null)
+class FilterLists(private val dir: File, private val scriptlets: () -> String) {
+    /**
+     * [consent]: which part of the list is cookie-banner rules (see [consentPart]).
+     * [trusted]: may use the scriptlets uBO reserves for its own lists (trusted-click-element, ...).
+     */
+    data class Source(val name: String, val url: String, val consent: String? = null, val trusted: Boolean = false)
 
     data class Status(val updatedAt: Long, val bytes: Long, val error: String? = null)
 
     // Fanboy's Annoyance List already includes the EasyList Cookie List.
     val sources = listOf(
         Source("fanboy-annoyance.txt", "https://raw.githubusercontent.com/easylist/easylist/gh-pages/fanboy-annoyance.txt", consent = EASYLIST_COOKIE_SECTIONS),
-        Source("annoyances-cookies.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt", consent = ALL),
-        Source("annoyances-others.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-others.txt"),
+        Source("annoyances-cookies.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-cookies.txt", consent = ALL, trusted = true),
+        Source("annoyances-others.txt", "https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances-others.txt", trusted = true),
     )
-    // uBO scriptlets/redirect resources in the format adblock-rust's use_resources() expects.
-    private val resources = Source("resources.json", "https://raw.githubusercontent.com/brave/adblock-resources/master/dist/resources.json")
 
-    private val engineFile = File(dir, "engine.dat")
-    private val consentFile = File(dir, "consent.dat")
+    // v2: lists parsed with the trusted permission. An engine saved without it would keep
+    // dropping uBO's trusted scriptlets, so it is not reused.
+    private val engineFile = File(dir, "engine-v2.dat")
+    private val consentFile = File(dir, "consent-v2.dat")
+    private val legacy = listOf("engine.dat", "consent.dat", "resources.json").map { File(dir, it) }
 
     fun status(): Status? {
-        val files = (sources + resources).map { File(dir, it.name) }
+        val files = sources.map { File(dir, it.name) }
         if (!files.all { it.exists() }) return null
         return Status(files.minOf { it.lastModified() }, files.sumOf { it.length() })
     }
@@ -40,10 +45,11 @@ class FilterLists(private val dir: File) {
      */
     fun load(force: Boolean = false): RulesEngine? {
         dir.mkdirs()
+        legacy.forEach { it.delete() }
         var changed = false
-        for (s in sources + resources) changed = fetch(s, force) or changed
+        for (s in sources) changed = fetch(s, force) or changed
         val present = sources.mapNotNull { s -> File(dir, s.name).takeIf(File::exists)?.let { s to it.readText() } }
-        val res = File(dir, resources.name).takeIf(File::exists)?.readText() ?: "[]"
+        val res = scriptlets()
         if (present.isEmpty()) return null
         if (!changed && engineFile.exists() && consentFile.exists()) {
             RulesEngine.fromSerialized(engineFile.readBytes(), res)?.let { engine ->
@@ -52,9 +58,9 @@ class FilterLists(private val dir: File) {
             }
         }
         val t0 = System.nanoTime()
-        val engine = RulesEngine.fromLists(present.map { it.second }, res) ?: return null
+        val engine = RulesEngine.fromLists(present.map { (s, text) -> RulesEngine.ListText(text, s.trusted) }, res) ?: return null
         engine.consent = present.map { (s, text) -> consentPart(text, s.consent) }.filter { it.isNotEmpty() }
-            .takeIf { it.isNotEmpty() }?.let { RulesEngine.fromLists(it, "[]") }
+            .takeIf { it.isNotEmpty() }?.let { parts -> RulesEngine.fromLists(parts.map { RulesEngine.ListText(it) }, "[]") }
         Log.i(TAG, "parsed ${present.size} lists in ${(System.nanoTime() - t0) / 1_000_000} ms")
         engine.serialize()?.let { bytes -> runCatching { engineFile.writeBytes(bytes) } }
         engine.consent?.serialize()?.let { bytes -> runCatching { consentFile.writeBytes(bytes) } }

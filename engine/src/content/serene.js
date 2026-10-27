@@ -200,7 +200,9 @@
 
   function runScript(code) {
     // Document-start scripts already run in the page's main world; scriptlets need that too.
-    try { (0, eval)(code); } catch (e) { send('log', { msg: 'scriptlet error: ' + e.message }); }
+    // Wrapped like uBO does it: the helper functions stay off window, and uBO's scriptlets read
+    // a `scriptletGlobals` object that their injector provides.
+    try { (0, eval)('(function(){const scriptletGlobals={};\n' + code + '\n})();'); } catch (e) { send('log', { msg: 'scriptlet error: ' + e.message }); }
   }
 
   function start() {
