@@ -3,6 +3,8 @@ package app.serene
 import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import androidx.annotation.VisibleForTesting
@@ -18,9 +20,11 @@ import app.serene.engine.SereneEngine
 import app.serene.engine.VerdictCache
 import app.serene.model.ModelBenchmark
 import app.serene.model.ModelManager
+import app.serene.model.NpuBenchmark
 import app.serene.reader.ReaderPrefs
 import app.serene.stats.Stats
 import app.serene.ui.applyNightMode
+import com.google.ai.edge.litertlm.Backend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,14 +39,25 @@ data class ModelSpec(
     val url: String,
     val sizeBytes: Long,
     val sha256: String,
-)
+    /**
+     * For a model compiled ahead of time for an NPU: the chip it runs on (Build.SOC_MODEL). It
+     * runs on the NPU only, with [NpuBenchmark.CHATML]. Null: any phone, on the GPU or CPU.
+     */
+    val soc: String? = null,
+) {
+    val npu: Boolean get() = soc != null
+}
 
-/** Models from huggingface.co/litert-community; sizes and hashes from the Hugging Face API. */
+/**
+ * Models from huggingface.co/litert-community (sizes and hashes from the Hugging Face API), and
+ * the ones compiled for an NPU by the npu-model workflow, published as releases of this repo by
+ * npu-model-release (sizes and hashes from the workflow's summary).
+ */
 object ModelCatalog {
     val DEFAULT = ModelSpec(
         id = "qwen3-0.6b-int8",
         name = "Qwen3-0.6B",
-        note = "Default. INT8 weights, the build the engine was evaluated with.",
+        note = "INT8 weights, the build the engine was evaluated with. The default on phones without an NPU model.",
         file = "Qwen3-0.6B.litertlm",
         url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm",
         sizeBytes = 613_722_264,
@@ -57,8 +72,28 @@ object ModelCatalog {
         sizeBytes = 344_671_744,
         sha256 = "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856",
     )
-    val all = listOf(DEFAULT, SMALL)
-    fun byId(id: String) = all.firstOrNull { it.id == id } ?: DEFAULT
+    /** npu-model run 9: 369 ms a call on a Galaxy Z Fold 7, +698 MB, 72% (docs/engine.md). */
+    val NPU_SM8750 = ModelSpec(
+        id = "qwen3-0.6b-npu-sm8750",
+        name = "Qwen3-0.6B (NPU)",
+        note = "Compiled for this phone's NPU. About 3x faster than INT8 on the GPU and a third of its memory, at about the same accuracy.",
+        file = "Qwen3-0.6B.sm8750.litertlm",
+        url = "https://github.com/AMerkuri/serene-browser/releases/download/npu-qwen3-0.6b-sm8750-1/Qwen3-0.6B.sm8750.litertlm",
+        sizeBytes = 780_882_290,
+        sha256 = "6ca25db5e511d2f9c92d5c200cc4784551f7c3d92642943568945da5de1a3081",
+        soc = "SM8750",
+    )
+    val all = listOf(DEFAULT, SMALL, NPU_SM8750)
+
+    private val soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else ""
+
+    /** The models this phone can run. */
+    val available: List<ModelSpec> get() = all.filter { it.soc == null || it.soc.equals(soc, ignoreCase = true) }
+
+    /** The model compiled for this phone's NPU if there is one, else INT8. */
+    val default: ModelSpec get() = available.firstOrNull { it.npu } ?: DEFAULT
+
+    fun byId(id: String) = available.firstOrNull { it.id == id } ?: default
 }
 
 class SereneApp : Application() {
@@ -82,6 +117,8 @@ class SereneApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // The NPU benchmark's process (NpuBenchmarkService) needs none of the browser.
+        if (Build.VERSION.SDK_INT >= 28 && Application.getProcessName().endsWith(":npu")) return
         settings = Settings(this)
         applyNightMode(this, settings.theme)
         models = ModelManager(this, settings, scope)
@@ -130,21 +167,34 @@ class SereneApp : Application() {
     fun classifierNow(): Classifier? {
         classifierOverride?.let { return it }
         if (!settings.modelEnabled) return null
-        val file = models.readyFile() ?: return null
+        models.readyFile() ?: return null
         if (settings.skipModelOnBatterySaver && getSystemService(PowerManager::class.java).isPowerSaveMode) return null
         val mem = ActivityManager.MemoryInfo().also { getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
         if (mem.lowMemory) return null
         return liteRtClassifier()
     }
 
-    /** The downloaded model, whether or not browsing may use it right now (the benchmark uses it too). */
+    /**
+     * The downloaded model, whether or not browsing may use it right now (the benchmark uses it
+     * too). A model compiled for the NPU runs there, with its chat template.
+     */
     fun liteRtClassifier(): LiteRtClassifier? {
         val file = models.readyFile() ?: return null
+        val spec = models.spec
         synchronized(this) {
             val c = classifier
             if (c != null && c.modelFile == file) return c
             c?.let { old -> scope.launch { old.unload() } }
-            return LiteRtClassifier(file, cacheDir).also { classifier = it }
+            val made = if (spec.npu) {
+                LiteRtClassifier(
+                    file, cacheDir,
+                    backends = listOf({ Backend.NPU(nativeLibraryDir = applicationInfo.nativeLibraryDir) }),
+                    chatTemplate = NpuBenchmark.CHATML,
+                )
+            } else {
+                LiteRtClassifier(file, cacheDir)
+            }
+            return made.also { classifier = it }
         }
     }
 
@@ -173,7 +223,8 @@ class SereneApp : Application() {
         private set
 
     fun runBenchmark() {
-        if (benchmarkProgress != null) return
+        if (benchmarkProgress != null || npuBenchmarkProgress != null) return
+        if (models.spec.npu) return runNpuBenchmark()
         val c = liteRtClassifier() ?: return
         benchmarkProgress = "loading the model"
         scope.launch {
@@ -184,6 +235,70 @@ class SereneApp : Application() {
                 "Benchmark failed: ${t.message}"
             } finally {
                 benchmarkProgress = null
+            }
+        }
+    }
+
+    /** The same benchmark on the Qualcomm NPU, run in a separate process (NpuBenchmark). */
+    var npuBenchmarkReport by mutableStateOf<String?>(null)
+        private set
+    var npuBenchmarkProgress by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * The NPU benchmark runs a model imported by hand when there is one (to try an npu-model build
+     * before it is released), else the downloaded NPU model.
+     */
+    var npuCompiledModel by mutableStateOf(false)
+        private set
+    /** Its size and import time, when there is one. */
+    var npuCompiledModelInfo by mutableStateOf<String?>(null)
+        private set
+
+    fun refreshNpuModel() {
+        val file = NpuBenchmark.compiledModel(this)
+        npuCompiledModel = file.exists()
+        npuCompiledModelInfo = if (file.exists()) NpuBenchmark.describe(file) else null
+    }
+
+    fun importNpuModel(uri: Uri) {
+        if (npuBenchmarkProgress != null) return
+        npuBenchmarkProgress = "importing the NPU model"
+        scope.launch {
+            try {
+                val bytes = NpuBenchmark.importCompiled(this@SereneApp, uri)
+                npuBenchmarkReport = "Imported the NPU model (${bytes / 1_000_000} MB). Run the NPU benchmark to try it."
+            } catch (t: Throwable) {
+                Log.e("Serene", "NPU model import failed", t)
+                npuBenchmarkReport = "Could not import the NPU model: ${t.message}"
+            } finally {
+                refreshNpuModel()
+                npuBenchmarkProgress = null
+            }
+        }
+    }
+
+    fun deleteNpuModel() {
+        NpuBenchmark.compiledModel(this).delete()
+        refreshNpuModel()
+    }
+
+    fun runNpuBenchmark() {
+        if (npuBenchmarkProgress != null || benchmarkProgress != null) return
+        val imported = NpuBenchmark.compiledModel(this).takeIf { it.exists() }
+        val file = imported ?: models.readyFile()?.takeIf { models.spec.npu } ?: return
+        val name = if (imported != null) "${NpuBenchmark.COMPILED_NAME}, imported (${NpuBenchmark.describe(imported)})" else "${models.spec.name}, ${models.spec.file}"
+        npuBenchmarkProgress = "starting"
+        scope.launch {
+            // One model in memory at a time: the NPU process loads its own copy.
+            classifier?.unload()
+            npuBenchmarkReport = try {
+                NpuBenchmark.start(this@SereneApp, file, name) { npuBenchmarkProgress = it }
+            } catch (t: Throwable) {
+                Log.e("Serene", "NPU benchmark failed", t)
+                "NPU benchmark failed: ${t.message}"
+            } finally {
+                npuBenchmarkProgress = null
             }
         }
     }

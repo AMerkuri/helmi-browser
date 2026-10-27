@@ -1,0 +1,49 @@
+name: npu-model-release
+
+# Publishes an npu-model build as a release of this repo, the download the app's model list points
+# at (ModelCatalog in android/app/src/main/kotlin/app/serene/SereneApp.kt). It takes the artifact
+# of an npu-model run that was tested on a phone, so the released file is the one tested: put the
+# run's sha256 and size in ModelCatalog, and the tag in its URL.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: npu-model run whose artifact to publish (the number in the run's URL)
+        required: true
+      tag:
+        description: Release tag, the one in ModelCatalog's URL (e.g. npu-qwen3-0.6b-sm8750-1)
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the release
+      actions: read # read the other run's artifact
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: npu-model-*
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: npu
+          merge-multiple: true
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          cd npu
+          ls -l
+          sha256sum -c SHA256SUMS
+          {
+            echo "Qwen3-0.6B compiled ahead of time for a Qualcomm NPU, from npu-model run $RUN_ID."
+            echo "Serene downloads it from its model list on a phone with that chip."
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } > notes.md
+          gh release create "$TAG" *.litertlm SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md --target "$GITHUB_SHA"
