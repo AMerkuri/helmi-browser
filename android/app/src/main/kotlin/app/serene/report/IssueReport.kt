@@ -31,8 +31,8 @@ object IssueReport {
             "url" to stripQuery(pageUrl),
             "note" to note.trim(),
             "app" to listOfNotNull(report.str("app"), report.str("device"), report.str("webview")?.let { "WebView $it" }).joinToString(", "),
-            "engine" to engineText(report),
-            "overlay" to overlayText(report),
+            "engine" to stripQueries(engineText(report)),
+            "overlay" to stripQueries(overlayText(report)),
         )
         // Trim the two big fields, longest first, until the URL fits; then the note, if it must.
         var out = build(fields)
@@ -103,6 +103,13 @@ object IssueReport {
 
     /** Query strings and fragments often carry session ids and emails; issues are public. */
     fun stripQuery(url: String) = url.substringBefore('#').substringBefore('?')
+
+    // The page log ("hello from top <href>", frame and blocked request URLs) and the overlay's
+    // HTML (links, image and iframe sources) carry addresses too.
+    private val URL_TAIL = Regex("""(https?://[^\s?#"'<>`]+)[?#][^\s"'<>`]*""")
+
+    /** [stripQuery] for every http(s) address inside [text]. */
+    fun stripQueries(text: String) = text.replace(URL_TAIL, "$1")
 
     private fun JsonObject.str(k: String): String? = (this[k] as? JsonPrimitive)?.contentOrNull
 }
