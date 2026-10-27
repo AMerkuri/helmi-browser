@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    Light, with a dark variant in values-night that follows the app's night mode (the Theme
+    setting). WebView reads isLightTheme from it: a dark theme tells pages prefers-color-scheme:
+    dark and lets it darken pages that have no dark theme of their own.
+    -->
+    <style name="Theme.Serene" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

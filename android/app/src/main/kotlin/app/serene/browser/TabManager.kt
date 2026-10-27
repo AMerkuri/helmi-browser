@@ -1,6 +1,7 @@
 package app.serene.browser
 
 import android.content.Context
+import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -19,20 +20,44 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     fun open(url: String? = null, select: Boolean = true): Tab {
         val tab = Tab(context, app, nextId++)
         tabs += tab
-        if (select) currentIndex = tabs.lastIndex
+        if (select) {
+            leave()
+            currentIndex = tabs.lastIndex
+        }
         if (!url.isNullOrBlank()) tab.load(url)
         return tab
     }
 
     fun select(tab: Tab) {
         val i = tabs.indexOf(tab)
-        if (i >= 0) currentIndex = i
+        if (i < 0 || i == currentIndex) return
+        leave()
+        currentIndex = i
     }
+
+    /**
+     * Gives the WebViews of tabs not on screen the page's size, so their pages are laid out for it
+     * before they are shown: a WebView never on screen (tabs restored after a restart) is 0 x 0,
+     * and laying its page out the first time it was shown stuttered the tab switcher's zoom.
+     */
+    fun sizeHidden(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        for (t in tabs) {
+            val v = t.webView
+            if (v.parent != null || (v.width == width && v.height == height)) continue
+            v.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            v.layout(0, 0, width, height)
+        }
+    }
+
+    // The tab being left, as it was last on screen, for its card in the tab switcher.
+    private fun leave() { current?.let { TabPreviews.capture(it) } }
 
     fun close(tab: Tab) {
         val i = tabs.indexOf(tab)
         if (i < 0) return
         tabs.removeAt(i)
+        TabPreviews.remove(tab)
         tab.destroy()
         if (tabs.isEmpty()) open()
         currentIndex = (if (i < currentIndex) currentIndex - 1 else currentIndex.coerceAtMost(tabs.lastIndex)).coerceAtLeast(0)

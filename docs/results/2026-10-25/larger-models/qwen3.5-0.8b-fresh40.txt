@@ -1,0 +1,60 @@
+model: Qwen3.5-0.8B_int8.litertlm  backend: cpu  load: 23.6 s
+✓ fixture/app-install                      app_install          app_install          1399 ms
+✓ fixture/cookie-custom                    cookie_consent       cookie_consent       1272 ms
+✓ fixture/cookie-de-modal                  cookie_consent       cookie_consent       1193 ms
+✓ fixture/cookie-onetrust                  cookie_consent       cookie_consent       1317 ms
+✓ fixture/cookie-shadow                    cookie_consent       cookie_consent       1157 ms
+✓ fixture/neg-article-mentions             content              content              1494 ms
+✓ fixture/neg-sticky-header                content              content              1271 ms
+✓ fixture/newsletter-body-lock             newsletter           newsletter           1101 ms
+✓ fixture/newsletter-delayed               newsletter           newsletter           1266 ms
+✓ fixture/notification-prompt              notification_prompt  notification_prompt  1171 ms
+✓ fixture/paywall-sheet                    paywall_teaser       paywall_teaser       1345 ms
+✓ fixture/unknown-language                 cookie_consent       cookie_consent       1567 ms
+✓ synthetic/fr-cookie                      cookie_consent       cookie_consent       1389 ms
+✓ synthetic/it-cookie                      cookie_consent       cookie_consent       966 ms
+✓ synthetic/pl-cookie                      cookie_consent       cookie_consent       1246 ms
+✓ synthetic/sourcepoint-iframe             cookie_consent       cookie_consent       1200 ms
+✗ synthetic/discount-modal                 newsletter           paywall_teaser       1132 ms
+✗ synthetic/push-prompt                    notification_prompt  paywall_teaser       1024 ms
+✗ synthetic/app-banner                     app_install          app_install          1120 ms
+✓ synthetic/login-wall                     login_wall           login_wall           1234 ms
+✓ synthetic/meter-paywall                  paywall_teaser       paywall_teaser       1267 ms
+✓ synthetic/survey                         survey               survey               1128 ms
+✓ synthetic/chat                           chat_widget          chat_widget          1141 ms
+✓ synthetic/cart-drawer                    content              content              1343 ms
+✓ synthetic/audio-player                   content              content              1474 ms
+✗ synthetic/site-menu                      content              login_wall           1189 ms
+✓ synthetic/filter-sheet                   content              content              1270 ms
+✓ synthetic/es-newsletter                  newsletter           newsletter           1299 ms
+✓ synthetic/ja-app                         app_install          app_install          1114 ms
+✗ synthetic/cmp-tcf-de                     cookie_consent       login_wall           1212 ms
+✓ crawl/bbc/header#bbc-header              content              login_wall           1376 ms
+✓ crawl/spiegel/header.-mt-8.pointer-eve   content              login_wall           1407 ms
+✓ crawl/lemonde/div.gdpr-lmd-standard.gd   cookie_consent       cookie_consent       1459 ms
+✓ crawl/elpais/div#pmConsentWall           cookie_consent       cookie_consent       1600 ms
+✓ crawl/corriere/header.header             content              content              1407 ms
+✓ crawl/corriere/div.privacy-cp-wall       cookie_consent       cookie_consent       1662 ms
+✓ crawl/onet/header.Header_headerWrap      content              paywall_teaser       1535 ms
+✗ crawl/onet/div > nav                     content              paywall_teaser       1422 ms
+✓ crawl/onet/div.cmp-popup_popup.show      cookie_consent       cookie_consent       1525 ms
+✓ crawl/idnes/a.cookie-info                cookie_consent       cookie_consent       1590 ms
+
+== Qwen3.5-0.8B_int8.litertlm: 32/40 = 80%  guarded 34/40 = 85%  content hidden 2/11  no label 0  median 1271 ms
+    synthetic/discount-modal: newsletter -> paywall_teaser  raw='{"label": "paywall_teaser",'
+    synthetic/push-prompt: notification_prompt -> paywall_teaser  raw='{"label": "paywall_teaser",'
+    synthetic/app-banner: app_install -> content (header guard)  raw='{"label": "app_install",'
+    synthetic/site-menu: content -> login_wall (hidden)  raw='{"label": "login_wall",'
+    synthetic/cmp-tcf-de: cookie_consent -> login_wall  raw='{"label": "login_wall",'
+    crawl/onet/div > nav: content -> paywall_teaser (hidden)  raw='{"label": "paywall_teaser",'
+
+confusion (expected -> got):
+  app_install          app_install:3
+  cookie_consent       cookie_consent:14 login_wall:1
+  content              content:6 login_wall:3 paywall_teaser:2
+  newsletter           newsletter:3 paywall_teaser:1
+  notification_prompt  notification_prompt:1 paywall_teaser:1
+  paywall_teaser       paywall_teaser:2
+  login_wall           login_wall:1
+  survey               survey:1
+  chat_widget          chat_widget:1

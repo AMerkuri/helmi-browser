@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ import app.serene.BuildConfig
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
 import app.serene.SereneApp
+import app.serene.ThemeMode
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
@@ -84,13 +86,19 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             )
             ListItem(
                 headlineContent = { Text("Browsing data") },
-                supportingContent = { Text("Cookies and site storage for every site, including consent choices.") },
-                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { } }) { Text("Clear") } },
+                supportingContent = { Text("Cookies and site storage for every site, including consent choices, and the most cleaned-up sites on the new tab page.") },
+                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { }; app.stats.forgetSites() }) { Text("Clear") } },
             )
             ListItem(
                 headlineContent = { Text("Learned site rules") },
                 supportingContent = { Text("Decisions remembered for ${remember(tick) { app.engine.cache.siteCount() }} sites, so the model runs about once per site.") },
                 trailingContent = { OutlinedButton(onClick = { app.engine.cache.clear() }) { Text("Forget") } },
+            )
+
+            ListItem(
+                headlineContent = { Text("Statistics") },
+                supportingContent = { Text("The totals on the new tab page, counted since ${DateUtils.formatDateTime(ctx, app.stats.totals.since, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR)}.") },
+                trailingContent = { OutlinedButton(onClick = { app.stats.reset() }) { Text("Reset") } },
             )
 
             Section("On-device model")
@@ -105,6 +113,32 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 }
             }
 
+            Section("Theme")
+            ThemeMode.entries.forEach { m ->
+                Row(Modifier.fillMaxWidth().clickable { s.theme = m }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = s.theme == m, onClick = { s.theme = m })
+                    Column {
+                        Text(m.label)
+                        if (m == ThemeMode.SYSTEM) Text("Dark when the phone's dark theme is on", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            SwitchRow(
+                "Apply dark theme to sites, when possible",
+                "Darkens sites that have no dark theme of their own. Sites with one use it, and pictures keep their colors.",
+                s.darkSites, enabled = s.theme != ThemeMode.LIGHT,
+            ) { s.darkSites = it }
+            // Sites switched in ⋮ › Dark theme; X puts one back on the setting above.
+            s.darkSiteChoices.toSortedMap().forEach { (site, on) ->
+                ListItem(
+                    headlineContent = { Text(site) },
+                    supportingContent = { Text(if (on) "Dark theme on" else "Dark theme off") },
+                    trailingContent = {
+                        IconButton(onClick = { s.resetDarkSite(site) }) { Icon(Icons.Filled.Close, "Use the setting for $site") }
+                    },
+                )
+            }
+
             Section("Search")
             SearchEngine.entries.forEach { e ->
                 Row(Modifier.fillMaxWidth().clickable { s.searchEngine = e }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -113,11 +147,25 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 }
             }
 
+            Section("Flags")
+            Text(
+                "Features to try out. They may change or go away.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            SwitchRow(
+                "Back/forward cache",
+                if (Tab.backForwardCacheSupported) "Going back or forward resumes the page as it was, and swipes show a picture of it. Off: the page loads again, and swipes show its title."
+                else "Not supported by this WebView: pages load again, and swipes show the page's title.",
+                s.backForwardCache && Tab.backForwardCacheSupported,
+                enabled = Tab.backForwardCacheSupported,
+            ) { s.backForwardCache = it }
+
             Section("About")
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)
             ListItem(
                 headlineContent = { Text("Serene ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}, ${BuildConfig.GIT_SHA})") },
-                supportingContent = { Text("WebView ${wv?.versionName ?: "?"} · document-start scripts ${if (Tab.documentStartSupported) "supported" else "not supported (fallback)"}") },
+                supportingContent = { Text("WebView ${wv?.versionName ?: "?"} · document-start scripts ${if (Tab.documentStartSupported) "supported" else "not supported (fallback)"} · passkeys ${if (Tab.webAuthnSupported) "supported" else "not supported by this WebView"}") },
             )
             Spacer(Modifier.height(32.dp))
         }
@@ -129,6 +177,11 @@ private fun ModelSection(app: SereneApp) {
     val s = app.settings
     val ctx = LocalContext.current
     val m = app.models
+    fun pick(id: String) {
+        if (id == s.modelId) return
+        m.select(id)
+        app.unloadModel() // the old one, now rather than after its idle timeout
+    }
     Text(
         "Qwen3-0.6B runs on the phone and only looks at overlays the filter lists and heuristics are unsure about. " +
             "Nothing is sent anywhere. Without it Serene still works, using lists and heuristics only.",
@@ -136,8 +189,8 @@ private fun ModelSection(app: SereneApp) {
         modifier = Modifier.padding(horizontal = 16.dp),
     )
     ModelCatalog.all.forEach { spec ->
-        Row(Modifier.fillMaxWidth().clickable { m.select(spec.id) }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = s.modelId == spec.id, onClick = { m.select(spec.id) })
+        Row(Modifier.fillMaxWidth().clickable { pick(spec.id) }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(selected = s.modelId == spec.id, onClick = { pick(spec.id) })
             Column {
                 Text("${spec.name} · ${Formatter.formatShortFileSize(ctx, spec.sizeBytes)}")
                 Text(spec.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -158,7 +211,7 @@ private fun ModelSection(app: SereneApp) {
             ModelState.Ready -> {
                 Text("Downloaded. Status: ${app.classifierInfo()}", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(6.dp))
-                OutlinedButton(onClick = m::delete) { Text("Delete model") }
+                OutlinedButton(onClick = { m.delete(); app.unloadModel() }) { Text("Delete model") }
                 Spacer(Modifier.height(12.dp))
                 BenchmarkSection(app)
             }
@@ -168,7 +221,7 @@ private fun ModelSection(app: SereneApp) {
             }
         }
     }
-    SwitchRow("Use the model", "For overlays the heuristics are unsure about.", s.modelEnabled) { s.modelEnabled = it }
+    SwitchRow("Use the model", "For overlays the heuristics are unsure about.", s.modelEnabled) { s.modelEnabled = it; if (!it) app.unloadModel() }
     SwitchRow("Download on Wi-Fi only", null, s.wifiOnlyDownloads) { s.wifiOnlyDownloads = it }
     SwitchRow("Skip the model in battery saver", "Lists and heuristics only while battery saver is on.", s.skipModelOnBatterySaver) { s.skipModelOnBatterySaver = it }
 }
@@ -245,11 +298,11 @@ private fun Section(title: String) {
 }
 
 @Composable
-private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChange) },
-        modifier = Modifier.clickable { onChange(!checked) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onChange, enabled = enabled) },
+        modifier = Modifier.clickable(enabled = enabled) { onChange(!checked) }.alpha(if (enabled) 1f else 0.5f),
     )
 }

@@ -27,7 +27,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -45,6 +46,7 @@ import java.net.URL
 import java.net.URLDecoder
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
+import java.util.concurrent.atomic.AtomicLong
 
 enum class DownloadState { Running, Paused, Done, Failed, Cancelled }
 
@@ -294,34 +296,43 @@ class Downloads(private val context: Context) {
         throw IOException("too many redirects")
     }
 
-    private suspend fun copy(input: InputStream, ch: FileChannel, d: Download, from: Long): Long {
+    private suspend fun copy(input: InputStream, ch: FileChannel, d: Download, from: Long): Long = coroutineScope {
         val buf = ByteArray(64 * 1024)
-        var got = from
-        var lastAt = SystemClock.elapsedRealtime()
-        var lastBytes = from
-        var rate = 0.0
-        while (true) {
-            currentCoroutineContext().ensureActive()
-            val n = input.read(buf)
-            if (n < 0) break
-            val bb = ByteBuffer.wrap(buf, 0, n)
-            while (bb.hasRemaining()) ch.write(bb)
-            got += n
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastAt >= 300) {
+        val got = AtomicLong(from)
+        // Progress on a clock, not on each read: a server that sends a burst and then stalls
+        // still shows what arrived, instead of what had arrived 300 ms into the burst.
+        val progress = launch {
+            var lastAt = SystemClock.elapsedRealtime()
+            var lastBytes = from
+            var rate = 0.0
+            while (true) {
+                delay(300)
+                val now = SystemClock.elapsedRealtime()
+                val g = got.get()
                 // Smoothed, so "secs left" doesn't jump around.
-                val inst = (got - lastBytes) * 1000.0 / (now - lastAt)
+                val inst = (g - lastBytes) * 1000.0 / (now - lastAt)
                 rate = if (rate == 0.0) inst else 0.8 * rate + 0.2 * inst
                 lastAt = now
-                lastBytes = got
-                val g = got
+                lastBytes = g
                 val r = rate
                 ui { d.received = g; d.bytesPerSec = r }
             }
         }
-        val g = got
+        try {
+            while (true) {
+                ensureActive()
+                val n = input.read(buf)
+                if (n < 0) break
+                val bb = ByteBuffer.wrap(buf, 0, n)
+                while (bb.hasRemaining()) ch.write(bb)
+                got.addAndGet(n.toLong())
+            }
+        } finally {
+            progress.cancel()
+        }
+        val g = got.get()
         ui { d.received = g }
-        return got
+        g
     }
 
     /** data: links: the file is in the URL (blob: links arrive here as data: from the tab). */
