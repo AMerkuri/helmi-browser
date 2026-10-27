@@ -8,6 +8,7 @@ import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,7 +42,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,13 +58,16 @@ import app.serene.BuildConfig
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
 import app.serene.SereneApp
+import app.serene.engine.FilterLists
 import app.serene.ThemeMode
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
 import app.serene.model.NpuBenchmark
 import app.serene.report.NpuRequest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,6 +77,12 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
     // Re-read file-based status (lists, learned sites) every few seconds while open.
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) { while (true) { delay(3000); tick++ } }
+    var listsOpen by rememberSaveable { mutableStateOf(false) }
+    if (listsOpen) {
+        BackHandler { listsOpen = false }
+        FilterListsScreen(app, onBack = { listsOpen = false })
+        return
+    }
 
     Scaffold(topBar = {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
@@ -76,16 +90,20 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())) {
             Section("Blocking")
             SwitchRow("Block annoyances", "Filter lists, the overlay detector and the model. Off: every site loads as sent.", s.engineEnabled) { s.engineEnabled = it }
-            val st = remember(tick) { app.lists.status() }
+            // status() reads the list files, so off the main thread; .value, not by, so st smart-casts.
+            val st = produceState<FilterLists.Status?>(null, tick, s.listSelection) { value = withContext(Dispatchers.IO) { app.lists.status() } }.value
+            val on = FilterLists.CATALOG.filter { it.id in s.listsEnabled }.map { it.title } + listOfNotNull(s.customLists.size.takeIf { it > 0 }?.let { "$it of your own" })
             ListItem(
                 headlineContent = { Text("Filter lists") },
                 supportingContent = {
                     Text(
-                        (if (st != null) "Fanboy Annoyances, uBO Cookie Notices, uBO Annoyances, app banners (AdGuard, Fanboy) · ${Formatter.formatShortFileSize(ctx, st.bytes)} · updated ${DateUtils.getRelativeTimeSpanString(st.updatedAt)}" else "Not downloaded yet") +
+                        on.joinToString().ifEmpty { "None switched on" } +
+                            (if (st != null) " · ${"%,d".format(st.rules)} rules · ${Formatter.formatShortFileSize(ctx, st.bytes)} · updated ${DateUtils.getRelativeTimeSpanString(st.updatedAt)}" else " · not downloaded yet") +
                             "\nEngine: ${app.rulesStatus}",
                     )
                 },
-                trailingContent = { OutlinedButton(onClick = { app.loadRules(force = true) }) { Text("Update") } },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable { listsOpen = true },
             )
             ListItem(
                 headlineContent = { Text("Browsing data") },
@@ -308,13 +326,13 @@ private fun NpuBenchmarkRow(app: SereneApp) {
 }
 
 @Composable
-private fun Section(title: String) {
+internal fun Section(title: String) {
     HorizontalDivider(Modifier.padding(top = 8.dp))
     Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
 }
 
 @Composable
-private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, subtitle: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     ListItem(
         headlineContent = { Text(title) },
         supportingContent = subtitle?.let { { Text(it) } },
