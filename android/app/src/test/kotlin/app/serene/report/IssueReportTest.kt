@@ -56,7 +56,7 @@ class IssueReportTest {
             for ((k, v) in report()) put(k, v)
             put("log", JsonArray(listOf(
                 JsonPrimitive("350ms hello from top https://news.example.com/story?session=s3cr3t#top"),
-                JsonPrimitive("815ms hello from frame https://login.example.net/frame?state=abc123&origin=x"),
+                JsonPrimitive("815ms hello from frame https://login.example.net/frame?state=st4te99&origin=x"),
                 JsonPrimitive("900ms blocked script https://ads.example.org/tag.js"),
             )))
             put("snapshot", buildJsonObject {
@@ -67,7 +67,7 @@ class IssueReportTest {
             })
         }
         val url = IssueReport.url(r, "n")
-        for (secret in listOf("s3cr3t", "abc123", "a%40b.c", "token=xyz")) assertFalse(secret, URLDecoder.decode(url, "UTF-8").contains(secret))
+        for (secret in listOf("s3cr3t", "st4te99", "a%40b.c", "token=xyz")) assertFalse(secret, URLDecoder.decode(url, "UTF-8").contains(secret))
         val p = params(url)
         assertTrue(p.getValue("engine").contains("hello from top https://news.example.com/story\n"))
         assertTrue(p.getValue("engine").contains("hello from frame https://login.example.net/frame\n"))
