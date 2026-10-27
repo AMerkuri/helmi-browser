@@ -9,6 +9,7 @@ import app.serene.engine.Classifier
 import app.serene.engine.ClassifierResult
 import app.serene.engine.EngineJson
 import app.serene.engine.Features
+import app.serene.engine.FilterLists
 import app.serene.engine.RulesEngine
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
@@ -143,7 +144,7 @@ class FixturesTest(private val file: String) {
      */
     private fun useFixtureRules(rules: String): RulesEngine? {
         val listsDir = File(app.filesDir, "lists")
-        val texts = app.lists.sources.mapNotNull { s -> File(listsDir, s.name).takeIf(File::exists)?.let { RulesEngine.ListText(it.readText(), s.trusted) } }
+        val texts = FilterLists.sourcesFor(app.settings.listSelection).mapNotNull { s -> File(listsDir, s.name).takeIf(File::exists)?.let { RulesEngine.ListText(it.readText(), s.trusted) } }
         val scriptlets = app.assets.open("scriptlets.json").bufferedReader().use { it.readText() }
         val engine = RulesEngine.fromLists(texts + RulesEngine.ListText(rules, trusted = true), scriptlets)
         assertNotNull("fixture rules did not parse", engine)

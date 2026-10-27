@@ -3,6 +3,7 @@ package app.serene
 import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -125,7 +126,7 @@ class SereneApp : Application() {
         models.refresh()
         downloads = Downloads(this)
         readerPrefs = ReaderPrefs(this)
-        lists = FilterLists(File(filesDir, "lists")) { assets.open("scriptlets.json").bufferedReader().use { it.readText() } }
+        lists = FilterLists(File(filesDir, "lists"), { assets.open("scriptlets.json").bufferedReader().use { it.readText() } }, { settings.listSelection })
         engine = SereneEngine(
             rules = null, // heuristics only until the lists are loaded
             cache = VerdictCache(File(filesDir, "site-rules.json")),
@@ -151,11 +152,16 @@ class SereneApp : Application() {
         rulesStatus = "loading"
         scope.launch(Dispatchers.IO) {
             try {
-                val rules = lists.load(force)
+                val metered = getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered ?: false
+                val rules = lists.load(force, metered)
                 val old = engine.rules
                 engine.rules = rules
                 if (old != null && old !== rules) old.close()
-                rulesStatus = if (rules != null) "ready" else "no filter lists yet (offline?)"
+                rulesStatus = when {
+                    rules != null -> "ready"
+                    FilterLists.sourcesFor(settings.listSelection).isEmpty() -> "no lists switched on"
+                    else -> "no filter lists yet (offline?)"
+                }
             } catch (t: Throwable) {
                 Log.e("Serene", "rules failed", t)
                 rulesStatus = "error: ${t.message}"
