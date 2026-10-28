@@ -589,7 +589,8 @@
     return h.overflow === 'hidden' || h.overflowY === 'hidden' || b.overflow === 'hidden' || b.overflowY === 'hidden' || b.position === 'fixed';
   }
 
-  const STABLE_TOKEN = (s) => s && s.length < 40 && !/\d{3,}|^[a-z]{1,3}-(?=[a-z]*\d)[a-z0-9]{5,}$|^_|__[a-z0-9]{5}$|[A-Z].*[0-9]|[0-9].*[A-Z]/.test(s) && !/^(css|sc|jsx|emotion|svelte)-/.test(s);
+  // A random hex suffix ("ui-modal-uid-0d3b4dc1", swedbank.ee) changes on every load.
+  const STABLE_TOKEN = (s) => s && s.length < 40 && !/\d{3,}|^[a-z]{1,3}-(?=[a-z]*\d)[a-z0-9]{5,}$|[-_](?=[a-f]*\d)[0-9a-f]{6,}$|^_|__[a-z0-9]{5}$|[A-Z].*[0-9]|[0-9].*[A-Z]/.test(s) && !/^(css|sc|jsx|emotion|svelte)-/.test(s);
 
   // Classes for a state the element is in, not for what it is ("-active -presented", "is-open",
   // "fade show"). A signature built from them matches whatever else is in that state: on

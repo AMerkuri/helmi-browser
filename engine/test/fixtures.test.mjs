@@ -204,7 +204,7 @@ test('a cached cookie banner is parked, not hidden, so autoconsent still rejects
 // swedbank.ee: the banner's own "Manage cookies" link in the footer reopens the dialog Serene hid,
 // on a modal system the site's other dialogs share. The list's scriptlet answers the banner.
 test('a hidden cookie banner opens again from the site\'s "Manage cookies", and other dialogs still open', async () => {
-  const file = 'cookie-reopen.html', cookie = '#x-modal-uid-38412', legal = '#x-modal-uid-55107';
+  const file = 'cookie-reopen.html', cookie = '#x-modal-uid-4f2a9c81', legal = '#x-modal-uid-7e1b0d5a';
   const shown = (page, sel) => page.evaluate((sel) => { const el = document.querySelector(sel), cs = getComputedStyle(el); return cs.display !== 'none' && Number(cs.opacity) > 0.05 && el.getBoundingClientRect().height > 0; }, sel);
   const openBoth = async (page) => {
     const out = {};
