@@ -8,6 +8,7 @@ import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -141,6 +142,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     LaunchedEffect(tab.id) { reader = null }
 
     HistoryBackHandler(tab)
+    // Back on the first page of a tab a page opened (a popup, a target=_blank link) closes it and
+    // returns to the page that opened it, as in Chrome.
+    BackHandler(enabled = !tab.canGoBack && tabs.openerOf(tab) != null) { tabs.closeWindow(tab) }
     // A swipe or pull left half way (another tab, another screen) puts its page back.
     DisposableEffect(tab) { onDispose { tab.swipe.reset(); tab.pull.reset() } }
     // A sideways drag on the bottom bar turns the cube to the tab beside this one.
@@ -199,7 +203,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                         cube.flingVelocity = with(density) { 800.dp.toPx() }
                     }.onGloballyPositioned { onPageBounds(it.boundsInRoot()); cube.bounds = it.boundsInWindow() },
                 ) {
-                    val startPage = tab.url.isEmpty() || tab.url == "about:blank"
+                    val startPage = !tab.openedByPage && (tab.url.isEmpty() || tab.url == "about:blank")
                     val downloadPage = tab.downloadPage
                     val swipe = tab.swipe
                     // Swiping back, the previous page is underneath; the WebView moves itself.
@@ -299,7 +303,7 @@ private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, autofocus: Boolea
     }
     // A new tab starts with the keyboard up, once the switcher (if any) is gone. Not one turned
     // to on the bar's cube: that is flipping through tabs, not starting one.
-    LaunchedEffect(tab.id, covered) { if (!covered && autofocus && tab.url.isEmpty()) focus.requestFocus() }
+    LaunchedEffect(tab.id, covered) { if (!covered && autofocus && tab.url.isEmpty() && !tab.openedByPage) focus.requestFocus() }
     // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome.
     val imeVisible = WindowInsets.isImeVisible
     var imeWasVisible by remember { mutableStateOf(false) }
@@ -401,7 +405,7 @@ private fun BottomBar(
     var barTop by remember { mutableIntStateOf(0) }
     HorizontalDivider()
     Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = tab::goBack, enabled = tab.canGoBack, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+        IconButton(onClick = { if (tab.canGoBack) tab.goBack() else tabs.closeWindow(tab) }, enabled = tab.canGoBack || tabs.openerOf(tab) != null, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         IconButton(onClick = tab::goForward, enabled = tab.canGoForward, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Forward") }
         IconButton(onClick = { tabs.open() }, modifier = Modifier.weight(1f)) { Icon(Icons.Filled.Add, "New tab") }
         IconButton(onClick = { onOpen(Screen.Tabs) }, modifier = Modifier.weight(1f)) {

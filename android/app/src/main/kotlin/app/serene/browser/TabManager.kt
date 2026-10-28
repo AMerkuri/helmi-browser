@@ -19,7 +19,7 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     val current: Tab? get() = tabs.getOrNull(currentIndex)
 
     fun open(url: String? = null, select: Boolean = true): Tab {
-        val tab = Tab(context, app, nextId++)
+        val tab = Tab(context, app, nextId++).also { it.manager = this }
         tabs += tab
         if (select) {
             leave()
@@ -27,6 +27,33 @@ class TabManager(private val context: Context, private val app: SereneApp) {
         }
         if (!url.isNullOrBlank()) tab.load(url)
         return tab
+    }
+
+    /**
+     * A page in [from] opened a window (window.open, a target=_blank link): a new tab right after
+     * it, on screen, with [from] as its opener. The page goes in from WebView (Tab.onCreateWindow).
+     */
+    fun openWindow(from: Tab): Tab {
+        val tab = Tab(context, app, nextId++, openedByPage = true).also { it.manager = this; it.opener = from }
+        val at = tabs.indexOf(from).let { if (it < 0) tabs.size else it + 1 }
+        leave()
+        tabs.add(at, tab)
+        currentIndex = at
+        return tab
+    }
+
+    /** The tab that opened [tab], if it is still open. */
+    fun openerOf(tab: Tab): Tab? = tab.opener?.takeIf { it in tabs }
+
+    /**
+     * [tab]'s page closed its window (a sign-in popup that has answered), or back left its first
+     * page: it closes for good, and if it was on screen its opener comes back.
+     */
+    fun closeWindow(tab: Tab) {
+        if (tab !in tabs) return
+        val opener = openerOf(tab)
+        if (opener != null && tab === current) select(opener)
+        close(tab, undo = false)
     }
 
     fun select(tab: Tab) {
@@ -80,9 +107,15 @@ class TabManager(private val context: Context, private val app: SereneApp) {
             tab.pause()
             closed = Closed(tab, i, wasCurrent, standIn)
         } else {
-            TabPreviews.remove(tab)
-            tab.destroy()
+            gone(tab)
         }
+    }
+
+    private fun gone(tab: Tab) {
+        TabPreviews.remove(tab)
+        tab.destroy()
+        for (t in tabs) if (t.opener === tab) t.opener = null
+        tab.opener = null
     }
 
     /** Undo: puts the [closed] tab back where it was, and back on screen if it was. */
@@ -109,8 +142,7 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     fun forget(c: Closed? = closed) {
         if (c == null || closed !== c) return
         closed = null
-        TabPreviews.remove(c.tab)
-        c.tab.destroy()
+        gone(c.tab)
     }
 
     fun save() {

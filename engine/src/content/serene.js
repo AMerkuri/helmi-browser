@@ -261,7 +261,16 @@
     // Document-start scripts already run in the page's main world; scriptlets need that too.
     // Wrapped like uBO does it: the helper functions stay off window, and uBO's scriptlets read
     // a `scriptletGlobals` object that their injector provides.
-    try { (0, eval)('(function(){const scriptletGlobals={};\n' + code + '\n})();'); } catch (e) { send('log', { msg: 'scriptlet error: ' + e.message }); }
+    const src = '(function(){const scriptletGlobals={};\n' + code + '\n})();';
+    try { (0, eval)(src); } catch (e) {
+      // A page that requires Trusted Types (accounts.google.com) refuses a string; a TrustedScript
+      // from our own policy goes through. Only then, so other pages never see the policy.
+      if (!/Trusted Type/i.test(e.message) || !window.trustedTypes) return send('log', { msg: 'scriptlet error: ' + e.message });
+      try {
+        state.ttPolicy = state.ttPolicy || trustedTypes.createPolicy('serene', { createScript: (s) => s });
+        (0, eval)(state.ttPolicy.createScript(src));
+      } catch (e2) { send('log', { msg: 'scriptlet error: ' + e2.message }); }
+    }
   }
 
   function start() {
