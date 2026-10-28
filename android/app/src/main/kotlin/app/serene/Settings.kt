@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import app.serene.engine.FilterLists
 
 /** App settings in SharedPreferences, exposed as Compose state so screens update on change. */
 class Settings(context: Context) {
@@ -75,6 +76,24 @@ class Settings(context: Context) {
 
     /** Drops [site]'s own choice: it follows [darkSites]. */
     fun resetDarkSite(site: String) = setDarkSite(site, darkSites)
+
+    // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
+    // lists added to the defaults later reach them too).
+    private val listsEnabledPref = Pref("lists_enabled", prefs.getStringSet("lists_enabled", null)?.toSet() ?: FilterLists.DEFAULT_ENABLED) { putStringSet("lists_enabled", it) }
+    /** Catalog entries ([FilterLists.CATALOG] ids) that are switched on. */
+    var listsEnabled: Set<String> get() = listsEnabledPref.state; set(v) = listsEnabledPref.set(v)
+
+    private val customListsPref = string("custom_lists", "")
+    /** Filter lists the user added by URL, in the order added. */
+    var customLists: List<String>
+        get() = customListsPref.state.split('\n').filter { it.isNotBlank() }
+        set(v) = customListsPref.set(v.joinToString("\n"))
+
+    private val myFiltersPref = string("my_filters", "")
+    /** The user's own rules, in uBO syntax. */
+    var myFilters: String get() = myFiltersPref.state; set(v) = myFiltersPref.set(v)
+
+    val listSelection get() = FilterLists.Selection(listsEnabled, customLists, myFilters)
 
     private val disabledSitesPref = stringSet("disabled_sites")
     /** Sites (eTLD+1) where the user switched Serene off. */

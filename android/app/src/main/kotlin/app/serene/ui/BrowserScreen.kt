@@ -62,7 +62,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -374,13 +373,20 @@ private fun ShieldButton(app: SereneApp, tab: Tab, onClick: () -> Unit) {
     val s = tab.session
     val count = (s?.blockedRequests?.get() ?: 0) + (s?.actions()?.size ?: 0)
     val on = s?.enabled ?: app.settings.engineEnabled
-    IconButton(onClick = onClick) {
-        BadgedBox(badge = { if (count > 0 && on) Badge { Text(if (count > 99) "99+" else "$count") } }) {
+    // The badge sits beside the button, not inside it: IconButton clips its content to a 40 dp
+    // circle, which cut off any count wider than one digit.
+    Box(Modifier.size(48.dp)) {
+        IconButton(onClick = onClick, modifier = Modifier.align(Alignment.Center)) {
             Icon(
                 painterResource(if (on) R.drawable.ic_shield else R.drawable.ic_shield_off),
                 contentDescription = "Helmi on this site",
                 tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (count > 0 && on) {
+            Badge(Modifier.align(Alignment.TopEnd).padding(top = 4.dp, end = 2.dp)) {
+                Text(if (count > 99) "99+" else "$count", maxLines = 1, softWrap = false)
+            }
         }
     }
 }

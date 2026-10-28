@@ -1,5 +1,6 @@
 package app.serene
 
+import android.app.UiModeManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.SystemClock
@@ -126,6 +127,154 @@ class TabCubeTest {
         } finally {
             server.close()
         }
+    }
+
+    /**
+     * Turned to on the cube, a blank tab shows its start page: the cube's face fades into the
+     * real start page, not into an empty page (Artur's Fold 7, 2026-10-27). In the dark theme,
+     * with totals on the start page, as on his phone.
+     */
+    @Test
+    fun turnToStartPage() {
+        val server = ServerSocket(0)
+        thread(isDaemon = true) {
+            while (!server.isClosed) runCatching {
+                server.accept().use { s ->
+                    val r = s.getInputStream().bufferedReader()
+                    while (!r.readLine().isNullOrEmpty()) Unit
+                    val html = "<!doctype html><title>red</title><body style='margin:0;background:${colours["red"]}'></body>".toByteArray()
+                    s.getOutputStream().apply {
+                        write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ${html.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                        write(html)
+                        flush()
+                    }
+                }
+            }
+        }
+        val app = ApplicationProvider.getApplicationContext<SereneApp>()
+        app.settings.savedTabs = emptyList()
+        app.stats.reset()
+        repeat(9) { app.stats.cleared("example.com", "cookie_consent") }
+        repeat(24) { app.stats.page("example.com") }
+        val uiMode = app.getSystemService(UiModeManager::class.java)
+        uiMode.setApplicationNightMode(UiModeManager.MODE_NIGHT_YES)
+        val failures = mutableListOf<String>()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                var red: Tab? = null
+                scenario.onActivity { a -> red = a.tabs.current!!.apply { load("http://127.0.0.1:${server.localPort}/red") } }
+                waitFor("red loads") { red?.title == "red" && red?.progress == 100 }
+                SystemClock.sleep(1500)
+                // A new tab after it, as the bar's + button opens one.
+                var blank: Tab? = null
+                scenario.onActivity { a -> blank = a.tabs.open() }
+                hideKeyboard(scenario)
+                val (page, _) = page(scenario)
+                val start = screenshot("the start page")
+                assertTrue("the start page should have its header", hasHeader(start, page))
+                val onBlank = { var c: Tab? = null; scenario.onActivity { c = it.tabs.current }; c === blank }
+                val onRed = { var c: Tab? = null; scenario.onActivity { c = it.tabs.current }; c === red }
+
+                fun check(label: String) {
+                    SystemClock.sleep(1500)
+                    try {
+                        settled(label) { shot ->
+                            assertTrue("the start page should still have its header", hasHeader(shot, page))
+                            assertTrue("the start page should look as it did: ${differs(start, shot, page)} of the page differs", differs(start, shot, page) < 0.02f)
+                        }
+                    } catch (e: AssertionError) {
+                        failures += "$label: ${e.message}"
+                    }
+                }
+
+                // Red, then the cube to the new tab.
+                scenario.onActivity { a -> a.tabs.select(red!!) }
+                assertPage(scenario, "back on red", "red")
+                drag(scenario, from = 0.5f, by = -0.5f)
+                waitFor("the cube turns to the new tab") { onBlank() }
+                check("after a turn to the start page")
+
+                // Back to red and straight back, quickly.
+                drag(scenario, from = 0.3f, by = 0.5f)
+                waitFor("the cube turns to red") { onRed() }
+                SystemClock.sleep(300)
+                drag(scenario, from = 0.7f, by = -0.5f)
+                waitFor("the cube turns to the new tab again") { onBlank() }
+                check("after a quick turn back to the start page")
+
+                // A new tab with the keyboard up, turned away from straight away, then back.
+                scenario.onActivity { a -> a.tabs.select(red!!) }
+                SystemClock.sleep(1000)
+                scenario.onActivity { a -> a.tabs.close(blank!!); blank = a.tabs.open() }
+                SystemClock.sleep(1500) // the keyboard is up
+                drag(scenario, from = 0.3f, by = 0.5f)
+                waitFor("the cube turns from the keyboard's new tab to red") { onRed() }
+                SystemClock.sleep(1500)
+                drag(scenario, from = 0.7f, by = -0.5f)
+                waitFor("the cube turns to the keyboard's new tab") { onBlank() }
+                check("after a turn to a new tab left with the keyboard up")
+
+                // The tab switcher's way, for comparison.
+                scenario.onActivity { a -> a.tabs.select(red!!) }
+                SystemClock.sleep(1000)
+                scenario.onActivity { a -> a.tabs.select(blank!!) }
+                check("after selecting the new tab")
+            }
+        } finally {
+            uiMode.setApplicationNightMode(UiModeManager.MODE_NIGHT_AUTO)
+            app.stats.reset()
+            server.close()
+        }
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
+    /** The start page's shield and title: much of the page's top quarter isn't the background. */
+    private fun hasHeader(shot: Bitmap, page: Rect): Boolean {
+        val bg = shot.at(page.left + 4f, page.top + page.height * 0.6f)
+        var other = 0
+        var all = 0
+        var y = page.top
+        while (y < page.top + page.height * 0.25f) {
+            var x = page.left
+            while (x < page.right) {
+                all++
+                if (distance(shot.at(x, y), bg) > 60) other++
+                x += 4f
+            }
+            y += 4f
+        }
+        return other > all / 200
+    }
+
+    /** The share of the page's pixels that differ between [a] and [b]. */
+    private fun differs(a: Bitmap, b: Bitmap, page: Rect): Float {
+        var other = 0
+        var all = 0
+        var y = page.top
+        while (y < page.bottom) {
+            var x = page.left
+            while (x < page.right) {
+                all++
+                if (distance(a.at(x, y), b.at(x, y)) > 40) other++
+                x += 4f
+            }
+            y += 4f
+        }
+        return other.toFloat() / all
+    }
+
+    private fun distance(a: Int, b: Int) =
+        Math.abs(Color.red(a) - Color.red(b)) + Math.abs(Color.green(a) - Color.green(b)) + Math.abs(Color.blue(a) - Color.blue(b))
+
+    private fun hideKeyboard(scenario: ActivityScenario<MainActivity>) {
+        SystemClock.sleep(500) // a blank tab focuses the address bar, and the keyboard comes up
+        scenario.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
+        waitFor("the keyboard closes") {
+            var ime = true
+            scenario.onActivity { a -> ime = ViewCompat.getRootWindowInsets(a.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: true }
+            !ime
+        }
+        SystemClock.sleep(1500) // drawn
     }
 
     private fun current(scenario: ActivityScenario<MainActivity>): String {

@@ -16,6 +16,7 @@
   const config = {
     observeOnly: false,   // harness baseline: detect and report, never act
     quarantineScore: 0.6, // hide a candidate while the host decides
+    recheckScore: 0.85,   // a cached "ignore" goes back to the host when the heuristics are this sure now (the host's actScore)
     userGestureMs: 1500,  // overlays appearing this soon after a tap are user-initiated
     genericWaitMs: 1500,  // longest the first scan waits for the host's generic rules
     maxText: 320,
@@ -446,7 +447,11 @@
     if (f.userInitiated) { send('candidate', { id, features: f }); return; } // host logs it, policy ignores
     // Cached verdict for this site: act locally without a round trip.
     const rule = state.siteRules.find((r) => r.sig === f.sig);
-    if (rule) {
+    // An "ignore" the engine cached (not the user's undo) is decided again when the heuristics now
+    // know the overlay well enough to act: a model's "content" for wording the keyword lists
+    // learned later would otherwise stick for good (lhv.ee's Estonian cookie dialog, #48).
+    const stale = rule && rule.action === 'ignore' && rule.source !== 'user' && f.heuristic.label !== 'content' && f.heuristic.score >= config.recheckScore;
+    if (rule && !stale) {
       applyVerdict({ id, ...rule, source: 'cache' });
       send('candidate', { id, features: f, cached: true });
       return;
@@ -588,7 +593,7 @@
 
   // Multilingual keyword sets. Cookie banners carry most of the language variety.
   const KW = {
-    cookie_consent: /cookie|consent|gdpr|privacy (settings|choices|preferences)|we (and our partners )?(use|value)|personali[sz]ed (ads|content)|legitimate interest|tcf|datenschutz|einwilligung|zustimm|akzeptieren|alle ablehnen|cookies?\b|consentement|accepter|refuser|aceptar|rechazar|accetta|rifiuta|aceitar|rejeitar|toestemming|akkoord|weiger|zgod|ciasteczk|souhlas|odmítnout|elfogad|hyväksy|godkänn|neka|samtyk|afvis/i,
+    cookie_consent: /cookie|consent|gdpr|privacy (settings|choices|preferences)|we (and our partners )?(use|value)|personali[sz]ed (ads|content)|legitimate interest|tcf|datenschutz|einwilligung|zustimm|akzeptieren|alle ablehnen|cookies?\b|consentement|accepter|refuser|aceptar|rechazar|accetta|rifiuta|aceitar|rejeitar|toestemming|akkoord|weiger|zgod|ciasteczk|souhlas|odmítnout|elfogad|hyväksy|godkänn|neka|samtyk|afvis|küpsis/i,
     newsletter: /newsletter|subscribe|sign ?up|join (our|the)|get (the latest|our|exclusive)|inbox|e-?mail address|stay (in the loop|updated|informed)|abonn|anmelden|inscri|suscr|iscriviti|% off|discount|coupon|promo code/i,
     notification_prompt: /notifications?|push|alerts?|stay notified|get notified|turn on|benachrichtigung|notificaci|notifiche/i,
     paywall_teaser: /subscribe to (continue|read)|(free|remaining) articles?|article limit|you('ve| have) (read|reached)|unlimited (access|digital)|already a (subscriber|member)|support (our|independent) journalism|become a (member|subscriber)|abo(nnement)?\b|plus\b.*lesen/i,
@@ -598,8 +603,8 @@
     chat_widget: /chat with us|need help\?|how can we help|live chat|ask us/i,
   };
   const CMP_HOSTS = /cookielaw|onetrust|cookiebot|usercentrics|didomi|sourcepoint|privacy-mgmt|consensu|trustarc|quantcast|cmp|consentmanager|iubenda|termly|cookieyes|osano|sp-prod/i;
-  const REJECT = /reject|decline|refuse|deny|disagree|necessary only|only necessary|essential only|only essential|continue without|ablehnen|nur (notwendige|erforderliche)|ohne zustimmung|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|nein,? danke|no,? thanks|not now|maybe later|later|no thanks|close|dismiss|^×$|^✕$|^✖$|^x$|schließen|später|nicht jetzt|fermer|plus tard|non merci|cerrar|ahora no|chiudi|non ora|fechar|agora não|sluiten|weigeren|zamknij|nie teraz|zavřít|avvisa|stäng|afvis|avvis|\bluk\b|hylkää|sulje|reddet|kapat|отклонить|отказаться|закрыть|не сейчас|拒否|同意しない|閉じる|後で|今はしない|拒绝|拒絕|关闭|關閉|不同意|稍后|거부|거절|동의하지 않|닫기|나중에/i;
-  const ACCEPT = /accept|agree|allow( all)?$|got it|^ok(ay)?$|i understand|consent|subscribe|abbona|abonn|suscri|subskry|assinar|akzeptieren|zustimmen|einverstanden|accepter|j'accepte|aceptar|accetta|aceitar|akkoord|zgadzam|souhlasím|elfogad|godkänn|acceptera|hyväksy|kabul|принять|согласен|разрешить|(?<!不)同意(?!しない)|許可|承認|受け入れ|接受|允许|允許|동의(?!하지)|수락|허용/i;
+  const REJECT = /reject|decline|refuse|deny|disagree|necessary only|only necessary|essential only|only essential|continue without|ablehnen|nur (notwendige|erforderliche)|ohne zustimmung|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|nein,? danke|no,? thanks|not now|maybe later|later|no thanks|close|dismiss|^×$|^✕$|^✖$|^x$|schließen|später|nicht jetzt|fermer|plus tard|non merci|cerrar|ahora no|chiudi|non ora|fechar|agora não|sluiten|weigeren|zamknij|nie teraz|zavřít|avvisa|stäng|afvis|avvis|\bluk\b|hylkää|sulje|keeldu|reddet|kapat|отклонить|отказаться|закрыть|не сейчас|拒否|同意しない|閉じる|後で|今はしない|拒绝|拒絕|关闭|關閉|不同意|稍后|거부|거절|동의하지 않|닫기|나중에/i;
+  const ACCEPT = /accept|agree|allow( all)?$|got it|^ok(ay)?$|i understand|consent|subscribe|abbona|abonn|suscri|subskry|assinar|akzeptieren|zustimmen|einverstanden|accepter|j'accepte|aceptar|accetta|aceitar|akkoord|zgadzam|souhlasím|elfogad|godkänn|acceptera|hyväksy|nõustu|kabul|принять|согласен|разрешить|(?<!不)同意(?!しない)|許可|承認|受け入れ|接受|允许|允許|동의(?!하지)|수락|허용/i;
 
   function heuristics(f) {
     const hay = `${f.text} ${f.buttons.join(' ')} ${f.tokens} ${f.ariaLabel}`;
