@@ -42,10 +42,11 @@
     consentSelectors: new Set(),
     consentParked: false,  // list-matched cookie banners: parked for autoconsent, or hidden
     listHit: false,        // reported a list-matched banner that was on the page
-    consent: { lifecycle: null, busySince: 0, prehideOn: false }, // this frame's autoconsent progress
+    consent: { lifecycle: null, busySince: 0 }, // this frame's autoconsent progress
     scrollFixed: false,
     trapsReleasedAt: -Infinity,
     touchReleasedAt: -Infinity,
+    cancelSwallowed: false, // a touch the page tried to cancel while a cookie banner was out of sight
     cookieSeen: new WeakMap(), // cached cookie banners parked for autoconsent -> first seen
     pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
     scanMs: [],
@@ -81,11 +82,13 @@
   // is still open while it is out of sight, and a focus trap on it cancels every touch outside
   // it: the page would not scroll until autoconsent is done with it (techspot's Quantcast, up to
   // a second). Meanwhile touches can't be cancelled. None can be meant for the banner, which is
-  // click-through, and the page's own handlers still get them.
+  // click-through, and the page's own handlers still get them. A trap that tried is let go once
+  // the banner is answered or hidden (releaseSwallowed), as the cancelled touch would have done.
   addEventListener('touchstart', (e) => {
     if (!e.isTrusted || config.observeOnly || !consentOutOfSight()) return;
-    Object.defineProperty(e, 'preventDefault', { value: () => {} });
-    Object.defineProperty(e, 'returnValue', { get: () => true, set: () => {} });
+    const swallow = () => { state.cancelSwallowed = true; };
+    Object.defineProperty(e, 'preventDefault', { value: swallow });
+    Object.defineProperty(e, 'returnValue', { get: () => true, set: (v) => { if (v === false) swallow(); } });
   }, { capture: true, passive: true });
 
   // ---------------------------------------------------------------- host messages
@@ -176,6 +179,7 @@
     clearTimeout(state.parkTimer);
     renderConsentCss();
     unparkBanners();
+    releaseSwallowed();
   }
 
   // A list-known banner that was laid out while parked was really on the page: the host counts
@@ -199,14 +203,20 @@
   }
 
   // A cookie banner that is open but kept out of sight for autoconsent: parked by the detector
-  // or the lists, or a consent tool autoconsent found, under its prehide while it waits for the
-  // popup (until its prehideTimeout) and answers it.
+  // or the lists, or the popup autoconsent is answering under its prehide. Not while autoconsent
+  // has only found a consent tool: its prehide may not cover the dialog that is up.
   function consentOutOfSight() {
-    const { lifecycle, prehideOn } = state.consent;
-    if (consentBusy() || (prehideOn && lifecycle === 'cmpDetected')) return true;
+    if (consentBusy()) return true;
     if (!state.consentParked) return false;
     for (const c of state.candidates.values()) if (c.parked && c.el.isConnected) return true;
     return state.listHit && listBannerLaidOut();
+  }
+
+  // The banner is answered or hidden: let go of a trap whose cancel was swallowed meanwhile.
+  function releaseSwallowed() {
+    if (!state.cancelSwallowed || consentOutOfSight()) return;
+    state.cancelSwallowed = false;
+    if (hiddenEls().length && !otherModal()) releaseTraps();
   }
 
   const AC_BUSY = new Set(['openPopupDetected', 'runningOptOut']);
@@ -225,7 +235,6 @@
   function onAutoconsent(m) {
     if (m.type === 'report') {
       const lc = m.state && m.state.lifecycle;
-      state.consent.prehideOn = !!(m.state && m.state.prehideOn);
       if (lc === state.consent.lifecycle) return;
       const wasBusy = consentBusy();
       state.consent.lifecycle = lc;
@@ -235,6 +244,7 @@
       }
       if (AC_DONE.has(lc)) releaseConsent();
       if (wasBusy && !AC_BUSY.has(lc)) setTimeout(() => scan(), 300); // what is left after it
+      releaseSwallowed();
       return;
     }
     if (AC_EVENTS.has(m.type)) {
@@ -778,6 +788,7 @@
     const still = c.el.isConnected && visible(c.el);
     if (still) hide(c);
     else restorePage();
+    releaseSwallowed();
     send('applied', { id: v.id, action: still ? 'hide' : 'autoconsent', ok: true, source: v.source });
   }
 
