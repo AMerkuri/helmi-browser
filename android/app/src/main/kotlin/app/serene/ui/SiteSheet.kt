@@ -217,8 +217,12 @@ private fun ListAnswerRow(a: ConsentAnswer, lists: FilterLists, host: String) {
         value = a.scriptlet?.let { withContext(Dispatchers.IO) { runCatching { lists.findScriptlet(it, host) }.getOrNull() } }
     }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Text(source?.list ?: "Filter list", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-        Text("Pressed “${a.button?.ifBlank { null } ?: "a button"}” in the cookie banner", style = MaterialTheme.typography.bodyMedium)
+        val byHelmi = a.cmp == "Helmi" && a.scriptlet == null
+        Text(source?.list ?: if (byHelmi) "Helmi" else "Filter list", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Text(
+            "Pressed “${a.button?.ifBlank { null } ?: "a button"}” in the cookie banner" + if (byHelmi) ", which the filter lists know but no rule answered" else "",
+            style = MaterialTheme.typography.bodyMedium,
+        )
         (source?.rule ?: a.scriptlet)?.let {
             Text(it, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
