@@ -96,13 +96,15 @@ jobs:
           # Without a signing config Gradle writes app-release-unsigned.apk instead.
           test -f "$apk" || { echo "::error::No signed release APK"; ls app/build/outputs/apk/release; exit 1; }
           apksigner="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
-          "$apksigner" verify --print-certs "$apk" | tee certs.txt
+          # Not shown in the public log: the certificate's name fields are whatever keytool was given.
+          "$apksigner" verify --print-certs "$apk" > certs.txt
           # "Signer #1 certificate ..." or, from newer build-tools, "V2 Signer: certificate ...".
           cert=$(sed -n 's/^.*[Ss]igner.*certificate SHA-256 digest: //p' certs.txt | sort -u)
           if [ "$(echo "$cert" | wc -l)" != 1 ]; then echo "::error::Expected one signing certificate, got: $cert"; exit 1; fi
           # The committed debug key must never sign a release.
           debug=$(keytool -list -v -keystore app/debug.keystore -storepass android -alias androiddebugkey | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
           if [ -z "$cert" ] || [ "$cert" = "$debug" ]; then echo "::error::Release APK is not signed with the release key"; exit 1; fi
+          echo "Signed with certificate SHA-256 $cert"
           name="helmi-$VERSION.apk"
           mkdir -p out
           cp "$apk" "out/$name"
