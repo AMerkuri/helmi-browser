@@ -50,7 +50,7 @@
     cancelSwallowed: false, // a touch the page tried to cancel while a cookie banner was out of sight
     cookieSeen: new WeakMap(), // cached cookie banners parked for autoconsent -> first seen
     asked: { at: -Infinity, text: '' }, // the last control the user tapped, for a hidden overlay it reopens
-    scriptletClicks: false, // a trusted list's scriptlet may press buttons on this page
+    clickRules: [],         // the trusted-click-element calls this page got, as argument lists
     listConsent: false,     // reported a scriptlet answering a cookie banner
     ownClick: false,        // a click Serene itself is making
     pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
@@ -95,12 +95,36 @@
   // is the lists answering it, as autoconsent does for the tools it knows. Reported once, so the
   // app can say the banner was answered and not only hidden (swedbank.ee's "Accept only necessary").
   addEventListener('click', (e) => {
-    if (e.isTrusted || state.ownClick || state.listConsent || !state.scriptletClicks || consentBusy() || config.observeOnly) return;
+    if (e.isTrusted || state.ownClick || state.listConsent || !state.clickRules.length || consentBusy() || config.observeOnly) return;
     const t = e.target;
     if (!t || t.nodeType !== 1 || !inCookieBanner(t)) return;
     state.listConsent = true;
-    send('listConsent', { origin: location.origin, button: buttonLabel(t) });
+    send('listConsent', { origin: location.origin, button: buttonLabel(t), rule: clickRuleFor(t) });
   }, true);
+
+  // The scriptlet call whose selector names the pressed button, so the site sheet can show the
+  // rule. Its arguments as the list wrote them: ["button.ui-cookie-consent__decline-button", "", "1000"].
+  function clickRuleFor(t) {
+    for (const args of state.clickRules) {
+      const sel = String(args[0] || '');
+      const steps = /^[;|]/.test(sel) ? sel.slice(1).split(sel[0]) : sel.split(',');
+      for (let step of steps) {
+        step = step.trim().replace(/^when-visible:/, '');
+        if (!step || /^\d+$/.test(step) || step.startsWith('!') || step.includes('>>>') || step.startsWith('xpath:')) continue;
+        try { if (t.matches(step)) return args; } catch {}
+      }
+    }
+    return null;
+  }
+
+  // uBO's injector writes each call on its own line: trustedClickElement("sel", "", "1000").
+  function parseClickRules(script) {
+    const out = [];
+    for (const m of script.matchAll(/^trustedClickElement\((.*)\)$/gm)) {
+      try { out.push(JSON.parse(`[${m[1]}]`)); } catch {}
+    }
+    return out;
+  }
 
   // A cookie banner parked for autoconsent, or one autoconsent is answering under its prehide,
   // is still open while it is out of sight, and a focus trap on it cancels every touch outside
@@ -128,7 +152,7 @@
           startAutoconsent(msg.autoconsent);
           addCss(msg.css || '');
           addConsentSelectors(msg.consentSelectors);
-          if (msg.script) { state.scriptletClicks = /\btrustedClickElement\(/.test(msg.script); runScript(msg.script); }
+          if (msg.script) { state.clickRules = parseClickRules(msg.script); runScript(msg.script); }
           state.procedural = msg.procedural || [];
         }
       } finally {

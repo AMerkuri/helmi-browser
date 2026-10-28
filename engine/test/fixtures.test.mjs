@@ -226,7 +226,9 @@ test('a hidden cookie banner opens again from the site\'s "Manage cookies", and 
   for (const visit of ['first', 'cached', 'late']) {
     const { state, events } = await runFixture(file, visit === 'late' ? { fixtureRulesText: late, then: openBoth } : { cache, then: openBoth });
     assert.deepEqual(state.clicked, ['necessary'], `${visit}: the list's scriptlet answers the banner`);
-    assert.ok(events.some((e) => e.type === 'listConsent' && e.button === 'Accept only necessary'), `${visit}: the scriptlet's answer is reported`);
+    const answer = events.find((e) => e.type === 'listConsent');
+    assert.equal(answer?.button, 'Accept only necessary', `${visit}: the scriptlet's answer is reported`);
+    assert.deepEqual(answer.rule, ['button.zz-decline', '', visit === 'late' ? '1800' : '1000'], `${visit}: with the rule that pressed it`);
     assert.ok(state.then.legal, `${visit}: the site's other dialogs still open`);
     assert.ok(state.then.cookie && state.then.cookieLater, `${visit}: "Manage cookies" shows the cookie dialog`);
   }

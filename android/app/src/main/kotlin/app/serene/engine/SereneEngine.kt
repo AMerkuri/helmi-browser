@@ -85,8 +85,18 @@ data class CandidateRecord(
 /** A request the lists blocked: the rule and the list's title, when the engine knows them. */
 data class BlockedRequest(val url: String, val type: String, val list: String?, val rule: String?)
 
+/**
+ * Who answered a cookie banner on the page: autoconsent ([cmp] is the consent tool it knew), or a
+ * filter list's scriptlet, with the [button] it pressed and its [scriptlet] as a list writes it
+ * ("+js(trusted-click-element, button.decline, , 1000)").
+ */
+data class ConsentAnswer(val byList: Boolean, val cmp: String?, val button: String? = null, val scriptlet: String? = null)
+
 /** Blocked requests kept per page for the site sheet; the count goes on past it. */
 private const val MAX_BLOCKED = 300
+
+/** How a filter list's answer shows in "cookies rejected (…)". */
+private const val LIST_CMP = "filter list"
 
 class PageSession internal constructor(private val e: SereneEngine, private val onChange: () -> Unit) {
     private val frames = ConcurrentHashMap<String, FrameRef>()               // origin -> frame (consent iframes)
@@ -169,8 +179,12 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             // A trusted list's scriptlet pressed a button in a cookie banner: the lists answered it.
             "listConsent" -> {
                 val origin = msg.str("origin") ?: return
-                consent[origin] = Consent("filter list", busy = false, ok = true)
-                log("filter list pressed \"${msg.str("button") ?: ""}\" in a cookie banner in ${if (frame.isTop) "top" else origin}")
+                val button = msg.str("button")
+                // The scriptlet's arguments, joined the way lists write them.
+                val scriptlet = runCatching { msg["rule"]?.jsonArray?.joinToString(", ") { it.jsonPrimitive.content } }.getOrNull()
+                    ?.let { "+js(trusted-click-element, $it)" }
+                consent[origin] = Consent(LIST_CMP, busy = false, ok = true, button = button, scriptlet = scriptlet)
+                log("filter list pressed \"${button ?: ""}\" in a cookie banner in ${if (frame.isTop) "top" else origin}${scriptlet?.let { " ($it)" } ?: ""}")
                 countConsentRejected()
                 onChange()
             }
@@ -339,7 +353,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     }
 
     /** Autoconsent progress in one frame: found a CMP popup, opted out (or failed), finished. */
-    private data class Consent(val cmp: String?, val busy: Boolean = false, val ok: Boolean? = null)
+    private data class Consent(val cmp: String?, val busy: Boolean = false, val ok: Boolean? = null, val button: String? = null, val scriptlet: String? = null)
 
     private fun autoconsentEvent(msg: JsonObject, frame: FrameRef) {
         val origin = msg.str("origin") ?: return
@@ -369,6 +383,10 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     /** CMPs autoconsent opted out of on this page, and "filter list" when a list's scriptlet
      *  answered a banner (for the shield sheet and the report). */
     fun consentRejected(): List<String> = consent.values.filter { it.ok == true }.mapNotNull { it.cmp }.distinct()
+
+    /** The same, one entry per frame, with what a filter list pressed (the site sheet's detail). */
+    fun consentAnswers(): List<ConsentAnswer> = consent.values.filter { it.ok == true }
+        .map { ConsentAnswer(byList = it.cmp == LIST_CMP, cmp = it.cmp, button = it.button, scriptlet = it.scriptlet) }
 
     private suspend fun waitForConsent(origin: String, ms: Long): Consent? {
         val end = System.currentTimeMillis() + ms

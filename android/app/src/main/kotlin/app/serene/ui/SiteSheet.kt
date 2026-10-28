@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +48,10 @@ import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.engine.BlockedRequest
 import app.serene.engine.CandidateRecord
+import app.serene.engine.ConsentAnswer
+import app.serene.engine.FilterLists
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.serene.engine.SiteRule
 
 private val LABELS = mapOf(
@@ -63,7 +68,7 @@ private val LABELS = mapOf(
 
 private val SOURCES = mapOf("heuristic" to "heuristics", "llm" to "on-device model", "cache" to "remembered", "chrome" to "page chrome")
 
-/** What Serene did on this page (and, a tap away, which lists blocked which requests), the per-site switch, undo (and hide again), and the report button. */
+/** What Serene did on this page (and, a tap away, which lists blocked which requests and who answered its cookie banners), the per-site switch, undo (and hide again), and the report button. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> Unit) {
@@ -73,7 +78,9 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
     val ctx = LocalContext.current
     var showBlocked by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        if (showBlocked && s != null) BlockedRequests(s.blocked(), s.blockedRequests.get()) { showBlocked = false }
+        if (showBlocked && s != null) {
+            BlockedRequests(s.blocked(), s.blockedRequests.get(), s.consentAnswers(), app.lists, android.net.Uri.parse(tab.url).host ?: "") { showBlocked = false }
+        }
         else Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
             Text(site ?: "No page", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(12.dp))
@@ -96,9 +103,11 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 val actions = s.actions()
                 val rejected = s.consentRejected()
                 val blocked = s.blockedRequests.get()
-                // Which lists blocked what: one tap away, so the sheet stays short.
+                // Which lists blocked what, and who rejected the cookies with which rule: one tap
+                // away, so the sheet stays short.
+                val detail = blocked > 0 || rejected.isNotEmpty()
                 Row(
-                    Modifier.fillMaxWidth().clickable(enabled = blocked > 0) { showBlocked = true }.padding(vertical = 4.dp),
+                    Modifier.fillMaxWidth().clickable(enabled = detail) { showBlocked = true }.padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -107,7 +116,7 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                         Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    if (blocked > 0) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Which lists blocked them", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (detail) Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Which lists blocked or rejected what", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider()
@@ -156,18 +165,29 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
     }
 }
 
-/** The requests the lists blocked on this page, grouped by list, each with the rule that matched. */
+/**
+ * Who rejected the page's cookie banners (autoconsent, naming the consent tool, or a filter list,
+ * with the button its rule pressed and the rule as the list writes it), then the requests the lists
+ * blocked, grouped by list, each with the rule that matched.
+ */
 @Composable
-private fun BlockedRequests(blocked: List<BlockedRequest>, count: Int, onBack: () -> Unit) {
+private fun BlockedRequests(blocked: List<BlockedRequest>, count: Int, answers: List<ConsentAnswer>, lists: FilterLists, host: String, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     // Lists in the order they first blocked something; "?" when the engine could not tell.
     val byList = blocked.groupBy { it.list ?: "?" }
     Column(Modifier.padding(horizontal = 20.dp).navigationBarsPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-            Text("Blocked requests", style = MaterialTheme.typography.titleLarge)
+            Text(if (count > 0) "Blocked requests" else "Cookies rejected", style = MaterialTheme.typography.titleLarge)
         }
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+            if (answers.isNotEmpty() && count > 0) item(key = "consent") {
+                Text("Cookies rejected", Modifier.padding(top = 16.dp, bottom = 4.dp), style = MaterialTheme.typography.titleMedium)
+            }
+            items(answers) { a -> if (a.byList) ListAnswerRow(a, lists, host) else AutoconsentRow(a) }
+            if (answers.isNotEmpty() && count > 0) item(key = "requests") {
+                Text("Requests", Modifier.padding(top = 16.dp), style = MaterialTheme.typography.titleMedium)
+            }
             byList.forEach { (list, reqs) ->
                 item(key = "list:$list") {
                     Text(
@@ -188,6 +208,28 @@ private fun BlockedRequests(blocked: List<BlockedRequest>, count: Int, onBack: (
             }
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun ListAnswerRow(a: ConsentAnswer, lists: FilterLists, host: String) {
+    val source by produceState<FilterLists.RuleSource?>(null, a.scriptlet) {
+        value = a.scriptlet?.let { withContext(Dispatchers.IO) { runCatching { lists.findScriptlet(it, host) }.getOrNull() } }
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(source?.list ?: "Filter list", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Text("Pressed “${a.button?.ifBlank { null } ?: "a button"}” in the cookie banner", style = MaterialTheme.typography.bodyMedium)
+        (source?.rule ?: a.scriptlet)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun AutoconsentRow(a: ConsentAnswer) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text("Autoconsent", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Text("Opted out in ${a.cmp ?: "the consent tool"}'s own dialog, with DuckDuckGo's rule for it", style = MaterialTheme.typography.bodyMedium)
     }
 }
 

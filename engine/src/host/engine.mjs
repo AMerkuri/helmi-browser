@@ -165,7 +165,7 @@ class PageSession {
 
   listConsent(msg, frame) {
     this.consent.set(msg.origin, { cmp: 'filter list', busy: false, ok: true });
-    this.emit({ type: 'listConsent', origin: msg.origin, button: msg.button, isTop: frame.isTop });
+    this.emit({ type: 'listConsent', origin: msg.origin, button: msg.button, rule: msg.rule ?? null, isTop: frame.isTop });
   }
 
   async waitForConsent(origin, ms) {
