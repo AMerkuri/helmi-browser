@@ -24,13 +24,24 @@ It asks for a password (once, for both the keystore and the key) and your name a
 
 Then add three repository secrets under **Settings → Secrets and variables → Actions → New repository secret**:
 
-| Secret | Value |
-|---|---|
-| `RELEASE_KEYSTORE` | the keystore as base64, one line: `base64 < helmi-release.jks \| tr -d '\n'` (Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("helmi-release.jks"))`) |
-| `RELEASE_KEYSTORE_PASSWORD` | the password you typed |
-| `RELEASE_KEY_ALIAS` | `helmi` |
+- `RELEASE_KEYSTORE`: the keystore as base64 on one line. Print it with
 
-Or with the GitHub CLI: `base64 < helmi-release.jks | tr -d '\n' | gh secret set RELEASE_KEYSTORE`, then `gh secret set RELEASE_KEYSTORE_PASSWORD` and `gh secret set RELEASE_KEY_ALIAS --body helmi`.
+  ```sh
+  base64 -w0 helmi-release.jks                 # Linux
+  base64 -i helmi-release.jks                  # macOS
+  ```
+
+  or in Windows PowerShell `[Convert]::ToBase64String([IO.File]::ReadAllBytes("helmi-release.jks"))`.
+- `RELEASE_KEYSTORE_PASSWORD`: the password you typed.
+- `RELEASE_KEY_ALIAS`: `helmi`.
+
+Or with the GitHub CLI, from the folder with the keystore:
+
+```sh
+base64 -w0 helmi-release.jks | gh secret set RELEASE_KEYSTORE --repo AMerkuri/helmi-browser
+gh secret set RELEASE_KEYSTORE_PASSWORD --repo AMerkuri/helmi-browser   # asks for the value
+gh secret set RELEASE_KEY_ALIAS --body helmi --repo AMerkuri/helmi-browser
+```
 
 **Back up `helmi-release.jks` and its password** somewhere outside the repo (a password manager takes file attachments). If the key is lost, no new release can update an installed Helmi: everyone would have to uninstall, and lose their settings, to move to a build signed with a new key. Never commit it.
 
