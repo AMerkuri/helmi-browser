@@ -82,14 +82,20 @@ class VerdictCache(private val file: File? = null) {
     @Synchronized fun siteCount(): Int = sites.size
 
     /** Cached hide verdicts as cosmetic CSS, injected at page start so there is no flash. With
-     *  [parkCookies] (autoconsent on) cookie banners are left out: they go to [cookieSelectorsFor]. */
+     *  [parkCookies] (autoconsent on) cookie banners are left out: they go to [cookieSelectorsFor].
+     *  An element the user asked to see again (the content script marks it) is left alone. */
     fun cssFor(url: String, parkCookies: Boolean = false): String = hideRules(url)
         .filter { !(parkCookies && it.label == "cookie_consent") }
-        .joinToString("\n") { "${it.sig}{display:none!important}" }
+        .joinToString("\n") { "${it.sig}:not([$SHOWN]){display:none!important}" }
 
     /** Cached cookie banners as consent selectors: parked while autoconsent tries to reject them,
      *  which it cannot do to a banner hidden from the start (techspot, #24). */
     fun cookieSelectorsFor(url: String): List<String> = hideRules(url).filter { it.label == "cookie_consent" }.map { it.sig }
+
+    private companion object {
+        /** Set by the content script on an overlay the user asked to see again ("Manage cookies"). */
+        const val SHOWN = "data-serene-shown"
+    }
 
     private fun hideRules(url: String) = rulesFor(url).filter { it.action == "hide" && (it.sig.contains('#') || it.sig.contains('.')) }
 

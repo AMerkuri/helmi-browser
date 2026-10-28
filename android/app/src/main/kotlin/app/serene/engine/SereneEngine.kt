@@ -166,6 +166,14 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             }
             "applied" -> applied(msg)
             "autoconsent" -> autoconsentEvent(msg, frame)
+            // A trusted list's scriptlet pressed a button in a cookie banner: the lists answered it.
+            "listConsent" -> {
+                val origin = msg.str("origin") ?: return
+                consent[origin] = Consent("filter list", busy = false, ok = true)
+                log("filter list pressed \"${msg.str("button") ?: ""}\" in a cookie banner in ${if (frame.isTop) "top" else origin}")
+                countConsentRejected()
+                onChange()
+            }
             // A cookie banner the lists hid; the content script saw it on the page first.
             "listHit" -> {
                 log("lists hid a ${msg.str("label")} in ${if (frame.isTop) "top" else "a frame"}")
@@ -348,14 +356,18 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             }
         }
         log("autoconsent ${if (frame.isTop) "top" else origin}: $event ${cmp ?: ""}${result?.let { " → $it" } ?: ""}")
-        if (event == "optOutResult" && result == true && consentCounted.compareAndSet(false, true)) {
-            site()?.let { e.events?.consentRejected(it) }
-            countCleared("cookie_consent", null)
-        }
+        if (event == "optOutResult" && result == true) countConsentRejected()
         onChange()
     }
 
-    /** CMPs autoconsent opted out of on this page (for the shield sheet and the report). */
+    private fun countConsentRejected() {
+        if (!consentCounted.compareAndSet(false, true)) return
+        site()?.let { e.events?.consentRejected(it) }
+        countCleared("cookie_consent", null)
+    }
+
+    /** CMPs autoconsent opted out of on this page, and "filter list" when a list's scriptlet
+     *  answered a banner (for the shield sheet and the report). */
     fun consentRejected(): List<String> = consent.values.filter { it.ok == true }.mapNotNull { it.cmp }.distinct()
 
     private suspend fun waitForConsent(origin: String, ms: Long): Consent? {

@@ -1,0 +1,14 @@
+<!doctype html><title>Cookie dialog on a modal system the site's other dialogs share, reopened from the footer</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px} html.-no-scroll{overflow:hidden} x-modal{display:none} x-modal.-active{display:flex;position:fixed;inset:0;z-index:900;align-items:center;justify-content:center} x-modal .shade{position:absolute;inset:0;background:rgba(0,0,0,.5)} x-modal .win{position:relative;background:#fff;margin:24px;padding:16px} footer{padding:16px;background:#eee}</style>
+<script>
+window.__clicked=[];
+// One modal component for every dialog on the site: state classes on the host element, random ids.
+function openModal(m){m.classList.add('-active','-presented','-top');document.documentElement.classList.add('-no-scroll')}
+function closeModal(m){m.classList.remove('-active','-presented','-top');document.documentElement.classList.remove('-no-scroll')}
+function choose(n){__clicked.push(n);document.cookie='zz_consent='+n;closeModal(document.getElementById('x-modal-uid-38412'))}
+</script>
+<script type="application/json" id="expect">{"rules":"127.0.0.1##+js(trusted-click-element, button.zz-decline, , 1000)","gone":"#x-modal-uid-38412","visible":["#article"],"clicked":["necessary"],"notClicked":["accept"],"scroll":true,"via":"heuristic","waitMs":2500}</script>
+<article id="article"><h1>Savings rates go up at the start of the month</h1><p>Term deposits of a year or longer will earn a quarter point more from the first of the month.</p><p>Existing deposits keep the rate they were opened with until they renew.</p><p style="height:1200px">Long content.</p></article>
+<footer><button id="legal-link" onclick="openModal(document.getElementById('x-modal-uid-55107'))">Legal information</button> <a id="cookie-link" href="#" onclick="openModal(document.getElementById('x-modal-uid-38412'));return false">Manage cookies</a></footer>
+<x-modal id="x-modal-uid-38412" class="zz-cookie-consent" role="dialog" aria-modal="true"><div class="shade"></div><div class="win"><h2>Cookies</h2><p>We use cookies to make the site work, to measure how it is used and to show you relevant offers. You can change your choice at any time under Manage cookies.</p><button class="zz-accept" onclick="choose('accept')">Accept all cookies</button> <button class="zz-decline" onclick="choose('necessary')">Accept only necessary</button> <button class="zz-settings">Manage cookies</button></div></x-modal>
+<x-modal id="x-modal-uid-55107" class="zz-legal" role="dialog" aria-modal="true"><div class="shade"></div><div class="win"><h2>Legal information</h2><p>Terms of use, the price list and the complaints procedure.</p><button onclick="closeModal(document.getElementById('x-modal-uid-55107'))">Close</button></div></x-modal>
+<script>setTimeout(()=>{if(!document.cookie.includes('zz_consent'))openModal(document.getElementById('x-modal-uid-38412'))},100)</script>

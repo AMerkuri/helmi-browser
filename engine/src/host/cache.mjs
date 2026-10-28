@@ -3,6 +3,9 @@
 import fs from 'node:fs';
 import { getDomain } from 'tldts';
 
+// Set by the content script on an overlay the user asked to see again ("Manage cookies").
+const SHOWN = 'data-serene-shown';
+
 export const siteOf = (url) => getDomain(url) || new URL(url).hostname;
 
 export class VerdictCache {
@@ -43,11 +46,12 @@ export class VerdictCache {
   save() { if (this.file) fs.writeFileSync(this.file, JSON.stringify(this.sites, null, 1)); }
 
   /** Cached hide verdicts as cosmetic CSS, injected at page start so there is no flash. With
-   *  parkCookies (autoconsent on) cookie banners are left out: they go to cookieSelectorsFor. */
+   *  parkCookies (autoconsent on) cookie banners are left out: they go to cookieSelectorsFor.
+   *  An element the user asked to see again (the content script marks it) is left alone. */
   cssFor(url, { parkCookies = false } = {}) {
     return this.hideRules(url)
       .filter((r) => !(parkCookies && r.label === 'cookie_consent'))
-      .map((r) => `${r.sig}{display:none!important}`).join('\n');
+      .map((r) => `${r.sig}:not([${SHOWN}]){display:none!important}`).join('\n');
   }
 
   /** Cached cookie banners as consent selectors: parked while autoconsent tries to reject them,

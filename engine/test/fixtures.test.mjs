@@ -55,10 +55,13 @@ function stubClassifier(calls) {
 
 // A fixture's own `rules` are added to the lists as one more list, trusted like uBO's unless
 // `trusted` is false.
-async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0, trusted = true } = {}) {
+// `then(page)` runs after the wait, before the page is read; what it returns is state.then.
+// `fixtureRulesText(exp)` can change the fixture's own rules.
+async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0, trusted = true, then = null, fixtureRulesText = exp => exp.rules } = {}) {
   const exp = expectOf(file);
   const events = [], llmCalls = [];
-  const fixtureRules = exp.rules ? new RulesEngine({ ...lists, lists: [...lists.lists, { name: file, text: exp.rules, trusted }] }) : rules;
+  const text = fixtureRulesText(exp);
+  const fixtureRules = text ? new RulesEngine({ ...lists, lists: [...lists.lists, { name: file, text, trusted }] }) : rules;
   const engine = new SereneEngine({ rules: fixtureRules, classifier: stubClassifier(llmCalls), cache, autoconsent: withAutoconsent ? autoconsent : null });
   const context = await newContext(browser, { engine, onEvent: (e) => events.push(e), probe: true, hostDelayMs });
   const page = await context.newPage();
@@ -69,6 +72,7 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
   const until = (ms) => page.waitForTimeout(Math.max(0, ms - (Date.now() - t0)));
   for (const ms of exp.taps || []) { await until(ms); await page.touchscreen.tap(20, page.viewportSize().height - 20); }
   await until(exp.waitMs ?? 2500);
+  const thenOut = then ? await then(page) : null;
   const state = await page.evaluate((exp) => {
     const shown = (sel) => {
       const el = document.querySelector(sel);
@@ -86,6 +90,7 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
     };
   }, exp);
   state.exposure = await exposure(page);
+  state.then = thenOut;
   await context.close();
   return { exp, state, events, llmCalls, cache };
 }
@@ -194,4 +199,37 @@ test('a cached cookie banner is parked, not hidden, so autoconsent still rejects
   const { state } = await runFixture('cookie-quantcast-style.html', { cache });
   assert.ok(state.gone, '#qc-cmp2-ui should be gone');
   assert.deepEqual(state.clicked, ['reject']);
+});
+
+// swedbank.ee: the banner's own "Manage cookies" link in the footer reopens the dialog Serene hid,
+// on a modal system the site's other dialogs share. The list's scriptlet answers the banner.
+test('a hidden cookie banner opens again from the site\'s "Manage cookies", and other dialogs still open', async () => {
+  const file = 'cookie-reopen.html', cookie = '#x-modal-uid-38412', legal = '#x-modal-uid-55107';
+  const shown = (page, sel) => page.evaluate((sel) => { const el = document.querySelector(sel), cs = getComputedStyle(el); return cs.display !== 'none' && Number(cs.opacity) > 0.05 && el.getBoundingClientRect().height > 0; }, sel);
+  const openBoth = async (page) => {
+    const out = {};
+    await page.tap('#legal-link');
+    await page.waitForTimeout(400);
+    out.legal = await shown(page, legal);
+    await page.evaluate((sel) => closeModal(document.querySelector(sel)), legal);
+    await page.waitForTimeout(1600); // past the tap's window
+    await page.tap('#cookie-link');
+    await page.waitForTimeout(400);
+    out.cookie = await shown(page, cookie);
+    await page.waitForTimeout(2000); // later scans leave the user's dialog alone
+    out.cookieLater = await shown(page, cookie);
+    return out;
+  };
+  const cache = new VerdictCache();
+  // 'late': the scriptlet presses the button after Serene has hidden the banner with an inline style.
+  const late = (exp) => exp.rules.replace(', 1000)', ', 1800)');
+  for (const visit of ['first', 'cached', 'late']) {
+    const { state, events } = await runFixture(file, visit === 'late' ? { fixtureRulesText: late, then: openBoth } : { cache, then: openBoth });
+    assert.deepEqual(state.clicked, ['necessary'], `${visit}: the list's scriptlet answers the banner`);
+    assert.ok(events.some((e) => e.type === 'listConsent' && e.button === 'Accept only necessary'), `${visit}: the scriptlet's answer is reported`);
+    assert.ok(state.then.legal, `${visit}: the site's other dialogs still open`);
+    assert.ok(state.then.cookie && state.then.cookieLater, `${visit}: "Manage cookies" shows the cookie dialog`);
+  }
+  // Remembered without its state classes, which every open dialog on the site has.
+  assert.deepEqual(cache.rulesFor(base + file).map((r) => [r.sig, r.action]), [['x-modal.zz-cookie-consent', 'hide']]);
 });

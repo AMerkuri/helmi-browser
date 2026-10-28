@@ -111,14 +111,14 @@ class PolicyTest {
         c.put("https://a.example.com/x", SiteRule(sig = "div.nl-modal", label = "newsletter", action = "hide", source = "llm"))
         c.put("https://b.example.com/y", SiteRule(sig = "div > div", label = "newsletter", action = "hide", source = "llm"))
         assertEquals(2, c.rulesFor("https://example.com/").size)
-        assertEquals("div.nl-modal{display:none!important}", c.cssFor("https://example.com/"))
+        assertEquals("div.nl-modal:not([data-serene-shown]){display:none!important}", c.cssFor("https://example.com/"))
         // With autoconsent on, a cookie banner is parked as a consent selector instead of hidden.
         c.put("https://example.com/", SiteRule(sig = "div#cmp", label = "cookie_consent", action = "hide", source = "heuristic"))
-        assertEquals("div.nl-modal{display:none!important}", c.cssFor("https://example.com/", parkCookies = true))
+        assertEquals("div.nl-modal:not([data-serene-shown]){display:none!important}", c.cssFor("https://example.com/", parkCookies = true))
         assertEquals(listOf("div#cmp"), c.cookieSelectorsFor("https://example.com/"))
         c.undo("https://example.com/", "div.nl-modal", "newsletter")
         assertEquals("ignore", c.rulesFor("https://example.com/")[0].action)
-        assertEquals("div#cmp{display:none!important}", c.cssFor("https://example.com/"))
+        assertEquals("div#cmp:not([data-serene-shown]){display:none!important}", c.cssFor("https://example.com/"))
         assertEquals(listOf("div.nl-modal" to "newsletter"), c.undone("https://example.com/").map { it.sig to it.was })
         // Hide again: the rule goes, so the next load judges the element afresh.
         c.remove("https://example.com/", "div.nl-modal")
