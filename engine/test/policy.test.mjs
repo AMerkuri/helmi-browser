@@ -116,8 +116,14 @@ test('cache keys by registrable domain and emits CSS for hide verdicts', () => {
   c.put('https://example.com/', { sig: 'div#cmp', label: 'cookie_consent', action: 'hide', source: 'heuristic' });
   assert.equal(c.cssFor('https://example.com/', { parkCookies: true }), 'div.nl-modal{display:none!important}');
   assert.deepEqual(c.cookieSelectorsFor('https://example.com/'), ['div#cmp']);
-  c.undo('https://example.com/', 'div.nl-modal');
+  c.undo('https://example.com/', 'div.nl-modal', 'newsletter');
   assert.equal(c.rulesFor('https://example.com/')[0].action, 'ignore');
+  assert.equal(c.cssFor('https://example.com/'), 'div#cmp{display:none!important}');
+  assert.deepEqual(c.undone('https://example.com/').map((r) => [r.sig, r.was]), [['div.nl-modal', 'newsletter']]);
+  // Hide again: the rule goes, so the next load judges the element afresh.
+  c.remove('https://example.com/', 'div.nl-modal');
+  assert.deepEqual(c.undone('https://example.com/'), []);
+  assert.deepEqual(c.rulesFor('https://example.com/').map((r) => r.sig), ['div > div', 'div#cmp']);
 });
 
 test('consent tools\' own hosts are recognised, look-alikes are not', async () => {

@@ -47,6 +47,7 @@ import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.engine.BlockedRequest
 import app.serene.engine.CandidateRecord
+import app.serene.engine.SiteRule
 
 private val LABELS = mapOf(
     "cookie_consent" to "Cookie banner",
@@ -62,7 +63,7 @@ private val LABELS = mapOf(
 
 private val SOURCES = mapOf("heuristic" to "heuristics", "llm" to "on-device model", "cache" to "remembered", "chrome" to "page chrome")
 
-/** What Serene did on this page (and, a tap away, which lists blocked which requests), the per-site switch, undo, and the report button. */
+/** What Serene did on this page (and, a tap away, which lists blocked which requests), the per-site switch, undo (and hide again), and the report button. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> Unit) {
@@ -118,6 +119,13 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                     }
                 }
                 HorizontalDivider()
+                // An undo sticks for the site; this is the way back without forgetting everything else.
+                val undone = s.undone()
+                if (undone.isNotEmpty()) {
+                    Text("Shown on this site because you pressed Undo", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
+                    undone.forEach { rule -> UndoneRow(rule) { s.hideAgain(rule); tab.reload() } }
+                    HorizontalDivider()
+                }
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -211,5 +219,19 @@ private fun ActionRow(rec: CandidateRecord, onUndo: () -> Unit) {
             )
         }
         TextButton(onClick = onUndo) { Text("Undo") }
+    }
+}
+
+@Composable
+private fun UndoneRow(rule: SiteRule, onHideAgain: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(LABELS[rule.was ?: "content"] ?: rule.was ?: "Page element", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                rule.sig, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        TextButton(onClick = onHideAgain) { Text("Hide again") }
     }
 }
