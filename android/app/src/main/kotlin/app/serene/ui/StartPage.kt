@@ -99,7 +99,14 @@ private fun StatsPanel(t: Totals) {
     if (t.consentRejected > 0) Line("Tracking refused on cookie pop-ups", n.format(t.consentRejected))
     Line("Pages visited with Helmi on", n.format(t.pages))
     if (t.modelCalls > 0) {
-        Line("On-device model decisions", "${n.format(t.modelCalls)} · %.1f s each".format(t.modelMs / 1000.0 / t.modelCalls))
+        // What the model's answers led to, and how often you corrected it (site sheet or the Flags note).
+        Line("On-device model checks", "${n.format(t.modelCalls)} · %.1f s each".format(t.modelMs / 1000.0 / t.modelCalls))
+        if (t.modelActed + t.modelLeftAlone > 0) {
+            Line("Hid or closed", n.format(t.modelActed), indent = true)
+            Line("Left alone", n.format(t.modelLeftAlone), indent = true)
+        }
+        if (t.modelUndone > 0) Line("Undone by you", n.format(t.modelUndone), indent = true)
+        if (t.modelHiddenByUser > 0) Line("Hidden by you after it left them", n.format(t.modelHiddenByUser), indent = true)
     }
     val sites = t.busiestSites(3)
     if (sites.isNotEmpty()) {
@@ -120,8 +127,8 @@ private fun Tile(value: String, label: String, modifier: Modifier) {
 }
 
 @Composable
-private fun Line(name: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun Line(name: String, value: String, indent: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(start = if (indent) 16.dp else 0.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

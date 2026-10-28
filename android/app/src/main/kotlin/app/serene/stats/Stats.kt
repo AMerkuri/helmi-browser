@@ -25,6 +25,13 @@ data class Totals(
     val consentRejected: Long = 0,
     val modelCalls: Long = 0,
     val modelMs: Long = 0,
+    /** Model verdicts the engine acted on (clicked away or hid), and ones it left alone. Counted
+     *  since 2026-10-28, so older totals have fewer of these than [modelCalls]. */
+    val modelActed: Long = 0,
+    val modelLeftAlone: Long = 0,
+    /** The user's corrections: Undo on something the model hid, Hide on something it left alone. */
+    val modelUndone: Long = 0,
+    val modelHiddenByUser: Long = 0,
     /** Blocked requests plus annoyances, by site (eTLD+1); the busiest [MAX_SITES] are kept. */
     val sites: Map<String, Long> = emptyMap(),
 ) {
@@ -37,7 +44,12 @@ data class Totals(
     fun withBlocked(site: String, type: String) = copy(requests = requests.plusOne(type), sites = sites.plusOne(site).capped())
     fun withCleared(site: String, label: String) = copy(cleared = cleared.plusOne(label), sites = sites.plusOne(site).capped())
     fun withConsentRejected() = copy(consentRejected = consentRejected + 1)
-    fun withModelCall(ms: Long) = copy(modelCalls = modelCalls + 1, modelMs = modelMs + ms)
+    fun withModelCall(ms: Long, acted: Boolean) = copy(
+        modelCalls = modelCalls + 1, modelMs = modelMs + ms,
+        modelActed = modelActed + if (acted) 1 else 0, modelLeftAlone = modelLeftAlone + if (acted) 0 else 1,
+    )
+    fun withModelOverruled(wasHidden: Boolean) =
+        if (wasHidden) copy(modelUndone = modelUndone + 1) else copy(modelHiddenByUser = modelHiddenByUser + 1)
 
     companion object {
         const val MAX_SITES = 200
@@ -98,7 +110,8 @@ class Stats(private val file: File?, private val scope: CoroutineScope) : Engine
     override fun blocked(site: String, type: String) = change { it.withBlocked(site, type) }
     override fun cleared(site: String, label: String) = change { it.withCleared(site, label) }
     override fun consentRejected(site: String) = change { it.withConsentRejected() }
-    override fun modelCall(ms: Long) = change { it.withModelCall(ms) }
+    override fun modelCall(ms: Long, acted: Boolean) = change { it.withModelCall(ms, acted) }
+    override fun modelOverruled(wasHidden: Boolean) = change { it.withModelOverruled(wasHidden) }
 }
 
 /** What a label is called in the totals. */
@@ -111,5 +124,6 @@ val CATEGORY_NAMES = mapOf(
     "login_wall" to "Sign-in walls",
     "chat_widget" to "Chat widgets",
     "survey" to "Surveys",
+    "other" to "Other overlays you hid",
 )
 

@@ -376,7 +376,8 @@ The app's new tab page shows lifetime totals ([`Stats.kt`](../android/app/src/ma
 
 - *Annoyances cleared*, by label: candidates the engine clicked away or hid (cached rules too), cookie banners autoconsent opted out of, and cookie banners the lists hid (`listHit`). An element counts once per page, and a page has at most one cookie banner however many layers dealt with it. Other elements the lists' cosmetic rules hide are not counted: nothing tells a real pop-up from a hidden empty box.
 - *Requests blocked* by the lists, by request type. Few: these are annoyance lists, not ad or tracker lists; on the 30 crawl sites (from the US, 2026-10-26) they would block 27 requests, 25 of them cookie, newsletter and chat widget scripts. Data and time saved were tried and dropped (Artur, 2026-10-26): both could only be estimates.
-- Tracking refused (autoconsent opt-outs), pages visited with Serene on, model calls and their average time, and the three sites with the most blocked requests and annoyances (at most 200 sites are kept, the busiest; Clear browsing data forgets them).
+- Tracking refused (autoconsent opt-outs), pages visited with Serene on, model checks and their average time, and the three sites with the most blocked requests and annoyances (at most 200 sites are kept, the busiest; Clear browsing data forgets them).
+- What the model's answers led to (since 2026-10-28): overlays it hid or closed, ones it left alone, and the user's corrections, Undo on a model hide and Hide on an overlay it left alone. Those corrections are the real-world count of its mistakes, which the 159-record eval set can only estimate. The site sheet lists the overlays the model left alone with a Hide button (a `user-hide` rule for the site), and a remembered verdict still names what made it ("on-device model, remembered"). Settings › Flags › *Show model decisions* adds a note per model verdict on the page in front, with Undo or Hide.
 
 ## Known gaps
 
