@@ -1,0 +1,16 @@
+<!doctype html><title>Consent dialog with a focus trap that autoconsent takes a while to reject</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px}</style><script>window.__clicked=[];addEventListener('touchstart',(e)=>{window.__touchPrevented=e.defaultPrevented});function clk(n){__clicked.push(n);document.getElementById('qc-cmp2-container').remove()}</script>
+<script type="application/json" id="expect">{"gone":"#qc-cmp2-ui","visible":["#article","#masthead"],"clicked":["reject"],"notClicked":["agree"],"touchable":true,"taps":[1100],"scroll":true,"waitMs":3500}</script>
+<header id="masthead" style="position:sticky;top:0;background:#223;color:#fff;padding:12px;z-index:10">Gadget Digest <a href="#" style="color:#fff">Reviews</a> <a href="#" style="color:#fff">Downloads</a></header>
+<article id="article"><h1>Five ways to tidy up a cluttered taskbar</h1><p>Most of the icons pinned to a new laptop's taskbar are never opened. A few minutes in the settings can clear them out.</p><p>Start by unpinning the apps you do not use, then turn off the widgets button and the search box.</p><p style="height:1500px">Long content.</p></article>
+<script>
+// The quantcast-style dialog again, now with a focus trap that cancels every touch outside it
+// (the focus-trap library), and a second layer that takes a second to load. Autoconsent answers
+// it out of sight meanwhile; a touch then (the tap at 1100 ms) should still scroll the page.
+function trap(box){
+  const down=(e)=>{if(!box.contains(e.target))e.preventDefault()};
+  for(const t of ['touchstart','mousedown'])document.addEventListener(t,down,{capture:true,passive:false});
+  document.addEventListener('keydown',(e)=>{if(e.key==='Escape')for(const t of ['touchstart','mousedown'])document.removeEventListener(t,down,{capture:true,passive:false})},true);
+}
+function more(){setTimeout(()=>{document.querySelector('#qc-cmp2-ui .layer').innerHTML='<div class="qc-cmp2-consent-info qc-cmp2-main"><p>Manage your choices for each purpose and partner.</p><button onclick="clk(\'reject\')">REJECT ALL</button> <button onclick="clk(\'save\')">SAVE &amp; EXIT</button></div>'},1200)}
+setTimeout(()=>{document.body.insertAdjacentHTML('beforeend',`<div id="qc-cmp2-container"><div class="qc-cmp-cleanslate"><div id="qc-cmp2-ui" role="dialog" aria-modal="true" style="position:fixed;left:7%;right:7%;top:15vh;height:70vh;background:#fff;overflow:auto;padding:16px;z-index:2147483647"><div class="layer"><div class="intro"><h2>We value your privacy</h2><p>We and our partners store and access information on your device, such as cookies and device identifiers, and process personal data for personalised advertising, content measurement and audience insights. You can review and manage your choices at any time.</p></div><div class="qc-cmp2-summary-buttons"><button mode="secondary" onclick="more()">MORE OPTIONS</button> <button mode="primary" onclick="clk('agree')">AGREE</button></div></div></div></div></div>`);trap(document.getElementById('qc-cmp2-ui'))},400);
+</script>

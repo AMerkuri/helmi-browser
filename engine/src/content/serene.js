@@ -46,6 +46,7 @@
     scrollFixed: false,
     trapsReleasedAt: -Infinity,
     touchReleasedAt: -Infinity,
+    cancelSwallowed: false, // a touch the page tried to cancel while a cookie banner was out of sight
     cookieSeen: new WeakMap(), // cached cookie banners parked for autoconsent -> first seen
     pendingRetries: 0,    // rescans for overlays that were on top but not visible yet
     scanMs: [],
@@ -76,6 +77,19 @@
       if (hiddenEls().length && !otherModal()) { state.touchReleasedAt = performance.now(); releaseTraps(); }
     }, { passive: true });
   }
+
+  // A cookie banner parked for autoconsent, or one autoconsent is answering under its prehide,
+  // is still open while it is out of sight, and a focus trap on it cancels every touch outside
+  // it: the page would not scroll until autoconsent is done with it (techspot's Quantcast, up to
+  // a second). Meanwhile touches can't be cancelled. None can be meant for the banner, which is
+  // click-through, and the page's own handlers still get them. A trap that tried is let go once
+  // the banner is answered or hidden (releaseSwallowed), as the cancelled touch would have done.
+  addEventListener('touchstart', (e) => {
+    if (!e.isTrusted || config.observeOnly || !consentOutOfSight()) return;
+    const swallow = () => { state.cancelSwallowed = true; };
+    Object.defineProperty(e, 'preventDefault', { value: swallow });
+    Object.defineProperty(e, 'returnValue', { get: () => true, set: (v) => { if (v === false) swallow(); } });
+  }, { capture: true, passive: true });
 
   // ---------------------------------------------------------------- host messages
 
@@ -165,20 +179,44 @@
     clearTimeout(state.parkTimer);
     renderConsentCss();
     unparkBanners();
+    releaseSwallowed();
   }
 
   // A list-known banner that was laid out while parked was really on the page: the host counts
   // it for the totals on the start page. Hidden with display:none it has no box to tell by.
   function reportListHit() {
-    if (state.listHit) return;
+    if (state.listHit || !listBannerLaidOut()) return;
+    state.listHit = true;
+    send('listHit', { label: 'cookie_consent' });
+  }
+
+  function listBannerLaidOut() {
     for (const sel of state.consentSelectors) {
       let els = [];
       try { els = document.querySelectorAll(sel); } catch { continue; }
       for (const el of els) {
         const r = el.getBoundingClientRect();
-        if (r.width * r.height > 2000) { state.listHit = true; send('listHit', { label: 'cookie_consent' }); return; }
+        if (r.width * r.height > 2000) return true;
       }
     }
+    return false;
+  }
+
+  // A cookie banner that is open but kept out of sight for autoconsent: parked by the detector
+  // or the lists, or the popup autoconsent is answering under its prehide. Not while autoconsent
+  // has only found a consent tool: its prehide may not cover the dialog that is up.
+  function consentOutOfSight() {
+    if (consentBusy()) return true;
+    if (!state.consentParked) return false;
+    for (const c of state.candidates.values()) if (c.parked && c.el.isConnected) return true;
+    return state.listHit && listBannerLaidOut();
+  }
+
+  // The banner is answered or hidden: let go of a trap whose cancel was swallowed meanwhile.
+  function releaseSwallowed() {
+    if (!state.cancelSwallowed || consentOutOfSight()) return;
+    state.cancelSwallowed = false;
+    if (hiddenEls().length && !otherModal()) releaseTraps();
   }
 
   const AC_BUSY = new Set(['openPopupDetected', 'runningOptOut']);
@@ -206,6 +244,7 @@
       }
       if (AC_DONE.has(lc)) releaseConsent();
       if (wasBusy && !AC_BUSY.has(lc)) setTimeout(() => scan(), 300); // what is left after it
+      releaseSwallowed();
       return;
     }
     if (AC_EVENTS.has(m.type)) {
@@ -749,6 +788,7 @@
     const still = c.el.isConnected && visible(c.el);
     if (still) hide(c);
     else restorePage();
+    releaseSwallowed();
     send('applied', { id: v.id, action: still ? 'hide' : 'autoconsent', ok: true, source: v.source });
   }
 
