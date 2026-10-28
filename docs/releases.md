@@ -20,7 +20,7 @@ Make the key on your own computer, so it never passes through CI logs or a chat.
 keytool -genkeypair -v -keystore helmi-release.jks -alias helmi -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Helmi"
 ```
 
-It asks for a password (once, for both the keystore and the key). The `-dname` is the name on the certificate, and it is public: it is inside every APK the key signs, where anyone can read it with `apksigner verify --print-certs` or `keytool -printcert -jarfile`. So keep it to the app's name rather than your own name and town (without `-dname`, keytool asks for those). RSA 4096 and 10000 days (about 27 years) are what Google Play asks of a signing key, so the same key can sign Play builds later (see below).
+It asks for a password (once, for both the keystore and the key). The `-dname` is the name on the certificate, and it is public: it is inside every APK the key signs, where anyone can read it with `apksigner verify --print-certs`. So keep it to the app's name rather than your own name and town (without `-dname`, keytool asks for those). RSA 4096 and 10000 days (about 27 years) are what Google Play asks of a signing key, so the same key can sign Play builds later (see below).
 
 Then add three repository secrets under **Settings → Secrets and variables → Actions → New repository secret**:
 
@@ -64,6 +64,8 @@ Versions must go up: `versionCode` is the release workflow's run number, so ever
 ## Installing
 
 Download the APK from the release on the phone and open it. To get updates automatically, add `https://github.com/AMerkuri/helmi-browser` in [Obtainium](https://github.com/ImranR98/Obtainium); it reads the Releases page. The release notes give the signing certificate's SHA-256, which an app such as AppVerifier can check against the installed app.
+
+The first release, Helmi 0.1.0 (2026-10-28), is signed with the certificate `e83d6b1f5c8f7d115b2173ebcd1db8b48b9c7961b05baed97ed0f69f88373fd0` (`CN=Helmi`); every later release must show the same one.
 
 A phone that has an `app.helmi.browser` debug build from before this flow (named plain "Helmi", signed with the debug key) has to uninstall it once before installing the first release.
 
