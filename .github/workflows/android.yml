@@ -157,7 +157,7 @@ jobs:
             adb install -r "$(find apks -name app-debug.apk)"
             adb install -r "$(find apks -name app-debug-androidTest.apk)"
             adb logcat -c
-            adb shell am instrument -w -r app.helmi.browser.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt
+            adb shell am instrument -w -r app.helmi.browser.debug.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt
             adb logcat -d -v time > logcat.txt
             adb logcat -d -b crash > crash.txt
             cat crash.txt

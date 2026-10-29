@@ -15,9 +15,12 @@ android {
         applicationId = "app.helmi.browser"
         minSdk = 26
         targetSdk = 36
-        // CI run number, so each build installs over the previous one.
+        // CI run number, so each build installs over the previous one. The release workflow counts
+        // its own runs, so releases go 1, 2, 3 (under their own app id, see buildTypes).
         versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orElse("1").get().toInt()
-        versionName = "0.1.0"
+        // The release tag without its v (v0.2.0 is 0.2.0), set by the release workflow.
+        versionName = providers.environmentVariable("HELMI_VERSION").orElse("0.1.0").get()
+        manifestPlaceholders["appLabel"] = "Helmi"
         ndk { abiFilters += abis }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GIT_SHA", "\"${providers.environmentVariable("GITHUB_SHA").orElse("local").get().take(7)}\"")
@@ -32,10 +35,34 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Releases: the private key the release workflow takes from the repo's secrets
+        // (docs/releases.md). Without it, as in a local build, the release APK comes out unsigned.
+        providers.environmentVariable("HELMI_KEYSTORE").orNull?.let { keystore ->
+            create("release") {
+                val password = providers.environmentVariable("HELMI_KEYSTORE_PASSWORD").get()
+                storeFile = file(keystore)
+                storePassword = password
+                keyAlias = providers.environmentVariable("HELMI_KEY_ALIAS").get()
+                keyPassword = password // a PKCS12 keystore (keytool's default) has one password
+            }
+        }
     }
 
     buildTypes {
-        debug { signingConfig = signingConfigs.getByName("debug") }
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+            // Its own app id and name: the release is signed with another key, so neither can update
+            // the other, and this way a PR build installs next to the release instead.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            manifestPlaceholders["appLabel"] = "Helmi Debug"
+        }
+        release {
+            signingConfig = signingConfigs.findByName("release")
+            // No R8 for now: LiteRT-LM, the JNI rules engine and kotlinx.serialization would need
+            // keep rules, and only the debug build runs the emulator tests.
+            isMinifyEnabled = false
+        }
     }
 
     buildFeatures {

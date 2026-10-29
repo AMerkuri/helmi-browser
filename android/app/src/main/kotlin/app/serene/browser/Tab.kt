@@ -10,6 +10,7 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.util.Log
 import android.view.PixelCopy
 import android.view.ViewGroup
@@ -57,9 +58,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   addWebMessageListener      → the SereneBridge object the content script talks to
  *   shouldInterceptRequest     → network rules
  * (engine/harness/browser.mjs is the Playwright stand-in for the same three hooks.)
+ * [openedByPage]: a page opened it (window.open, a target=_blank link) and WebView loads its page:
+ * no start page or keyboard while that starts, and an about:blank popup is the page's own.
  */
 @SuppressLint("SetJavaScriptEnabled")
-class Tab(context: Context, private val app: SereneApp, val id: Long) {
+class Tab(context: Context, private val app: SereneApp, val id: Long, val openedByPage: Boolean = false) {
     var url by mutableStateOf("")
         private set
     var title by mutableStateOf("")
@@ -88,6 +91,13 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
     var downloadBar by mutableStateOf<Download?>(null)
     /** The link or picture the user long-pressed: the context menu shows it until dismissed. */
     var contextMenu by mutableStateOf<Pressed?>(null)
+    /**
+     * The tab whose page opened this one (window.open, a target=_blank link). Its page is this
+     * page's window.opener: sign-in popups (Google, Apple) answer it and close themselves.
+     */
+    var opener by mutableStateOf<Tab?>(null)
+    /** Opens the windows this tab's pages ask for, as tabs; set by the tab manager. */
+    internal var manager: TabManager? = null
 
     // The user agent of a blob: download while its data comes back from the page.
     @Volatile private var blobUserAgent: String? = null
@@ -121,7 +131,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
             builtInZoomControls = true
             displayZoomControls = false
             mediaPlaybackRequiresUserGesture = true
-            setSupportMultipleWindows(false) // target=_blank opens in this tab
+            // window.open and target=_blank open a tab (onCreateWindow) that keeps its opener, as
+            // in Chrome. Without it they replaced this page, and a sign-in popup that answers its
+            // opener (LinkedIn's "Continue with Google") was left blank with no one to answer.
+            // Windows only from a tap: javaScriptCanOpenWindowsAutomatically stays false.
+            setSupportMultipleWindows(true)
             // Passkeys and security keys: WebView passes navigator.credentials to Credential Manager
             // with the page's origin, as a browser does. Needs CREDENTIAL_MANAGER_SET_ORIGIN in the
             // manifest, and the passkey provider must trust Serene as a browser (docs/passkeys.md).
@@ -149,6 +163,17 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
             override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: "" }
+            // A new tab beside this one, on screen; WebView loads the window's page into it.
+            override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
+                val m = manager ?: return false
+                if (!isUserGesture || destroyed) return false
+                val tab = m.openWindow(this@Tab)
+                (resultMsg.obj as WebView.WebViewTransport).webView = tab.webView
+                resultMsg.sendToTarget()
+                return true
+            }
+            // The page called window.close(): only a window a page opened may close itself.
+            override fun onCloseWindow(window: WebView) { manager?.closeWindow(this@Tab) }
             // <input type=file>: GitHub's attach button, upload forms. The activity shows the picker.
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
                 (view.context as? FilePickerHost)?.pickFiles(params) { callback.onReceiveValue(it) } ?: false
@@ -535,8 +560,16 @@ class Tab(context: Context, private val app: SereneApp, val id: Long) {
 
     private fun onDownload(dlUrl: String, userAgent: String, contentDisposition: String?, mimeType: String?) {
         // Nothing in the history: the tab was opened for this file (a link from another app).
-        // Links on a page (target=_blank too, see setSupportMultipleWindows) keep the page.
+        // Links on a page keep the page.
         val blank = webView.copyBackForwardList().currentItem == null
+        // A target=_blank link to a file: the tab opened for it goes again and the download
+        // belongs to the page with the link, as in Chrome.
+        val from = manager?.takeIf { blank && !dlUrl.startsWith("blob:") }?.openerOf(this)
+        if (from != null) {
+            from.downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, from.referrer, from.id)
+            main.post { manager?.closeWindow(this) }
+            return
+        }
         if (blank) downloadPage = true
         progress = 100
         if (dlUrl.startsWith("blob:")) return fetchBlob(dlUrl, userAgent)

@@ -4,7 +4,9 @@ A small browser shell around the hybrid annoyance engine from [`engine/`](../eng
 
 ## Install a build
 
-Every pull request and every push to `main` builds a debug APK in GitHub Actions (workflow `android`). On a pull request, the **Debug APK** section at the bottom of the PR description links straight to the latest build. Otherwise open the run and download the `serene-<run>-<sha>` artifact under **Artifacts**, unzip it on the phone and open the `.apk` (allow installs from your browser or file manager when Android asks). All builds are signed with the same debug key (`app/debug.keystore`, committed on purpose), so a newer build installs over the old one and keeps its settings.
+Every pull request and every push to `main` builds a debug APK in GitHub Actions (workflow `android`). On a pull request, the **Debug APK** section at the bottom of the PR description links straight to the latest build. Otherwise open the run and download the `serene-<run>-<sha>` artifact under **Artifacts**, unzip it on the phone and open the `.apk` (allow installs from your browser or file manager when Android asks). All builds are signed with the same debug key (`app/debug.keystore`, committed on purpose), so a newer build installs over the old one and keeps its settings. Debug builds install as their own app, **Helmi Debug** (`app.helmi.browser.debug`), next to a release.
+
+Signed releases (`app.helmi.browser`) are on the [Releases page](https://github.com/AMerkuri/helmi-browser/releases); [docs/releases.md](../docs/releases.md) covers the release key and how to cut one.
 
 After the first start:
 - The filter lists download in the background (about 3 MB). Until they arrive, Serene runs on its heuristics alone.
@@ -63,4 +65,4 @@ cd rules-jni && cargo test --release  # rules engine on the host
 - The Qwen2.5-0.5B CPU fallback from the decision doc has no `.litertlm` build on litert-community, so the second choice is Qwen3-0.6B INT4 (329 MB). Its accuracy has not been measured.
 - Each model call starts a fresh LiteRT-LM conversation, so the system prompt is prefilled every time (about 150 tokens). Reusing a prefilled session is a step 4 item.
 - No incognito mode, history, bookmarks, file uploads or full-screen video yet.
-- Release signing and an App Bundle are not set up; CI produces debug builds only.
+- No App Bundle or R8 for the release build yet ([docs/releases.md](../docs/releases.md)).

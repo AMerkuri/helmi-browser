@@ -5,8 +5,8 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Scaled to 0.9 so the handle tips stay inside the 72 dp circle a round mask shows. -->
-    <group android:scaleX="0.9" android:scaleY="0.9" android:pivotX="54" android:pivotY="54">
+    <!-- Scaled to 0.78 so the wheel (about 56 dp across) keeps a margin inside the 72 dp a launcher mask shows. -->
+    <group android:scaleX="0.78" android:scaleY="0.78" android:pivotX="54" android:pivotY="54">
         <path android:strokeColor="#FFE9B95A" android:strokeWidth="3" android:pathData="M54,34 A20,20 0 1,1 54,74 A20,20 0 1,1 54,34 Z" />
         <path android:strokeColor="#FFE9B95A" android:strokeWidth="3" android:pathData="M54,39 A15,15 0 1,1 54,69 A15,15 0 1,1 54,39 Z" />
         <path android:strokeColor="#FFE9B95A" android:strokeWidth="3" android:pathData="M54,47.5 A6.5,6.5 0 1,1 54,60.5 A6.5,6.5 0 1,1 54,47.5 Z" />

@@ -1,0 +1,140 @@
+name: release
+
+# A signed release APK on a GitHub Release. Push a version tag (git tag v0.2.0 && git push origin
+# v0.2.0), or run this workflow from the Actions tab with a version: it tags the commit of the
+# branch it runs on. Signed with the private release key in the repo's secrets; the setup and the
+# rest of the flow are in docs/releases.md.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 0.2.0 or 0.2.0-beta.1 (tagged v0.2.0 on the branch above)
+        required: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false # never stop a release halfway
+
+env:
+  NDK_VERSION: 29.0.14206865
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # usually 5 to 8
+    permissions:
+      contents: write # the tag and the release
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Version
+        id: version
+        working-directory: .
+        env:
+          INPUT: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then tag="$GITHUB_REF_NAME"; else tag="v${INPUT#v}"; fi
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::$tag is not a version tag like v0.2.0 or v0.2.0-beta.1"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Before the long build, so a missing secret fails in seconds.
+      - name: Release key
+        working-directory: .
+        env:
+          KEYSTORE: ${{ secrets.RELEASE_KEYSTORE }}
+          PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$PASSWORD" ] || [ -z "$ALIAS" ]; then
+            echo "::error::Set the RELEASE_KEYSTORE, RELEASE_KEYSTORE_PASSWORD and RELEASE_KEY_ALIAS secrets first (docs/releases.md)"
+            exit 1
+          fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "HELMI_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "ndk;$NDK_VERSION" > /dev/null
+      - uses: actions/cache@v4
+        id: cargo-ndk
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: cargo-ndk-4.1.2-${{ runner.os }}
+      - name: Rust for Android (adblock-rust over JNI)
+        run: |
+          rustup target add aarch64-linux-android x86_64-linux-android
+          if [ "${{ steps.cargo-ndk.outputs.cache-hit }}" != "true" ]; then cargo install cargo-ndk --locked --version 4.1.2; fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: android/rules-jni
+          cache-all-crates: true
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build release APK
+        env:
+          HELMI_VERSION: ${{ steps.version.outputs.version }}
+          HELMI_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          HELMI_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: ./gradlew :app:assembleRelease
+      - name: Check the signature and name the APK
+        id: apk
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          # Without a signing config Gradle writes app-release-unsigned.apk instead.
+          test -f "$apk" || { echo "::error::No signed release APK"; ls app/build/outputs/apk/release; exit 1; }
+          apksigner="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          # Not shown in the public log: the certificate's name fields are whatever keytool was given.
+          "$apksigner" verify --print-certs "$apk" > certs.txt
+          # "Signer #1 certificate ..." or, from newer build-tools, "V2 Signer: certificate ...".
+          cert=$(sed -n 's/^.*[Ss]igner.*certificate SHA-256 digest: //p' certs.txt | sort -u)
+          if [ "$(echo "$cert" | wc -l)" != 1 ]; then echo "::error::Expected one signing certificate, got: $cert"; exit 1; fi
+          # The committed debug key must never sign a release.
+          debug=$(keytool -list -v -keystore app/debug.keystore -storepass android -alias androiddebugkey | sed -n 's/^\s*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
+          if [ -z "$cert" ] || [ "$cert" = "$debug" ]; then echo "::error::Release APK is not signed with the release key"; exit 1; fi
+          echo "Signed with certificate SHA-256 $cert"
+          name="helmi-$VERSION.apk"
+          mkdir -p out
+          cp "$apk" "out/$name"
+          (cd out && sha256sum "$name" > "$name.sha256")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(cut -d' ' -f1 "out/$name.sha256")" >> "$GITHUB_OUTPUT"
+          echo "cert=$cert" >> "$GITHUB_OUTPUT"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          NAME: ${{ steps.apk.outputs.name }}
+          SHA256: ${{ steps.apk.outputs.sha256 }}
+          CERT: ${{ steps.apk.outputs.cert }}
+        run: |
+          changes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" --jq .body)
+          {
+            echo "Download **$NAME** on the phone and open it. Each release installs over the previous one and keeps your settings. Builds from pull requests are a separate app, Helmi Debug."
+            echo
+            echo "APK SHA-256: \`$SHA256\`"
+            echo "Signing certificate SHA-256: \`$CERT\`"
+            echo
+            echo "$changes"
+          } > notes.md
+          flags=()
+          # A tag that was pushed must exist; one from the Actions tab is created on this commit.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then flags+=(--verify-tag); else flags+=(--target "$GITHUB_SHA"); fi
+          if [[ "$TAG" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "out/$NAME" "out/$NAME.sha256" --repo "$GITHUB_REPOSITORY" --title "Helmi ${TAG#v}" --notes-file notes.md "${flags[@]}"
+      - name: Remove the key
+        if: always()
+        working-directory: .
+        run: rm -f "$RUNNER_TEMP/release.jks"

@@ -6,7 +6,7 @@ An Android browser that uses a small on-device language model, together with com
 
 Helmi was called Serene until October 2026 (the repository was serene-browser); the engine and the Kotlin packages keep the old name. App id: `app.helmi.browser`.
 
-Status: MVP Android app. Stack decisions: [docs/decisions.md](docs/decisions.md). Engine design and results: [docs/engine.md](docs/engine.md), code in [engine/](engine). The app is in [android/](android): every PR and every push to `main` builds a debug APK you can download from the `android` workflow run and sideload.
+Status: MVP Android app. Stack decisions: [docs/decisions.md](docs/decisions.md). Engine design and results: [docs/engine.md](docs/engine.md), code in [engine/](engine). The app is in [android/](android): every PR and every push to `main` builds a debug APK you can download from the `android` workflow run and sideload. Signed releases are on the [Releases page](https://github.com/AMerkuri/helmi-browser/releases) ([how they're made](docs/releases.md)).
 
 Reader mode: [docs/reader.md](docs/reader.md).
 

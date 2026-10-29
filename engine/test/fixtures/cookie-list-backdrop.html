@@ -1,0 +1,16 @@
+<!doctype html><title>List-known cookie modal with a separate backdrop, the rest of the page made inert</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px} .zz-modal{display:none;position:fixed;inset:0;z-index:1050;overflow:auto} .zz-modal.show{display:block} .zz-win{background:#fff;margin:40px 16px;padding:16px} .zz-backdrop{position:fixed;inset:0;z-index:1040;background:#000;opacity:.5}</style>
+<script>
+window.__clicked=[];
+// A modal library: the dialog and its backdrop are siblings at the end of <body>, and while the
+// dialog is open everything else is inert (no taps, no focus). Closing it undoes both.
+function openModal(m){m.classList.add('show');const b=document.createElement('div');b.className='zz-backdrop';document.body.append(b);for(const el of document.body.children)if(el!==m)el.inert=true}
+function closeModal(m){m.classList.remove('show');document.querySelector('.zz-backdrop')?.remove();for(const el of document.body.children)el.inert=false}
+function choose(n){__clicked.push(n);document.cookie='zz_cookies='+n;closeModal(document.getElementById('zz-consent'))}
+</script>
+<script type="application/json" id="expect">{"rules":"127.0.0.1###zz-consent","consent":true,"gone":"#zz-consent","visible":["#article"],"clicked":["decline"],"notClicked":["accept"],"via":"rules","waitMs":3000}</script>
+<div class="zz-page"><article id="article"><h1>New card limits from next month</h1><p>Daily card payment limits go up for everyone who has not set their own.</p><p><a id="read-more" href="#more" onclick="__clicked.push('link');return false">Read more about limits</a></p><p style="height:1500px">Long content.</p></article></div>
+<div id="zz-consent" class="zz-modal" role="dialog" aria-modal="true"><div class="zz-win"><h2>We use cookies on our website</h2><p>We use necessary cookies to make the site work. We would also like to use statistics and marketing cookies, which you can accept, decline or choose yourself.</p><a href="#" class="zz-accept" onclick="choose('accept');return false">Accept</a> <a href="#" class="zz-settings" onclick="return false">Choose</a> <a href="#" class="zz-decline" onclick="choose('decline');return false">Decline</a></div></div>
+<script>
+if(location.search.includes('nodecline'))document.querySelector('.zz-decline').remove();
+setTimeout(()=>{if(!document.cookie.includes('zz_cookies'))openModal(document.getElementById('zz-consent'))},location.search.includes('late')?2500:100);
+</script>
