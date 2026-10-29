@@ -1,0 +1,11 @@
+<!doctype html><html lang="et"><title>Sign-in dialog the user opens from the header, slow to load (should stay)</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} header{display:flex;justify-content:space-between;padding:12px 16px;background:#eee} article p{margin:16px} html.zz-lock{overflow:hidden} .zz-shade{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center} .zz-box{background:#fff;margin:24px;padding:16px;width:100%}</style>
+<script type="application/json" id="expect">{"visible":["#signin","#article"],"tapFirst":"#sisene","llm":{"label":"login_wall"},"waitMs":4500}</script>
+<script>
+// The sign-in dialog loads its form (a frame and a captcha on the real thing) before it shows:
+// it comes up seconds after the tap. ?auto: it opens on its own, with no tap.
+const AFTER_MS = 3000;
+function openSignIn(){setTimeout(()=>{document.documentElement.classList.add('zz-lock');document.body.insertAdjacentHTML('beforeend','<div id="signin" class="zz-shade"><div class="zz-box" role="dialog" aria-modal="true"><h2>Logi sisse</h2><p>Sisesta e-posti aadress ja parool.</p><input type="email" placeholder="E-post"> <input type="password" placeholder="Parool"><p><button>Jätka</button> <button>Unustasid parooli?</button> <button onclick="this.closest(\'.zz-shade\').remove();document.documentElement.classList.remove(\'zz-lock\')">Sulge</button></p></div></div>')},AFTER_MS)}
+if(location.search.includes('auto'))addEventListener('load',openSignIn);
+</script>
+<header><a id="news" href="#">Uudised</a><button id="sisene" onclick="openSignIn()">Sisene</button></header>
+<article id="article"><h1>Linn avab uue pargi</h1><p>Volikogu otsustas teisipäeval muuta vana raudteejaama ala avalikuks pargiks. Tööd algavad järgmisel kevadel.</p><p>Elanikud kogusid muudatuse toetuseks üle nelja tuhande allkirja.</p><p style="height:1500px">Pikk tekst.</p></article>

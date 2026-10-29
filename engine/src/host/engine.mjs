@@ -137,7 +137,7 @@ class PageSession {
     rec.verdict = v;
     rec.decidedMs = Math.round(performance.now() - rec.t);
     this.emit({ type: 'candidate', ...rec });
-    frame.send({ type: 'verdict', id: msg.id, action: v.action, target: v.target, buttonLabel: v.buttonLabel, inFrame: v.inFrame, source: v.source });
+    frame.send({ type: 'verdict', id: msg.id, label: v.label, action: v.action, target: v.target, buttonLabel: v.buttonLabel, inFrame: v.inFrame, source: v.source });
     // Cache decisions that hold for the site; a user-gesture "content" is about that moment only.
     if (frame.isTop && !['user-gesture', 'backdrop', 'llm-error', 'autoconsent'].includes(v.source)) {
       this.e.cache.put(this.topUrl || f.url, { sig: f.sig, label: v.label, action: v.action, buttonLabel: v.buttonLabel, source: v.source });

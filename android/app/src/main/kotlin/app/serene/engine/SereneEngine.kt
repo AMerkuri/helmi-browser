@@ -319,6 +319,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         frame.send(buildJsonObject {
             put("type", "verdict")
             put("id", id)
+            put("label", v.label)
             put("action", v.action)
             put("target", v.target)
             v.buttonLabel?.let { put("buttonLabel", it) }

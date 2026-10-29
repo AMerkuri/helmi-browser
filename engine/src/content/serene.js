@@ -19,6 +19,7 @@
     quarantineScore: 0.6, // hide a candidate while the host decides
     recheckScore: 0.85,   // a cached "ignore" goes back to the host when the heuristics are this sure now (the host's actScore)
     userGestureMs: 1500,  // overlays appearing this soon after a tap are user-initiated
+    askedMs: 10000,       // and this soon after a tap on a control that names them ("Sign in", "Manage cookies")
     genericWaitMs: 1500,  // longest the first scan waits for the host's generic rules
     maxText: 320,
     maxButtons: 8,
@@ -85,7 +86,8 @@
   }
 
   // The user tapped a control: when the page then opens an overlay Serene hid ("Manage cookies"
-  // reopens the cookie banner, swedbank.ee), it is shown (revealAsked).
+  // reopens the cookie banner, swedbank.ee), it is shown (revealAsked), and one it opens for the
+  // first time is left alone however long it takes to come up (askedFor).
   addEventListener('click', (e) => {
     if (!e.isTrusted) return;
     const c = e.target && e.target.closest && e.target.closest('a,button,[role="button"],[onclick],summary,label,input[type="button"],input[type="submit"]');
@@ -408,7 +410,7 @@
   // waits briefly for its generic rules so that list-covered banners never reach the detector.
   let scanTimer = 0;
   function onMutations(records) {
-    if (performance.now() - state.asked.at < config.userGestureMs && !config.observeOnly) revealAsked(records);
+    if (performance.now() - state.asked.at < config.askedMs && !config.observeOnly) revealAsked(records);
     let relevant = false;
     for (const r of records) {
       if (r.target && r.target.nodeType === 1 && r.target.hasAttribute(ATTR)) continue;
@@ -571,7 +573,8 @@
       state.seen.add(root);
       const id = state.nextId++;
       state.candidates.set(id, { el: root, buttons: f._buttons, sig: f.sig, iframes: f._iframes, backdrop: f.isBackdrop, cookie: f.heuristic.label === 'cookie_consent', label: f.heuristic.label, modalish: !f.isBackdrop && !f.looksLikeLayout && f.edge !== 'top' && f.coverage > 0.05, seenAt: performance.now() });
-      delete f._buttons; delete f._iframes;
+      if (f._asked) send('log', { msg: `asked for: ${f.sig} after a tap on "${state.asked.text.trim().slice(0, 40)}"` });
+      delete f._buttons; delete f._iframes; delete f._asked;
       out.push({ id, ...f });
       handleCandidate(id, f);
     }
@@ -756,6 +759,7 @@
       url: location.href,
     };
     f.heuristic = heuristics(f);
+    if (!f.userInitiated && askedFor(f)) f.userInitiated = f._asked = true;
     f._buttons = buttons.map((b) => b.el);
     f._iframes = iframes;
     return f;
@@ -811,6 +815,33 @@
   }
   api.heuristics = heuristics;
 
+  // Words on a control that ask for an overlay of a kind, besides the kind's own keywords (a
+  // "Manage cookies" link names cookies already). Login dialogs mostly open from one word.
+  const ASK = {
+    login_wall: /sign ?in|log ?in|login|log on|account|register|sisene|logi sisse|konto|anmelden|einloggen|connexion|se connecter|iniciar sesi[oó]n|acceder|accedi|entrar|zaloguj|přihlásit|bejelentkez|kirjaudu|logga in|logg inn|log ind|inloggen|ienākt|pieslēgties|prisijungti|войти|вход|ログイン|登录|登入|로그인/i,
+    paywall_teaser: /subscri|become a (member|subscriber)|telli|tellimus|abonn|\babo\b|suscr|assin|prenumer|tilaa|подпис/i,
+    newsletter: /uudiskiri|telli|liitu|prenumer|tilaa|подпис/i,
+    notification_prompt: /teavit|märguan/i,
+  };
+  const asks = (label, text) => !!text && !!((KW[label] && KW[label].test(text)) || (ASK[label] && ASK[label].test(text)));
+
+  // The kinds of overlay the user's last tap asked for, while it is recent.
+  function askedLabels() {
+    if (performance.now() - state.asked.at >= config.askedMs) return [];
+    return Object.keys(KW).filter((label) => asks(label, state.asked.text));
+  }
+
+  // An overlay the user asked for: they tapped a control naming its kind and it came up within
+  // askedMs, past the tap's own window because the page had to load it first (delfi.ee's
+  // "Sisene" opens Piano's sign-in dialog, which loads its frame and a captcha for ~3 s; the
+  // model then hid it as a login wall). One the keywords read as another kind is not asked for,
+  // except a sign-in form, which reads as a newsletter by its email field.
+  function askedFor(f) {
+    const asked = askedLabels();
+    const kind = f.hasPassword ? 'login_wall' : f.heuristic.label;
+    return asked.length > 0 && (kind === 'content' || asked.includes(kind));
+  }
+
   // ---------------------------------------------------------------- iframes (CMP dialogs)
 
   function frameSummary() {
@@ -851,6 +882,7 @@
     if (!c) return;
     if (config.observeOnly) return;
     c.decided = true;
+    if (v.label) c.label = v.label; // what it was hidden as, for revealAsked (the model's label, not the keywords')
     if (v.action === 'ignore') { quarantine(v.id, false); return; }
     if (v.action === 'click') {
       let btn = typeof v.target === 'number' ? c.buttons[v.target] : null;
@@ -960,9 +992,9 @@
   // the site's own "Manage cookies" link opened the banner we hid, still hidden by our CSS or the
   // cached rule (swedbank.ee). Shown, it is the user's dialog: no rule hides it again on this page.
   function revealAsked(records) {
-    const ask = state.asked.text;
-    const want = (label) => KW[label] && KW[label].test(ask);
-    if (!Object.keys(KW).some(want)) return;
+    const asked = askedLabels();
+    const want = (label) => asked.includes(label);
+    if (!asked.length) return;
     let hidden = null; // [el, label] Serene keeps hidden, looked up once
     const hiddenNow = () => {
       if (hidden) return hidden;
