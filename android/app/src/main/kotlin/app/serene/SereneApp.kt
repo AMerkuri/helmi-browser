@@ -55,7 +55,7 @@ data class ModelSpec(
  * hashes from the release). The stock builds came from huggingface.co/litert-community.
  */
 object ModelCatalog {
-    /** npu-model run 17, INT8 weights: 95% with 0 of 80 content items hidden on the desktop (stock: 83%, 6). */
+    /** npu-model run 17, INT8 weights: 94% with 1 of 80 content items hidden on the desktop (stock: 83%, 6). */
     val DEFAULT = ModelSpec(
         id = "qwen3-0.6b-int8",
         name = "Qwen3-0.6B",
@@ -65,7 +65,7 @@ object ModelCatalog {
         sizeBytes = 613_474_960,
         sha256 = "21cff3d378a120dce909bb79dcc3de91599f70401ed7d836bdedcdf50e45eeeb",
     )
-    /** npu-model run 17, 4-bit weights in blocks of 32: 92% with 2 of 80 hidden on the desktop (stock: 77%, 10). */
+    /** npu-model run 17, 4-bit weights in blocks of 32: 91% with 2 of 80 hidden on the desktop (stock: 77%, 10). */
     val SMALL = ModelSpec(
         id = "qwen3-0.6b-int4",
         name = "Qwen3-0.6B (INT4)",
