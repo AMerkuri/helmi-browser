@@ -6,6 +6,7 @@ import org.junit.Test
 
 class CoverFlowLayoutTest {
     // The Galaxy Z Fold 7's screens in px, with the page's share of the height in each.
+    private val density = 2.625f
     private val screens = mapOf(
         "cover screen" to Triple(1080f, 2520f, 2040f / 1080f),
         "inner screen" to Triple(2184f, 1968f, 1500f / 2184f),
@@ -17,18 +18,20 @@ class CoverFlowLayoutTest {
     fun cardAndReflectionFitAboveTheButtons() {
         for ((name, s) in screens) {
             val (w, h, aspect) = s
-            val l = CoverFlowLayout.of(w, h, aspect)
+            val l = CoverFlowLayout.of(w, h, aspect, density)
             assertEquals(name, aspect, l.cardHeight / l.cardWidth, 1e-4f)
-            assertTrue("$name: card goes off the top", l.centerY - l.cardHeight / 2 > h * 0.05f)
-            // Card, reflection and the title under it, above the bottom buttons (about 10% of the height).
-            assertTrue("$name: too tall", l.centerY + l.cardHeight * 0.85f < h * 0.9f)
+            // The title above the card, under the tab count (status bar and about 60 dp).
+            assertEquals(name, 56f * density, l.titleRoom, 1e-3f)
+            assertTrue("$name: title goes under the tab count", l.centerY - l.cardHeight / 2 - l.titleRoom > 75f * density)
+            // Card and reflection above the bottom buttons (about 10% of the height).
+            assertTrue("$name: too tall", l.centerY + l.cardHeight * 0.8f < h * 0.9f)
             assertTrue("$name: too wide", l.cardWidth <= w * 0.6f)
         }
     }
 
     @Test
     fun cardsLeaveTheMiddleCardClearAndStackOutwards() {
-        val l = CoverFlowLayout.of(1080f, 2520f, 2040f / 1080f)
+        val l = CoverFlowLayout.of(1080f, 2520f, 2040f / 1080f, density)
         assertEquals(0f, l.x(0f), 0f)
         assertEquals(l.centerGap, l.x(1f), 1e-3f)
         assertEquals(-l.centerGap, l.x(-1f), 1e-3f)
@@ -53,8 +56,9 @@ class CoverFlowLayoutTest {
         assertEquals("slight flick on", 3, settleOn(2.1f, 2f))
         assertEquals("slight flick back", 1, settleOn(1.9f, -2f))
         assertEquals("from a card exactly", 3, settleOn(2f, 4f))
-        assertEquals("fast flick", 4, settleOn(2f, 7f))
-        assertEquals("very fast flick: 4 extra at most", 7, settleOn(2f, 100f))
-        assertEquals(-5, settleOn(0f, -100f)) // the caller keeps it within the tabs
+        assertEquals("an ordinary quick swipe: still one", 3, settleOn(2f, 8f))
+        assertEquals("hard flick", 4, settleOn(2f, 12f))
+        assertEquals("very hard flick: 3 extra at most", 6, settleOn(2f, 100f))
+        assertEquals(-4, settleOn(0f, -100f)) // the caller keeps it within the tabs
     }
 }

@@ -162,7 +162,7 @@ class CoverFlowTest {
             val decor = a.window.decorView
             decor.getLocationOnScreen(origin)
             val page = a.pageBounds
-            l = CoverFlowLayout.of(decor.width.toFloat(), decor.height.toFloat(), page.height / page.width)
+            l = CoverFlowLayout.of(decor.width.toFloat(), decor.height.toFloat(), page.height / page.width, a.resources.displayMetrics.density)
         }
         return l!! to origin
     }
