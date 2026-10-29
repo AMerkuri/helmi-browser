@@ -149,7 +149,14 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 val undone = s.undone()
                 if (undone.isNotEmpty()) {
                     Text("Shown on this site because you pressed Undo", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
-                    undone.forEach { rule -> UndoneRow(rule) { s.hideAgain(rule); tab.reload() } }
+                    undone.forEach { rule -> RuleRow(LABELS[rule.was ?: "content"] ?: rule.was ?: "Page element", rule.sig, "Hide again") { s.hideAgain(rule); tab.reload() } }
+                    HorizontalDivider()
+                }
+                // A Hide sticks for the site too, and the hidden element is no longer a candidate.
+                val hidden = s.hiddenByUser()
+                if (hidden.isNotEmpty()) {
+                    Text("Hidden on this site because you pressed Hide", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
+                    hidden.forEach { rule -> RuleRow(LABELS[rule.label] ?: rule.label, rule.sig, "Show again") { s.showAgain(rule); tab.reload() } }
                     HorizontalDivider()
                 }
             }
@@ -269,15 +276,15 @@ private fun LeftAloneRow(rec: CandidateRecord, onHide: () -> Unit) {
 }
 
 @Composable
-private fun UndoneRow(rule: SiteRule, onHideAgain: () -> Unit) {
+private fun RuleRow(title: String, sig: String, action: String, onAction: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(LABELS[rule.was ?: "content"] ?: rule.was ?: "Page element", style = MaterialTheme.typography.bodyMedium)
+            Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(
-                rule.sig, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                sig, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(onClick = onHideAgain) { Text("Hide again") }
+        TextButton(onClick = onAction) { Text(action) }
     }
 }

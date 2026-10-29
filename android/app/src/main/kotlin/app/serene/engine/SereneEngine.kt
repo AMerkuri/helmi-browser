@@ -362,6 +362,19 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         log("hide ${rec.features.sig}")
     }
 
+    /**
+     * Elements the user hid on this site. A remembered hide applies as CSS before the detector sees
+     * the element, so it is never a candidate on a later page: this is how the sheet lists it.
+     */
+    fun hiddenByUser(): List<SiteRule> = topUrl?.let(e.cache::hiddenByUser) ?: emptyList()
+
+    /** Reverse a Hide: drop the rule so the element is judged afresh on the next load. */
+    fun showAgain(rule: SiteRule) {
+        val url = topUrl ?: return
+        e.cache.remove(url, rule.sig)
+        log("show again ${rule.sig}")
+    }
+
     /** Elements the user undid on this site, which Helmi leaves alone until hidden again. */
     fun undone(): List<SiteRule> = topUrl?.let(e.cache::undone) ?: emptyList()
 

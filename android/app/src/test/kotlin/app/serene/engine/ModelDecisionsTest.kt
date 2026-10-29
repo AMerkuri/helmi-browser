@@ -56,6 +56,10 @@ class ModelDecisionsTest {
         assertEquals(listOf("hide", "newsletter", "user-hide"), listOf(rule.action, rule.label, rule.source))
         page.undo(hid)
         assertEquals(listOf("call 400 true", "call 400 false", "overruled false", "overruled true"), events)
+        // Listed for the sheet's Show again, which drops the rule.
+        assertEquals(listOf("div.letter"), page.hiddenByUser().map { it.sig })
+        page.showAgain(page.hiddenByUser().single())
+        assertTrue(page.hiddenByUser().isEmpty())
 
         // A later visit: the remembered verdict still says who made it.
         cache.put("https://news.example/a", SiteRule(sig = "div.left", label = "content", action = "ignore", source = "llm"))

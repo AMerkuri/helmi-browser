@@ -64,6 +64,9 @@ class VerdictCache(private val file: File? = null) {
     /** Elements the user undid on this site. */
     fun undone(url: String): List<SiteRule> = rulesFor(url).filter { it.source == "user" }
 
+    /** Elements the user hid on this site (Hide on one the model left alone). */
+    fun hiddenByUser(url: String): List<SiteRule> = rulesFor(url).filter { it.source == "user-hide" }
+
     /** Drop one rule, so the element is judged afresh on the next load (reverses an undo). */
     @Synchronized fun remove(url: String, sig: String) {
         val site = siteOf(url)
