@@ -132,6 +132,35 @@ class PageGesturesTest {
     }
 
     /**
+     * A tab keeps its history over a restart: back still goes back after the app was killed and
+     * opened again (only the tabs' URLs were kept, so a restored tab had nowhere to go back to).
+     */
+    @Test
+    fun historyAfterARestart() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var tab: Tab? = null
+            scenario.onActivity { a -> tab = a.tabs.open("$base/first") }
+            val t = tab!!
+            waitFor("page first") { t.title == "first" && t.progress == 100 }
+            scenario.onActivity { t.load("$base/second") }
+            waitFor("page second") { t.title == "second" && t.progress == 100 && t.canGoBack }
+
+            // As after a cold start: the activity saves its tabs on stop, and a new one restores them.
+            scenario.recreate()
+            var restored: Tab? = null
+            scenario.onActivity { a ->
+                restored = a.tabs.current
+                assertEquals("the tab on screen", "$base/second", restored?.url)
+            }
+            val r = restored!!
+            assertTrue("a different tab", r !== t)
+            waitFor("the restored page") { r.title == "second" && r.progress == 100 && r.canGoBack }
+            scenario.onActivity { r.goBack() }
+            waitFor("back to the page before the restart") { r.url.endsWith("/first") && r.progress == 100 && r.canGoForward }
+        }
+    }
+
+    /**
      * A page that is still loading (an image never arrives) gets its snapshot when it is left,
      * so the swipe back to it shows the page, not a plain title card. Snapshots are only taken
      * with the back/forward cache.

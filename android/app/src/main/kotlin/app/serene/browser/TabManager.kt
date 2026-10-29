@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.serene.SereneApp
+import java.io.File
 
 /** Open tabs. Lives as long as the activity (config changes are handled in place, see the manifest). */
 class TabManager(private val context: Context, private val app: SereneApp) {
@@ -145,15 +146,23 @@ class TabManager(private val context: Context, private val app: SereneApp) {
         gone(c.tab)
     }
 
+    // Each saved tab's back/forward list, beside the URLs in the settings.
+    private val historyFile get() = File(context.filesDir, "tab-history.json")
+
     fun save() {
         // A tab opened for a download would download the file again on restore.
-        app.settings.savedTabs = tabs.filterNot { it.downloadPage }.map { it.url }.filter { it.startsWith("http") }
-        app.settings.savedTabIndex = currentIndex
+        val saved = tabs.filterNot { it.downloadPage }.filter { it.url.startsWith("http") }
+        app.settings.savedTabs = saved.map { it.url }
+        // Where the tab on screen is among those saved (or the next one, if it isn't saved).
+        app.settings.savedTabIndex = saved.count { tabs.indexOf(it) < currentIndex }
+        TabHistory.save(historyFile, saved.map { TabHistory.Saved.of(it.url, it.history()) })
     }
 
+    /** The tabs open when the app last went away, each with its history (back still goes back after a restart). */
     fun restore() {
         val urls = app.settings.savedTabs
-        urls.forEach { open(it, select = false) }
+        val history = TabHistory.forTabs(urls, TabHistory.load(historyFile))
+        urls.forEachIndexed { i, u -> open(select = false).restore(u, history[i]?.bytes()) }
         if (tabs.isEmpty()) open()
         currentIndex = app.settings.savedTabIndex.coerceIn(0, tabs.lastIndex)
     }
