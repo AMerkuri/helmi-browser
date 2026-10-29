@@ -112,6 +112,21 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String, p
         return engine
     }
 
+    /** A rule as one list writes it, and that list's title. */
+    data class RuleSource(val list: String, val rule: String)
+
+    /**
+     * The trusted list line that gave a page on [host] the [scriptlet] (as [PageSession.consentAnswers]
+     * has it), for the site sheet; null when no enabled list has it. Reads the list files: call off
+     * the main thread.
+     */
+    fun findScriptlet(scriptlet: String, host: String, sel: Selection = selection()): RuleSource? =
+        sourcesFor(sel).filter { it.trusted }.firstNotNullOfOrNull { s ->
+            val f = File(dir, s.name).takeIf(File::exists) ?: return@firstNotNullOfOrNull null
+            val text = runCatching { f.readText() }.getOrNull() ?: return@firstNotNullOfOrNull null
+            scriptletLine(text, scriptlet, host)?.let { RuleSource(listTitle(text) ?: s.name, it) }
+        }
+
     /** True when a new copy was written. */
     private fun fetch(s: Source, force: Boolean, metered: Boolean): Boolean {
         val file = File(dir, s.name)
@@ -260,6 +275,29 @@ class FilterLists(private val dir: File, private val scriptlets: () -> String, p
          * the one form adblock-rust reads: it stops at a blank line and wants exactly "Title: ".
          */
         fun titled(text: String, fallback: String): String = "! Title: ${listTitle(text) ?: fallback}\n$text"
+
+        /**
+         * The line of [text] that injects [scriptlet] ("+js(name, args)") on [host]: same name and
+         * arguments up to spaces, for that host, its parent domains or every site; else null.
+         */
+        fun scriptletLine(text: String, scriptlet: String, host: String): String? {
+            val want = scriptlet.filterNot(Char::isWhitespace)
+            return text.lineSequence().firstOrNull { line ->
+                val i = line.indexOf("##+js(")
+                i >= 0 && line.substring(i + 2).filterNot(Char::isWhitespace) == want && forHost(line.substring(0, i), host)
+            }
+        }
+
+        /** A cosmetic rule's domain list ("a.com,~b.a.com,c.*") applies to [host]. */
+        private fun forHost(domains: String, host: String): Boolean {
+            if (domains.isBlank()) return true
+            val parts = domains.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            fun hit(d: String) = host == d || host.endsWith(".$d") ||
+                (d.endsWith(".*") && d.dropLast(2).let { base -> host == base || host.startsWith("$base.") || host.contains(".$base.") })
+            if (parts.any { it.startsWith('~') && hit(it.drop(1)) }) return false
+            val inc = parts.filterNot { it.startsWith('~') }
+            return inc.isEmpty() || inc.any(::hit)
+        }
 
         /** Lines that are rules: not comments, headers or blank. */
         fun ruleCount(text: String): Int = text.lineSequence().count { line ->

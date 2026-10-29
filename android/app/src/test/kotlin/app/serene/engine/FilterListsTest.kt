@@ -68,4 +68,20 @@ class FilterListsTest {
         assertTrue(FilterLists.titled("[Adblock Plus 2.0]\n\n! Title 🇬🇧: Nordic\n", "x").startsWith("! Title: Nordic\n"))
         assertEquals("! Title: My filters\n##.promo", FilterLists.titled("##.promo", FilterLists.MY_FILTERS))
     }
+
+    // The site sheet shows which line pressed a cookie banner's button (app only, no JS twin).
+    @Test fun findsTheScriptletLineForAHost() {
+        val text = """
+            ! Title: uBO Cookie Notices
+            example.com##+js(trusted-click-element, .other)
+            swedbank.ee##+js(trusted-click-element, button.ui-cookie-consent__decline-button, , 1000)
+            shop.*,~beta.shop.de##+js(trusted-click-element, #reject)
+        """.trimIndent()
+        val rule = "+js(trusted-click-element, button.ui-cookie-consent__decline-button, , 1000)"
+        assertEquals("swedbank.ee##$rule", FilterLists.scriptletLine(text, rule, "www.swedbank.ee"))
+        assertNull(FilterLists.scriptletLine(text, rule, "swedbank.se"))
+        assertNull("other arguments", FilterLists.scriptletLine(text, "+js(trusted-click-element, button.ui-cookie-consent__decline-button)", "swedbank.ee"))
+        assertEquals("shop.*,~beta.shop.de##+js(trusted-click-element, #reject)", FilterLists.scriptletLine(text, "+js(trusted-click-element,#reject)", "www.shop.de"))
+        assertNull("excluded subdomain", FilterLists.scriptletLine(text, "+js(trusted-click-element, #reject)", "beta.shop.de"))
+    }
 }

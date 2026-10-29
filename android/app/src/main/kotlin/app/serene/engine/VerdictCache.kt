@@ -64,6 +64,10 @@ class VerdictCache(private val file: File? = null) {
     /** Elements the user undid on this site. */
     fun undone(url: String): List<SiteRule> = rulesFor(url).filter { it.source == "user" }
 
+    /** The user put a cookie banner back with Undo: they answer it themselves on this site, so
+     *  neither autoconsent nor a list's scriptlet presses its buttons. */
+    fun userAnswersCookies(url: String): Boolean = undone(url).any { it.was == "cookie_consent" }
+
     /** Drop one rule, so the element is judged afresh on the next load (reverses an undo). */
     @Synchronized fun remove(url: String, sig: String) {
         val site = siteOf(url)
@@ -73,23 +77,31 @@ class VerdictCache(private val file: File? = null) {
         save()
     }
 
-    /** Forget everything learned for one site, or for all sites. */
-    @Synchronized fun clear(site: String? = null) {
-        if (site == null) sites.clear() else sites.remove(site)
+    /** Forget everything learned for one site, or for all sites. [keepUndone] keeps the user's Undo rules. */
+    @Synchronized fun clear(site: String? = null, keepUndone: Boolean = false) {
+        if (site == null) sites.clear()
+        else if (!keepUndone) sites.remove(site)
+        else sites[site]?.let { list -> list.removeAll { it.source != "user" }; if (list.isEmpty()) sites.remove(site) }
         save()
     }
 
     @Synchronized fun siteCount(): Int = sites.size
 
     /** Cached hide verdicts as cosmetic CSS, injected at page start so there is no flash. With
-     *  [parkCookies] (autoconsent on) cookie banners are left out: they go to [cookieSelectorsFor]. */
+     *  [parkCookies] (autoconsent on) cookie banners are left out: they go to [cookieSelectorsFor].
+     *  An element the user asked to see again (the content script marks it) is left alone. */
     fun cssFor(url: String, parkCookies: Boolean = false): String = hideRules(url)
         .filter { !(parkCookies && it.label == "cookie_consent") }
-        .joinToString("\n") { "${it.sig}{display:none!important}" }
+        .joinToString("\n") { "${it.sig}:not([$SHOWN]){display:none!important}" }
 
     /** Cached cookie banners as consent selectors: parked while autoconsent tries to reject them,
      *  which it cannot do to a banner hidden from the start (techspot, #24). */
     fun cookieSelectorsFor(url: String): List<String> = hideRules(url).filter { it.label == "cookie_consent" }.map { it.sig }
+
+    private companion object {
+        /** Set by the content script on an overlay the user asked to see again ("Manage cookies"). */
+        const val SHOWN = "data-serene-shown"
+    }
 
     private fun hideRules(url: String) = rulesFor(url).filter { it.action == "hide" && (it.sig.contains('#') || it.sig.contains('.')) }
 
