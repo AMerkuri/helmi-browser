@@ -58,6 +58,7 @@ class PageSession {
       case 'applied': return this.applied(msg);
       case 'autoconsent': return this.autoconsentEvent(msg, frame);
       // A trusted list's scriptlet pressed a button in a cookie banner: the lists answered it.
+      // by 'helmi': Helmi pressed the reject button of a banner the lists know (no rule answered it).
       case 'listConsent': return this.listConsent(msg, frame);
       // A cookie banner the lists hid (the app counts it for its start page).
       case 'listHit': this.emit({ type: 'listHit', label: msg.label, isTop: frame.isTop }); return;
@@ -164,8 +165,8 @@ class PageSession {
   }
 
   listConsent(msg, frame) {
-    this.consent.set(msg.origin, { cmp: 'filter list', busy: false, ok: true });
-    this.emit({ type: 'listConsent', origin: msg.origin, button: msg.button, rule: msg.rule ?? null, isTop: frame.isTop });
+    this.consent.set(msg.origin, { cmp: msg.by === 'helmi' ? 'Helmi' : 'filter list', busy: false, ok: true });
+    this.emit({ type: 'listConsent', origin: msg.origin, button: msg.button, rule: msg.rule ?? null, by: msg.by ?? 'list', isTop: frame.isTop });
   }
 
   async waitForConsent(origin, ms) {

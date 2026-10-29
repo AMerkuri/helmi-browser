@@ -49,6 +49,7 @@
     touchReleasedAt: -Infinity,
     cancelSwallowed: false, // a touch the page tried to cancel while a cookie banner was out of sight
     cookieSeen: new WeakMap(), // cached cookie banners parked for autoconsent -> first seen
+    listBanners: new Map(),    // list-known cookie banners seen open on the page -> { seenAt, tried }
     asked: { at: -Infinity, text: '' }, // the last control the user tapped, for a hidden overlay it reopens
     clickRules: [],         // the trusted-click-element calls this page got, as argument lists
     listConsent: false,     // reported a scriptlet answering a cookie banner
@@ -232,6 +233,7 @@
   function releaseConsent() {
     if (!state.consentParked) return;
     reportListHit();
+    tidyListBanners(true); // autoconsent is done: a banner it left gets its reject now
     state.consentParked = false;
     clearTimeout(state.parkTimer);
     renderConsentCss();
@@ -247,17 +249,66 @@
     send('listHit', { label: 'cookie_consent' });
   }
 
+  // Also remembers each one it finds, for tidyListBanners.
   function listBannerLaidOut() {
+    let found = false;
     for (const sel of state.consentSelectors) {
       let els = [];
       try { els = document.querySelectorAll(sel); } catch { continue; }
       for (const el of els) {
         if (el.hasAttribute(SHOWN)) continue;
         const r = el.getBoundingClientRect();
-        if (r.width * r.height > 2000) return true;
+        if (r.width * r.height <= 2000) continue;
+        found = true;
+        if (!state.listBanners.has(el)) state.listBanners.set(el, { seenAt: performance.now(), tried: false });
       }
     }
-    return false;
+    return found;
+  }
+
+  // A list-known banner out of sight leaves what it brought with it: a backdrop next to it that
+  // dims the page, the page made inert behind it, a scroll lock (seb.ee: Bootstrap's
+  // .modal-backdrop, and the whole page inert, so taps went nowhere). Those go as they do for a
+  // banner the detector hid. And one autoconsent has no rule for gets its reject button pressed,
+  // once it has had consentFindMs to find it: hidden alone, it would stay unanswered (seb.ee's
+  // "Keeldun"; uBO's cookie for it is an outdated format the site throws away).
+  function tidyListBanners(releasing = false) {
+    if (config.observeOnly) return;
+    if (state.consentParked && state.listHit) listBannerLaidOut(); // before the hit, reportListHit just looked
+    for (const [el, b] of state.listBanners) {
+      if (!el.isConnected || el.hasAttribute(SHOWN)) continue;
+      const r = el.getBoundingClientRect();
+      if (state.consentParked && r.width * r.height > 2000) {
+        hideBackdrops(el);
+        restorePage();
+        if (b.tried) continue;
+        const left = config.consentFindMs - (performance.now() - b.seenAt);
+        if (left > 0 && !releasing) schedule(left + 50);
+        else if (!AC_BUSY.has(state.consent.lifecycle)) { b.tried = true; rejectListBanner(el); }
+      }
+    }
+  }
+
+  // Words that refuse consent, not only close the banner (closing may count as agreeing).
+  const REFUSE = /reject|decline|refuse|deny|disagree|necessary only|only necessary|essential only|only essential|continue without|ablehnen|nur (notwendige|erforderliche)|ohne zustimmung|refuser|continuer sans|rechazar|rifiuta|rejeitar|weiger|odrzu|odmítnout|avvisa|afvis|avvis|hylkää|keeldu|noraid|atmest|reddet|отклонить|отказаться|拒否|同意しない|拒绝|拒絕|不同意|거부|거절|동의하지 않/i;
+
+  function rejectListBanner(el) {
+    const btn = collectButtons(el).find((b) => REFUSE.test(b.label) && !ACCEPT.test(b.label));
+    if (!btn) return;
+    const look = () => `${el.getAttribute('class')}|${el.getAttribute('style')}|${el.hidden}`;
+    const before = look();
+    ownClick(btn.el);
+    send('log', { msg: `pressed "${btn.label}" in a cookie banner the lists know` });
+    // Answered if the page closed it: gone, or no box while still parked. Once our CSS hides it
+    // (autoconsent finished meanwhile) there is no box to tell by, so the page changing it counts.
+    // Reported like a list's own scriptlet answering it, as Helmi's own press.
+    setTimeout(() => {
+      const r = el.getBoundingClientRect();
+      const closed = !el.isConnected || (state.consentParked ? r.width * r.height <= 2000 : look() !== before);
+      if (!closed || state.listConsent) return;
+      state.listConsent = true;
+      send('listConsent', { origin: location.origin, button: btn.label, rule: null, by: 'helmi' });
+    }, 900);
   }
 
   // A cookie banner that is open but kept out of sight for autoconsent: parked by the detector
@@ -471,10 +522,10 @@
     return root;
   }
 
-  function visible(el) {
+  function visible(el, { anyOpacity = false } = {}) {
     if (!el.isConnected) return false;
     const cs = getComputedStyle(el);
-    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) < 0.05) return false;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || (!anyOpacity && Number(cs.opacity) < 0.05)) return false;
     const r = el.getBoundingClientRect();
     return r.width > 1 && r.height > 1;
   }
@@ -491,6 +542,7 @@
     // A cookie banner the user put back with Undo is theirs: no list hides it either.
     for (const sel of userAnswers()) { try { for (const el of document.querySelectorAll(sel)) el.setAttribute(SHOWN, ''); } catch {} }
     if (state.consentParked) reportListHit();
+    tidyListBanners();
     if (consentBusy()) return [];
     const roots = new Set();
     for (const [x, y] of samplePoints()) {
@@ -504,6 +556,9 @@
     }
     // <dialog open> modal and aria-modal elements that are not positioned fixed.
     for (const el of document.querySelectorAll('dialog[open],[aria-modal="true"]')) if (visible(el)) roots.add(el);
+    // Dimming layers the hit test can't find: made inert or click-through along with the rest of
+    // the page (seb.ee's Bootstrap backdrop, left behind when the lists hid its dialog).
+    for (const el of document.body.children) if (unhittableDim(el)) roots.add(el);
 
     const out = [];
     let pending = false;
@@ -535,7 +590,8 @@
     // layer wraps a modal we already hid (a consent tool's dimmed wrapper that faded in late).
     const modalUp = [...state.candidates.values()].some((c) => c.modalish && c.el.isConnected && !c.el.hasAttribute(ATTR) && visible(c.el));
     const hidden = hiddenEls();
-    const wrapsHidden = (b) => hidden.some((el) => b.el.contains(el));
+    // Or sits next to it: the backdrop a modal library adds beside the modal (Bootstrap's).
+    const wrapsHidden = (b) => hidden.some((el) => b.el.contains(el) || b.el.parentElement === el.parentElement);
     const stray = modalUp ? [] : backdrops.filter((b) => scrollLocked() || performance.now() - b.seenAt > 2000 || wrapsHidden(b));
     // Other strays wait for the user to be idle (a tap may have opened them). A wrapper of a modal
     // we hid does not: the user is touching it to scroll past it, and each touch put it off (#24).
@@ -862,7 +918,9 @@
     c.parked = null;
     c.el.style.removeProperty('opacity');
     c.el.style.removeProperty('pointer-events');
-    const still = c.el.isConnected && visible(c.el);
+    // Its opacity is ours until now, and one that transitions starts back from 0: not a sign
+    // that the banner was answered (a wrapper that fades in, cookie-dim-wrapper-lock.html).
+    const still = c.el.isConnected && visible(c.el, { anyOpacity: true });
     if (still) hide(c);
     else restorePage();
     releaseSwallowed();
@@ -985,6 +1043,7 @@
       if (r.action !== 'hide') continue;
       try { els.push(...document.querySelectorAll(r.sig)); } catch {}
     }
+    for (const el of state.listBanners.keys()) if (el.isConnected) els.push(el);
     return els.filter((el) => !el.hasAttribute(SHOWN));
   }
 
@@ -1005,7 +1064,19 @@
     for (const el of document.body.children) {
       const f = getComputedStyle(el).filter;
       if (f && f.includes('blur')) el.style.setProperty('filter', 'none', 'important');
+      // The page made inert behind the modal takes no taps or focus (seb.ee).
+      if (el.inert && !el.hasAttribute(ATTR) && visible(el) && coverage(el.getBoundingClientRect()) > 0.5) el.inert = false;
     }
+  }
+
+  // An empty full-screen layer that tints the page, which elementsFromPoint skips because it is
+  // inert or has pointer-events:none.
+  function unhittableDim(el) {
+    if (el.childElementCount || el.hasAttribute(ATTR) || state.seen.has(el)) return false;
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' || !(el.inert || cs.pointerEvents === 'none') || !((Number(cs.zIndex) || 0) > 0)) return false;
+    const tint = !/^(transparent|rgba\(.*,\s*0\))$/.test(cs.backgroundColor) || (cs.backdropFilter && cs.backdropFilter !== 'none');
+    return tint && visible(el) && coverage(el.getBoundingClientRect()) > 0.6 && !(el.textContent || '').trim();
   }
 
   send('hello', { url: location.href, top: IS_TOP });

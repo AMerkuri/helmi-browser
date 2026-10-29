@@ -140,16 +140,18 @@ class FixturesTest(private val file: String) {
 
     /**
      * A fixture's own `rules` are added to the app's lists as one more list, trusted like uBO's
-     * (fixtures.test.mjs does the same). Returns the app's engine, to put back afterwards.
+     * (fixtures.test.mjs does the same). With `consent` they are also the cookie-banner rules, like
+     * EasyList's cookie sections (here the only ones, for that fixture). Returns the app's engine,
+     * to put back afterwards.
      */
-    private fun useFixtureRules(rules: String): RulesEngine? {
+    private fun useFixtureRules(rules: String, consent: Boolean): RulesEngine? {
         val listsDir = File(app.filesDir, "lists")
         val texts = FilterLists.sourcesFor(app.settings.listSelection).mapNotNull { s -> File(listsDir, s.name).takeIf(File::exists)?.let { RulesEngine.ListText(it.readText(), s.trusted) } }
         val scriptlets = app.assets.open("scriptlets.json").bufferedReader().use { it.readText() }
         val engine = RulesEngine.fromLists(texts + RulesEngine.ListText(rules, trusted = true), scriptlets)
         assertNotNull("fixture rules did not parse", engine)
         val old = app.engine.rules
-        engine!!.consent = old?.consent
+        engine!!.consent = if (consent) RulesEngine.fromLists(listOf(RulesEngine.ListText(rules)), "[]") else old?.consent
         app.engine.rules = engine
         return old
     }
@@ -166,7 +168,7 @@ class FixturesTest(private val file: String) {
     @Test
     fun fixture() {
         val exp = expectOf(file)
-        val restore = exp["rules"]?.jsonPrimitive?.content?.let { useFixtureRules(it) }
+        val restore = exp["rules"]?.jsonPrimitive?.content?.let { useFixtureRules(it, exp["consent"]?.jsonPrimitive?.booleanOrNull == true) }
         try {
             runFixture(exp)
         } finally {

@@ -56,14 +56,14 @@ function stubClassifier(calls) {
 }
 
 // A fixture's own `rules` are added to the lists as one more list, trusted like uBO's unless
-// `trusted` is false.
+// `trusted` is false, and a cookie list like EasyList's cookie sections when `consent` is set.
 // `then(page)` runs after the wait, before the page is read; what it returns is state.then.
 // `fixtureRulesText(exp)` can change the fixture's own rules.
 async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0, trusted = true, then = null, fixtureRulesText = exp => exp.rules } = {}) {
   const exp = expectOf(file);
   const events = [], llmCalls = [];
   const text = fixtureRulesText(exp);
-  const fixtureRules = text ? new RulesEngine({ ...lists, lists: [...lists.lists, { name: file, text, trusted }] }) : rules;
+  const fixtureRules = text ? new RulesEngine({ ...lists, lists: [...lists.lists, { name: file, text, trusted, consentText: exp.consent ? text : undefined }] }) : rules;
   const engine = new SereneEngine({ rules: fixtureRules, classifier: stubClassifier(llmCalls), cache, autoconsent: withAutoconsent ? autoconsent : null });
   const context = await newContext(browser, { engine, onEvent: (e) => events.push(e), probe: true, hostDelayMs });
   const page = await context.newPage();
@@ -251,4 +251,34 @@ test('after Undo on a cookie banner, no rule answers it for the user', async () 
   cache.remove(base + file, sig); // Hide again
   const again = await runFixture(file, { cache });
   assert.deepEqual(again.state.clicked, ['necessary']);
+});
+
+// seb.ee: the lists hide the cookie dialog, but its backdrop is a sibling and the rest of the
+// page was made inert, so the page stayed dimmed and took no taps. Autoconsent has no rule for it.
+test('a list-hidden cookie modal: its backdrop and the inert page go, and its decline button is pressed', async () => {
+  const file = 'cookie-list-backdrop.html';
+  const look = async (page) => {
+    const out = await page.evaluate(() => ({
+      backdrop: [...document.querySelectorAll('.zz-backdrop')].some((el) => getComputedStyle(el).display !== 'none'),
+      inert: [...document.querySelectorAll('body > [inert]')].filter((el) => el.getBoundingClientRect().height > 0).map((el) => el.className),
+    }));
+    await page.tap('#read-more');
+    return out;
+  };
+  for (const [query, waitMs] of [['', 3000], ['?nodecline', 3000], ['?late', 7000]]) {
+    const { state, events } = await runFixture(file, { query, then: async (page) => { await page.waitForTimeout(waitMs - 3000); return look(page); } });
+    assert.ok(state.gone, `${query}: the dialog is hidden`);
+    assert.equal(state.then.backdrop, false, `${query}: no backdrop dims the page`);
+    assert.deepEqual(state.then.inert, [], `${query}: nothing is left inert`);
+    assert.ok(state.clicked.includes('link'), `${query}: a tap on the page reaches it, clicked ${JSON.stringify(state.clicked)}`);
+    const answer = events.find((e) => e.type === 'listConsent');
+    if (query === '') {
+      assert.deepEqual(state.clicked.filter((c) => c !== 'link'), ['decline']);
+      assert.equal(answer?.button, 'Decline', 'the reject is reported');
+      assert.equal(answer.by, 'helmi', 'as Helmi\'s own press, not a list\'s scriptlet');
+    } else {
+      assert.ok(!state.clicked.includes('accept'), `${query}: never accept`);
+      if (query === '?nodecline') assert.equal(answer, undefined, 'no reject to report');
+    }
+  }
 });
