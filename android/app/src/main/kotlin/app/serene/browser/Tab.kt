@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -364,6 +365,28 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         snapshot()
         webView.loadUrl(target)
         url = target
+    }
+
+    /** This tab's back/forward list as WebView saves it (the Bundle's byte arrays), for [restore] after a restart. */
+    fun history(): Map<String, ByteArray> {
+        val b = Bundle()
+        if (destroyed || webView.saveState(b) == null) return emptyMap()
+        return b.keySet().mapNotNull { k -> b.getByteArray(k)?.let { k to it } }.toMap()
+    }
+
+    /**
+     * Back after a restart, on [pageUrl] with the [history] it had (see [history]), so back and the
+     * swipes go on from where they were. WebView loads the page itself. Without a usable history,
+     * the page alone.
+     */
+    fun restore(pageUrl: String, history: Map<String, ByteArray>?) {
+        val list = if (history.isNullOrEmpty()) null
+        else runCatching { webView.restoreState(Bundle().apply { history.forEach { (k, v) -> putByteArray(k, v) } }) }.getOrNull()
+        val page = list?.currentItem?.url
+        if (page == null) return load(pageUrl)
+        url = page
+        canGoBack = webView.canGoBack()
+        canGoForward = webView.canGoForward()
     }
 
     fun reload() = webView.reload()
