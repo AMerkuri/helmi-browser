@@ -27,7 +27,9 @@ before(async () => {
     const url = new URL(req.url, 'http://x');
     const file = path.join(DIR, path.basename(url.pathname));
     if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    // A fixture's `csp` is sent as the page's Content-Security-Policy header.
+    const csp = expectOf(path.basename(file)).csp;
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...(csp && { 'content-security-policy': csp }) });
     // ?slow=ms: headers first, body later, like a slow news site.
     const slow = Number(url.searchParams.get('slow')) || 0;
     if (slow) res.flushHeaders();

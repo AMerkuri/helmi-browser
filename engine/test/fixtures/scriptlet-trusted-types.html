@@ -1,0 +1,12 @@
+<!doctype html><title>Consent bar a site rule answers, on a page that requires Trusted Types</title><meta name="viewport" content="width=device-width"><style>body{font:16px sans-serif;margin:0} article p{margin:16px}</style><script>
+// Android WebView (Chromium 14x) refuses eval() of a string on a page that requires Trusted Types
+// (accounts.google.com); the test's newer Chromium lets it through, so the page plays the old rule
+// for scriptlets (Playwright's own page.evaluate goes through eval too).
+const realEval = window.eval;
+window.eval = function (s) { if (typeof s === 'string' && s.includes('scriptletGlobals')) throw new EvalError("Evaluating a string as JavaScript violates this document's Trusted Type assignment requirements."); return realEval(s); };
+</script><script>window.__clicked=[];function clk(n,el){__clicked.push(n);(el.closest("[data-box]")||el).remove()}</script>
+<script type="application/json" id="expect">{"csp":"require-trusted-types-for 'script'","rules":"127.0.0.1##+js(trusted-click-element, .tt-consent .tt-no)","gone":".tt-consent","visible":["#article"],"clicked":["reject"],"notClicked":["accept"],"via":"rules"}</script>
+<div class="tt-consent" data-box style="background:#efe;padding:12px 16px">
+<p>We use cookies to remember your settings and to measure visits.</p>
+<button class="tt-yes" onclick="clk('accept',this)">Allow all</button> <button class="tt-no" onclick="clk('reject',this)">Necessary only</button></div>
+<article id="article"><h1>Library opens on Sundays this winter</h1><p>The town library will open from noon to five on Sundays between November and March.</p><p>The reading room and the children's corner are open; the archive stays closed.</p><p style="height:1500px">Long content.</p></article>
