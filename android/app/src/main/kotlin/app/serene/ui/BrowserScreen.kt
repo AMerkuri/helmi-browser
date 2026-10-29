@@ -200,7 +200,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                         tab.swipe.flingVelocity = with(density) { 800.dp.toPx() }
                         tab.pull.trigger = with(density) { 72.dp.toPx() }
                         cube.width = it.width.toFloat()
-                        cube.flingVelocity = with(density) { 800.dp.toPx() }
+                        cube.flingVelocity = with(density) { 400.dp.toPx() }
                     }.onGloballyPositioned { onPageBounds(it.boundsInRoot()); cube.bounds = it.boundsInWindow() },
                 ) {
                     val startPage = !tab.openedByPage && (tab.url.isEmpty() || tab.url == "about:blank")

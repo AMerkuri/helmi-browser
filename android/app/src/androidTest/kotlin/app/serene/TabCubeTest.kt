@@ -79,9 +79,10 @@ class TabCubeTest {
                 SystemClock.sleep(1500)
                 assertEquals("green", current(scenario))
 
-                // Half way to the left: green turns away on the left, blue comes in on the right.
-                // The drag starts on the tabs button, which must not open the switcher.
-                drag(scenario, from = 0.68f, by = -0.5f) { shot, page ->
+                // Half way to the left (a quarter of the width turns half a face): green turns away
+                // on the left, blue comes in on the right. The drag starts on the tabs button,
+                // which must not open the switcher.
+                drag(scenario, from = 0.68f, by = -0.27f) { shot, page ->
                     val y = page.center.y
                     assertTrue("left half should be green, is %08x".format(shot.at(page.left + page.width * 0.25f, y)), shot.at(page.left + page.width * 0.25f, y).isMostly("green"))
                     assertTrue("right half should be blue, is %08x".format(shot.at(page.left + page.width * 0.75f, y)), shot.at(page.left + page.width * 0.75f, y).isMostly("blue"))
@@ -106,8 +107,8 @@ class TabCubeTest {
                 SystemClock.sleep(1000)
                 assertPage(scenario, "after the turn back to green", "green")
 
-                // A short drag turns back.
-                drag(scenario, from = 0.5f, by = 0.15f)
+                // A short drag (under 7.5% of the width) turns back.
+                drag(scenario, from = 0.5f, by = 0.05f)
                 SystemClock.sleep(1000)
                 assertEquals("green", current(scenario))
                 assertPage(scenario, "after a short drag", "green")

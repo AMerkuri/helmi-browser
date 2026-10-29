@@ -41,8 +41,10 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
 
-/** A drag past this share of the width turns to the next tab when let go; less turns back. */
-private const val COMMIT = 0.3f
+/** A drag across this share of the width turns the cube a whole face: a thumb's short sweep on the bar is enough. */
+private const val SPAN = 0.5f
+/** A turn past this share of a face goes on to the next tab when let go; less turns back. */
+private const val COMMIT = 0.15f
 /** With no tab that way, the cube gives this much of the drag and turns back. */
 private const val RESIST = 0.15f
 /** How dark a face gets as it turns away, edge on. */
@@ -153,14 +155,14 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         }
         dragging = true
         val back = if (beside(turn.sign.toInt()) == null) RESIST else 1f
-        dx = -turn * width / back
+        dx = -turn * width * SPAN / back
     }
 
     /** The finger moved [delta] px sideways. */
     fun drag(delta: Float) {
         if (!dragging) return
         dx += delta
-        var t = -dx / width
+        var t = -dx / (width * SPAN)
         if (beside(t.sign.toInt()) == null) t *= RESIST
         turn = t.coerceIn(-1f, 1f)
     }
@@ -176,7 +178,7 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         target = if (go) dir else 0
         job = scope.launch {
             // Critically damped: no swing past the face, and a fling keeps its speed.
-            animate(turn, target.toFloat(), (v / width).coerceIn(-6f, 6f), spring(dampingRatio = 1f, stiffness = 320f, visibilityThreshold = 0.001f)) { t, _ ->
+            animate(turn, target.toFloat(), (v / (width * SPAN)).coerceIn(-6f, 6f), spring(dampingRatio = 1f, stiffness = 320f, visibilityThreshold = 0.001f)) { t, _ ->
                 turn = t.coerceIn(-1f, 1f)
             }
             if (go) arrive(to) else clear()
