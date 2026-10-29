@@ -50,28 +50,30 @@ data class ModelSpec(
 }
 
 /**
- * Models from huggingface.co/litert-community (sizes and hashes from the Hugging Face API), and
- * the ones compiled for an NPU by the npu-model workflow, published as releases of this repo by
- * npu-model-release (sizes and hashes from the workflow's summary).
+ * Qwen3-0.6B fine-tuned on engine/train, exported for the GPU and CPU and compiled for an NPU by
+ * the npu-model workflow and published as releases of this repo by npu-model-release (sizes and
+ * hashes from the release). The stock builds came from huggingface.co/litert-community.
  */
 object ModelCatalog {
+    /** npu-model run 17, INT8 weights: 95% with 0 of 80 content items hidden on the desktop (stock: 83%, 6). */
     val DEFAULT = ModelSpec(
         id = "qwen3-0.6b-int8",
         name = "Qwen3-0.6B",
-        note = "INT8 weights, the build the engine was evaluated with. The default on phones without an NPU model.",
-        file = "Qwen3-0.6B.litertlm",
-        url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm",
-        sizeBytes = 613_722_264,
-        sha256 = "c5f39b4191926786c3e6668b62af4d6eb15248dfc7a5348252a9b406f33f2108",
+        note = "INT8 weights, trained for Helmi. The default on phones without an NPU model.",
+        file = "Qwen3-0.6B-helmi-1.litertlm",
+        url = "https://github.com/AMerkuri/helmi-browser/releases/download/qwen3-0.6b-helmi-1/Qwen3-0.6B-helmi.litertlm",
+        sizeBytes = 613_474_960,
+        sha256 = "21cff3d378a120dce909bb79dcc3de91599f70401ed7d836bdedcdf50e45eeeb",
     )
+    /** npu-model run 17, 4-bit weights in blocks of 32: 92% with 2 of 80 hidden on the desktop (stock: 77%, 10). */
     val SMALL = ModelSpec(
         id = "qwen3-0.6b-int4",
         name = "Qwen3-0.6B (INT4)",
-        note = "Smaller and about a third faster, but it hides real page content more often: 12 of 80 test items, against 5 for INT8.",
-        file = "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
-        url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
-        sizeBytes = 344_671_744,
-        sha256 = "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856",
+        note = "Smaller and about a third faster, a little less accurate than INT8.",
+        file = "Qwen3-0.6B-helmi-1_wi4b32.litertlm",
+        url = "https://github.com/AMerkuri/helmi-browser/releases/download/qwen3-0.6b-helmi-1/Qwen3-0.6B-helmi_wi4b32.litertlm",
+        sizeBytes = 341_230_640,
+        sha256 = "5a03796675201a7d9fbadabc4a2c4ffe3c14c3b84eaa2766de29776f70c1d102",
     )
     /**
      * npu-model run 16: Qwen3-0.6B fine-tuned on engine/train, 357 ms a call on a Galaxy Z Fold 7,
@@ -92,7 +94,7 @@ object ModelCatalog {
     val all = listOf(DEFAULT, SMALL, NPU_SM8750)
 
     /** Files of models no longer in the list, deleted from the phone on the next start. */
-    val retiredFiles = listOf("Qwen3-0.6B.sm8750.litertlm")
+    val retiredFiles = listOf("Qwen3-0.6B.litertlm", "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm", "Qwen3-0.6B.sm8750.litertlm")
 
     private val soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else ""
 
