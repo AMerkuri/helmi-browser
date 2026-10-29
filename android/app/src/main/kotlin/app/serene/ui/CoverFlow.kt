@@ -107,9 +107,13 @@ private const val SIDE_ANGLE = 65f
 private const val SIDE_SCALE = 0.85f
 /** The reflection under each card, as a share of the card's height. */
 private const val REFLECTION = 0.3f
-/** Room above the middle card for its tab's title and site, in dp, and the gap between them and the card. */
-private const val TITLE_ROOM = 56f
-private const val TITLE_GAP = 12f
+/**
+ * Room above the middle card for its tab's title and site, in dp, the gap between them and the
+ * card, and how far the card sits lower than it would without them.
+ */
+private const val TITLE_ROOM = 68f
+private const val TITLE_GAP = 24f
+private const val CARD_DROP = 40f
 
 /**
  * Where the cards go in a window [width] x [height] px, for pages [aspect] (height / width) tall.
@@ -144,10 +148,10 @@ data class CoverFlowLayout(
             // Narrow (a phone, the Fold's cover screen): over half the width. Wide (the Fold open,
             // landscape): less, so more cards show at the sides. Never so tall that the title
             // doesn't fit above it, or the reflection under it. The title above moves the card
-            // down by half its room.
+            // down, by a little over half its room.
             val h = min(height * 0.46f, height * 0.54f - title)
             val w = min(width * if (width > height) 0.42f else 0.58f, h / aspect)
-            return CoverFlowLayout(w, w * aspect, width / 2, height * 0.42f + title / 2, w * 0.62f, w * 0.2f, title)
+            return CoverFlowLayout(w, w * aspect, width / 2, height * 0.42f + CARD_DROP * density, w * 0.62f, w * 0.2f, title)
         }
     }
 }
@@ -624,14 +628,14 @@ private class Motion(initial: Float, private val scope: CoroutineScope) {
 
 /**
  * The card a drag let go at [at] with [velocity] (cards a second) settles on. A flick moves one
- * card on, as a pager does; only a hard one goes further, a card for each 10 cards a second,
+ * card on, as a pager does; only a hard one goes further, a card for each 8 cards a second,
  * 3 at most. (Projecting the fling's distance skipped several cards on a slight flick; a card
- * for each 6 a second still skipped one on an ordinary swipe.)
+ * for each 6 a second still skipped one on an ordinary swipe, and 10 took too hard a flick.)
  */
 fun settleOn(at: Float, velocity: Float): Int = when {
     abs(velocity) < 1f -> at.roundToInt()
-    velocity > 0f -> floor(at).toInt() + 1 + min((velocity / 10f).toInt(), 3)
-    else -> ceil(at).toInt() - 1 - min((-velocity / 10f).toInt(), 3)
+    velocity > 0f -> floor(at).toInt() + 1 + min((velocity / 8f).toInt(), 3)
+    else -> ceil(at).toInt() - 1 - min((-velocity / 8f).toInt(), 3)
 }
 
 /**

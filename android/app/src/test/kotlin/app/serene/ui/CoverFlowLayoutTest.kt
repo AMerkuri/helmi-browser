@@ -21,7 +21,7 @@ class CoverFlowLayoutTest {
             val l = CoverFlowLayout.of(w, h, aspect, density)
             assertEquals(name, aspect, l.cardHeight / l.cardWidth, 1e-4f)
             // The title above the card, under the tab count (status bar and about 60 dp).
-            assertEquals(name, 56f * density, l.titleRoom, 1e-3f)
+            assertEquals(name, 68f * density, l.titleRoom, 1e-3f)
             assertTrue("$name: title goes under the tab count", l.centerY - l.cardHeight / 2 - l.titleRoom > 75f * density)
             // Card and reflection above the bottom buttons (about 10% of the height).
             assertTrue("$name: too tall", l.centerY + l.cardHeight * 0.8f < h * 0.9f)
@@ -56,8 +56,9 @@ class CoverFlowLayoutTest {
         assertEquals("slight flick on", 3, settleOn(2.1f, 2f))
         assertEquals("slight flick back", 1, settleOn(1.9f, -2f))
         assertEquals("from a card exactly", 3, settleOn(2f, 4f))
-        assertEquals("an ordinary quick swipe: still one", 3, settleOn(2f, 8f))
-        assertEquals("hard flick", 4, settleOn(2f, 12f))
+        assertEquals("an ordinary quick swipe: still one", 3, settleOn(2f, 7f))
+        assertEquals("hard flick", 4, settleOn(2f, 9f))
+        assertEquals("harder flick", 5, settleOn(2f, 16f))
         assertEquals("very hard flick: 3 extra at most", 6, settleOn(2f, 100f))
         assertEquals(-4, settleOn(0f, -100f)) // the caller keeps it within the tabs
     }
