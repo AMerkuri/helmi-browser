@@ -73,18 +73,26 @@ object ModelCatalog {
         sizeBytes = 344_671_744,
         sha256 = "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856",
     )
-    /** npu-model run 9: 369 ms a call on a Galaxy Z Fold 7, +698 MB, 72% (docs/engine.md). */
+    /**
+     * npu-model run 16: Qwen3-0.6B fine-tuned on engine/train, 357 ms a call on a Galaxy Z Fold 7,
+     * +705 MB, 92% with 3 of 80 content items hidden (run 9, the stock model: 72%, 3 hidden).
+     * The file name changes with each build, because a downloaded model counts as ready when its
+     * size matches and builds of the same model come out the same size.
+     */
     val NPU_SM8750 = ModelSpec(
         id = "qwen3-0.6b-npu-sm8750",
         name = "Qwen3-0.6B (NPU)",
-        note = "Compiled for this phone's NPU. About 3x faster than INT8 on the GPU and a third of its memory, at about the same accuracy.",
-        file = "Qwen3-0.6B.sm8750.litertlm",
-        url = "https://github.com/AMerkuri/helmi-browser/releases/download/npu-qwen3-0.6b-sm8750-1/Qwen3-0.6B.sm8750.litertlm",
+        note = "Trained for Helmi and compiled for this phone's NPU. About 3x faster than INT8 on the GPU, a third of its memory, and more accurate.",
+        file = "Qwen3-0.6B.sm8750-2.litertlm",
+        url = "https://github.com/AMerkuri/helmi-browser/releases/download/npu-qwen3-0.6b-sm8750-2/Qwen3-0.6B.sm8750.litertlm",
         sizeBytes = 780_882_290,
-        sha256 = "6ca25db5e511d2f9c92d5c200cc4784551f7c3d92642943568945da5de1a3081",
+        sha256 = "fbd8a301e553e32c0a4b2c41f43b55ce072799b338d9332f6e5f7d84efb07576",
         soc = "SM8750",
     )
     val all = listOf(DEFAULT, SMALL, NPU_SM8750)
+
+    /** Files of models no longer in the list, deleted from the phone on the next start. */
+    val retiredFiles = listOf("Qwen3-0.6B.sm8750.litertlm")
 
     private val soc = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else ""
 

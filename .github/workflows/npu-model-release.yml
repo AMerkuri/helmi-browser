@@ -40,7 +40,7 @@ jobs:
           sha256sum -c SHA256SUMS
           {
             echo "Qwen3-0.6B compiled ahead of time for a Qualcomm NPU, from npu-model run $RUN_ID."
-            echo "Serene downloads it from its model list on a phone with that chip."
+            echo "Helmi downloads it from its model list on a phone with that chip."
             echo
             echo '```'
             cat SHA256SUMS
