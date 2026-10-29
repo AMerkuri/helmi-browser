@@ -13,6 +13,7 @@ class Settings(context: Context) {
 
     private fun bool(key: String, default: Boolean) = Pref(key, prefs.getBoolean(key, default)) { putBoolean(key, it) }
     private fun string(key: String, default: String) = Pref(key, prefs.getString(key, default) ?: default) { putString(key, it) }
+    private fun int(key: String, default: Int) = Pref(key, prefs.getInt(key, default)) { putInt(key, it) }
     private fun stringSet(key: String) = Pref(key, prefs.getStringSet(key, emptySet())!!.toSet()) { putStringSet(key, it) }
 
     private inner class Pref<T>(val key: String, initial: T, val write: android.content.SharedPreferences.Editor.(T) -> Unit) {
@@ -77,6 +78,14 @@ class Settings(context: Context) {
     /** Drops [site]'s own choice: it follows [darkSites]. */
     fun resetDarkSite(site: String) = setDarkSite(site, darkSites)
 
+    private val dimPicturesPref = bool("dim_pictures", true)
+    /** In the dark theme, dim pictures that are much brighter than the dark page around them. */
+    var dimPictures: Boolean get() = dimPicturesPref.state; set(v) = dimPicturesPref.set(v)
+
+    private val dimLevelPref = int("dim_pictures_level", DIM_LEVEL_DEFAULT)
+    /** How bright a dimmed picture stays, in percent (CSS brightness()). */
+    var dimLevel: Int get() = dimLevelPref.state; set(v) = dimLevelPref.set(v.coerceIn(DIM_LEVEL_MIN, DIM_LEVEL_MAX))
+
     // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
     // lists added to the defaults later reach them too).
     private val listsEnabledPref = Pref("lists_enabled", prefs.getStringSet("lists_enabled", null)?.toSet() ?: FilterLists.DEFAULT_ENABLED) { putStringSet("lists_enabled", it) }
@@ -120,6 +129,12 @@ class Settings(context: Context) {
     var modelDownloadId: Long
         get() = prefs.getLong("model_download_id", -1)
         set(v) = prefs.edit { putLong("model_download_id", v) }
+
+    companion object {
+        const val DIM_LEVEL_MIN = 30
+        const val DIM_LEVEL_MAX = 90
+        const val DIM_LEVEL_DEFAULT = 60
+    }
 }
 
 enum class ThemeMode(val label: String) {

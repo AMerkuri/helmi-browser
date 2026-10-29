@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,6 +60,7 @@ import app.serene.BuildConfig
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
 import app.serene.SereneApp
+import app.serene.Settings
 import app.serene.engine.FilterLists
 import app.serene.ThemeMode
 import app.serene.browser.SiteData
@@ -68,6 +71,7 @@ import app.serene.report.NpuRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,6 +153,23 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 "Darkens sites that have no dark theme of their own. Sites with one use it, and pictures keep their colors.",
                 s.darkSites, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.darkSites = it }
+            SwitchRow(
+                "Dim bright pictures",
+                "In the dark theme, pictures much brighter than the dark page around them, such as charts on white, are dimmed. Their colors stay.",
+                s.dimPictures, enabled = s.theme != ThemeMode.LIGHT,
+            ) { s.dimPictures = it }
+            if (s.dimPictures && s.theme != ThemeMode.LIGHT) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Brightness ${s.dimLevel}%", Modifier.width(120.dp))
+                    Slider(
+                        value = s.dimLevel.toFloat(),
+                        onValueChange = { s.dimLevel = (it / 10).roundToInt() * 10 },
+                        valueRange = Settings.DIM_LEVEL_MIN.toFloat()..Settings.DIM_LEVEL_MAX.toFloat(),
+                        steps = (Settings.DIM_LEVEL_MAX - Settings.DIM_LEVEL_MIN) / 10 - 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
             // Sites switched in ⋮ › Dark theme; X puts one back on the setting above.
             s.darkSiteChoices.toSortedMap().forEach { (site, on) ->
                 ListItem(

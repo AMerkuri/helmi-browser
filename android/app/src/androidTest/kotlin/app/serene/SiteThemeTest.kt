@@ -51,6 +51,8 @@ class SiteThemeTest {
             try {
                 var tab: Tab? = null
                 scenario.onActivity { tab = it.tabs.current }
+                // Dimming bright pictures has its own test below; here pictures keep their colors.
+                InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.dimPictures = false }
                 load(tab!!, "http://127.0.0.1:${server.localPort}/light.html", "Serene light page")
 
                 setTheme(app, ThemeMode.LIGHT, darkSites = true)
@@ -84,11 +86,94 @@ class SiteThemeTest {
                     app.settings.theme = ThemeMode.SYSTEM
                     app.settings.darkSites = true
                     app.settings.resetDarkSite(SITE)
+                    app.settings.dimPictures = true
                 }
                 server.close()
             }
         }
         assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
+    /**
+     * Settings › Theme › "Dim bright pictures": on a darkened page the drawing (mostly white) is
+     * dimmed and the photo is not. A light page (light theme, or the site's dark theme off) keeps
+     * both as they are, and so does the setting off.
+     */
+    @Test
+    fun dimsBrightPictures() {
+        assumeTrue("the app's night mode needs API 31", Build.VERSION.SDK_INT >= 31)
+        assumeTrue("WebView without algorithmic darkening", WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING))
+        assumeTrue("WebView without document-start scripts", WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
+        val server = serve(
+            "/light.html" to page("Serene light page", "", PICTURES),
+            "/photo.png" to png(photo),
+            "/drawing.png" to png(drawing),
+        )
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as SereneApp
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            try {
+                var tab: Tab? = null
+                scenario.onActivity { tab = it.tabs.current }
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    app.settings.dimPictures = true
+                    app.settings.dimLevel = Settings.DIM_LEVEL_DEFAULT
+                }
+                setTheme(app, ThemeMode.DARK, darkSites = true)
+                load(tab!!, "http://127.0.0.1:${server.localPort}/light.html", "Serene light page")
+                expectDimmed(tab!!, "dark page", drawing = true)
+
+                InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.dimPictures = false }
+                expectDimmed(tab!!, "setting off", drawing = false)
+                InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.dimPictures = true }
+                expectDimmed(tab!!, "setting back on", drawing = true)
+
+                setDarkSite(app, SITE, false)
+                expectDimmed(tab!!, "the site's dark theme off", drawing = false)
+                InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.resetDarkSite(SITE) }
+                expectDimmed(tab!!, "the site back on the setting", drawing = true)
+
+                setTheme(app, ThemeMode.LIGHT, darkSites = true)
+                expectDimmed(tab!!, "light theme", drawing = false)
+            } finally {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    app.settings.theme = ThemeMode.SYSTEM
+                    app.settings.darkSites = true
+                    app.settings.resetDarkSite(SITE)
+                    app.settings.dimPictures = true
+                }
+                server.close()
+            }
+        }
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
+    /** Waits up to 15 s for the drawing to be dimmed (or not); the photo never is. */
+    private fun expectDimmed(tab: Tab, where: String, drawing: Boolean) {
+        val end = SystemClock.uptimeMillis() + 15_000
+        var wrong: List<String>
+        do {
+            SystemClock.sleep(250)
+            wrong = buildList {
+                val dimmed = evaluate(tab, "[...document.images].map(i => i.hasAttribute('data-serene-dim')).join()")
+                if (dimmed != "\"false,$drawing\"") add("dimmed photo,drawing: $dimmed")
+                if (drawing) {
+                    val screen = screenshot()
+                    if (screen == null) { add("no screenshot"); return@buildList }
+                    val origin = IntArray(2)
+                    var density = 1f
+                    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                        tab.webView.getLocationOnScreen(origin)
+                        density = tab.webView.resources.displayMetrics.density
+                    }
+                    val paper = screen.getPixel(origin[0] + ((140 + 10) * density).toInt(), origin[1] + ((60 + 10) * density).toInt())
+                    if (luminance(paper) > 0.8) add("drawing's white is %06x, not dimmed".format(paper and 0xffffff))
+                }
+            }
+        } while (wrong.isNotEmpty() && SystemClock.uptimeMillis() < end)
+        if (wrong.isNotEmpty()) {
+            failures += "$where: ${wrong.joinToString("; ")}"
+            logScreenshot(where)
+        }
     }
 
     private fun setTheme(app: SereneApp, theme: ThemeMode, darkSites: Boolean) =

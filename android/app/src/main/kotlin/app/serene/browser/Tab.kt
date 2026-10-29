@@ -123,6 +123,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     // Follows the Settings flags while the tab is open.
     private val flags: Job
 
+    private val pictures = BrightPictures(webView, app.settings, main, { activityOf(webView.context)?.window }) {
+        !destroyed && !swipe.active && !pull.active && !painting && !TabPreviews.covered
+    }
+
     init {
         with(webView.settings) {
             javaScriptEnabled = true
@@ -153,6 +157,9 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                     if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, it)
                     if (!it) Snapshots.clear(id)
                 }
+            }
+            launch {
+                snapshotFlow { app.settings.dimPictures to app.settings.dimLevel }.collect { pictures.reset() }
             }
             // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
             snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
@@ -260,6 +267,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 onDocMessage(data)
                 return@addWebMessageListener
             }
+            if (isMainFrame && data.startsWith("{\"type\":\"serene-pics\"")) {
+                main.post { pictures.onMessage(data, reply) }
+                return@addWebMessageListener
+            }
             val frame = object : FrameRef {
                 override val isTop = isMainFrame
                 override fun send(json: String) {
@@ -280,6 +291,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, BrightPictures.JS, setOf("*"))
         }
     }
 
@@ -357,7 +369,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     private fun setDarkening(on: Boolean) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
-        if (WebSettingsCompat.isAlgorithmicDarkeningAllowed(webView.settings) != on) WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
+        if (WebSettingsCompat.isAlgorithmicDarkeningAllowed(webView.settings) != on) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
+            // The page around the pictures went dark or light.
+            pictures.reset()
+        }
     }
 
     fun load(input: String) {
@@ -681,13 +697,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             addEventListener('pageshow', e => { if (e.persisted) SereneBridge.postMessage(JSON.stringify({ type: 'serene-doc-restored', id })); });
         }"""
 
+        private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
+
         /**
          * Darkening a page leaves its pictures as they are. WebView would invert the ones it takes
          * for icons or drawings (few colors: logos, diagrams, scans); `color-scheme: only light`
-         * opts an element out of forced darkening, and does nothing otherwise.
+         * opts an element out of forced darkening, and does nothing otherwise. Bright ones are
+         * dimmed instead (BrightPictures).
          */
-        private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
-
         private const val KEEP_PICTURES = """(() => {
             try {
                 const sheet = new CSSStyleSheet();
