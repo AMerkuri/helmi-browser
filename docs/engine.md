@@ -364,7 +364,7 @@ A replay of the routing options on the 159 records (thread "Give the on-device m
   | INT8 | 83%, 6 of 80 content hidden | **94%, 1 hidden** |
   | INT4 | 77%, 10 hidden | **91%, 2 hidden** |
 
-  4-bit weights cost the fine-tuned model 3 points, against 6 for the stock one (a local export of the float32 checkpoint scored 95% / 0 and 92% / 2: exports differ by a record or two), and it no longer hides much more content than INT8. The model list's *Qwen3-0.6B* and *Qwen3-0.6B (INT4)* now download these builds, under new file names, and the app deletes the stock files.
+  4-bit weights cost the fine-tuned model 3 points, against 6 for the stock one (a local export of the float32 checkpoint scored 95% / 0 and 92% / 2: exports differ by a record or two), and it no longer hides much more content than INT8. On the Fold 7 (build 233, [log](results/2026-10-29/gpu-finetuned-int8.txt)) the INT8 build scores 94% with the header guard and hides content 0 times of 80 on the GPU (stock: 74%, 5), 95% and 0 on the CPU (stock: 81%, 7), at 894 ms a call on the GPU (stock: 1099 ms). The content items Medium's sidebar and the Twitch panel still come out as app banners, but the header guard catches them. The model list's *Qwen3-0.6B* and *Qwen3-0.6B (INT4)* now download these builds, under new file names, and the app deletes the stock files.
 
 ## Running
 

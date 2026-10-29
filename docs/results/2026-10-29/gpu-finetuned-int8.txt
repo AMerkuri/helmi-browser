@@ -1,0 +1,39 @@
+Helmi model benchmark
+App 0.1.0-debug build 233 (6e7662d)
+Phone: samsung SM-F966B, Android 17 · QTI SM8750
+Model: Qwen3-0.6B, free reply cut off after the label
+Records: 159
+GPU (ran on GPU, loaded in 3959 ms): median 894 ms, p95 1063 ms, first chunk median 619 ms, invalid 0, accuracy 95%, with the header guard 94%, content hidden 0/80
+GPU, prepared (ran on GPU, loaded in 0 ms): median 774 ms, p95 991 ms, first chunk median 483 ms, invalid 0, accuracy 94%, with the header guard 94%, content hidden 0/80, prepared 159/159 (preparing took median 217 ms)
+CPU, prepared (ran on CPU, loaded in 3317 ms): median 2247 ms, p95 3825 ms, first chunk median 1648 ms, invalid 0, accuracy 96%, with the header guard 95%, content hidden 0/80, prepared 159/159 (preparing took median 2772 ms)
+GPU misses:
+  crawl/medium/div.ac.aj.ak: content → app_install
+  crawl/pinterest/div.box_k.elevation_k.fi: login_wall → app_install
+  crawl/duckduckgo/div > div: app_install → cookie_consent
+  crawl/err/div.fade.in.modal: cookie_consent → paywall_teaser
+  crawl/hs/article.ab-test-app-down: app_install → content
+  crawl/twitch/div.gvNWWY: content → app_install
+  synthetic/et-paywall: paywall_teaser → app_install
+  synthetic/chat-bot-et: chat_widget → content
+GPU, prepared misses:
+  crawl/medium/div.ac.aj.ak: content → app_install
+  crawl/pinterest/div.box_k.elevation_k.fi: login_wall → app_install
+  crawl/duckduckgo/div > div: app_install → cookie_consent
+  crawl/err/div.fade.in.modal: cookie_consent → paywall_teaser
+  crawl/hs/article.ab-test-app-down: app_install → content
+  crawl/twitch/div.gvNWWY: content → app_install
+  synthetic/et-paywall: paywall_teaser → app_install
+  synthetic/et-app: app_install → content
+  synthetic/chat-bot-et: chat_widget → content
+CPU, prepared misses:
+  crawl/medium/div.ac.aj.ak: content → app_install
+  crawl/pinterest/div.box_k.elevation_k.fi: login_wall → app_install
+  crawl/duckduckgo/div > div: app_install → cookie_consent
+  crawl/hs/article.ab-test-app-down: app_install → content
+  crawl/twitch/div.gvNWWY: content → app_install
+  synthetic/et-paywall: paywall_teaser → app_install
+  synthetic/et-app: app_install → content
+Memory with the model loaded, over the app without it (PSS, largest sample between calls):
+  GPU: +2440 MB (native 112 MB, graphics 2286 MB)
+  GPU, prepared: +2406 MB (native 111 MB, graphics 2286 MB)
+  CPU, prepared: +1772 MB (native 1096 MB, graphics 0 MB)
