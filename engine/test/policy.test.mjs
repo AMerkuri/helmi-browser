@@ -120,6 +120,10 @@ test('cache keys by registrable domain and emits CSS for hide verdicts', () => {
   assert.equal(c.rulesFor('https://example.com/')[0].action, 'ignore');
   assert.equal(c.cssFor('https://example.com/'), 'div#cmp:not([data-serene-shown]){display:none!important}');
   assert.deepEqual(c.undone('https://example.com/').map((r) => [r.sig, r.was]), [['div.nl-modal', 'newsletter']]);
+  assert.equal(c.userAnswersCookies('https://example.com/'), false, 'an undone newsletter is not a cookie banner');
+  c.undo('https://example.com/', 'div#cmp', 'cookie_consent');
+  assert.equal(c.userAnswersCookies('https://example.com/'), true);
+  c.put('https://example.com/', { sig: 'div#cmp', label: 'cookie_consent', action: 'hide', source: 'heuristic' });
   // Hide again: the rule goes, so the next load judges the element afresh.
   c.remove('https://example.com/', 'div.nl-modal');
   assert.deepEqual(c.undone('https://example.com/'), []);

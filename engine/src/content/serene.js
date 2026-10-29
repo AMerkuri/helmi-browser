@@ -95,9 +95,16 @@
   // is the lists answering it, as autoconsent does for the tools it knows. Reported once, so the
   // app can say the banner was answered and not only hidden (swedbank.ee's "Accept only necessary").
   addEventListener('click', (e) => {
-    if (e.isTrusted || state.ownClick || state.listConsent || !state.clickRules.length || consentBusy() || config.observeOnly) return;
+    if (e.isTrusted || state.ownClick || !state.clickRules.length || consentBusy() || config.observeOnly) return;
     const t = e.target;
-    if (!t || t.nodeType !== 1 || !inCookieBanner(t)) return;
+    if (!t || t.nodeType !== 1) return;
+    // The user pressed Undo on this cookie banner: they answer it themselves, the list does not.
+    if (userAnswers().some((sel) => { try { return t.closest(sel); } catch { return false; } })) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return;
+    }
+    if (state.listConsent || !inCookieBanner(t)) return;
     state.listConsent = true;
     send('listConsent', { origin: location.origin, button: buttonLabel(t), rule: clickRuleFor(t) });
   }, true);
@@ -471,8 +478,10 @@
 
   function scanInner() {
     if (!document.body) return [];
+    if (!IS_TOP) { if (state.consentParked) reportListHit(); reportFrame(); return []; }
+    // A cookie banner the user put back with Undo is theirs: no list hides it either.
+    for (const sel of userAnswers()) { try { for (const el of document.querySelectorAll(sel)) el.setAttribute(SHOWN, ''); } catch {} }
     if (state.consentParked) reportListHit();
-    if (!IS_TOP) { reportFrame(); return []; }
     if (consentBusy()) return [];
     const roots = new Set();
     for (const [x, y] of samplePoints()) {
@@ -924,6 +933,11 @@
 
   // A button inside a cookie banner: one the detector found, one the lists or a cached rule know,
   // or a dialog that reads like one (it may be hidden already, with no box to judge).
+  // Cookie banners the user put back with Undo on this site (the host then sends no autoconsent).
+  function userAnswers() {
+    return state.siteRules.filter((r) => r.source === 'user' && r.was === 'cookie_consent').map((r) => r.sig);
+  }
+
   function inCookieBanner(t) {
     for (const c of state.candidates.values()) if (c.cookie && c.el.contains(t)) return true;
     for (const sel of state.consentSelectors) { try { if (t.closest(sel)) return true; } catch {} }

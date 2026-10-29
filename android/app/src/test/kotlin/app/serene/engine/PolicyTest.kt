@@ -120,6 +120,15 @@ class PolicyTest {
         assertEquals("ignore", c.rulesFor("https://example.com/")[0].action)
         assertEquals("div#cmp:not([data-serene-shown]){display:none!important}", c.cssFor("https://example.com/"))
         assertEquals(listOf("div.nl-modal" to "newsletter"), c.undone("https://example.com/").map { it.sig to it.was })
+        // Clear site data keeps the user's Undo rules; Forget this site drops them too.
+        val kept = VerdictCache()
+        kept.put("https://example.com/", SiteRule(sig = "div#cmp", label = "cookie_consent", action = "hide", source = "heuristic"))
+        kept.undo("https://example.com/", "div.nl-modal", "cookie_consent")
+        assertTrue(kept.userAnswersCookies("https://example.com/"))
+        kept.clear("example.com", keepUndone = true)
+        assertEquals(listOf("div.nl-modal"), kept.rulesFor("https://example.com/").map { it.sig })
+        kept.clear("example.com")
+        assertEquals(emptyList<SiteRule>(), kept.rulesFor("https://example.com/"))
         // Hide again: the rule goes, so the next load judges the element afresh.
         c.remove("https://example.com/", "div.nl-modal")
         assertEquals(emptyList<SiteRule>(), c.undone("https://example.com/"))

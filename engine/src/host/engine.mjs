@@ -79,7 +79,7 @@ class PageSession {
       if (frame.isTop) this.generichide = c.generichide;
       this.emit({ type: 'cosmetic', url: msg.url, hideSelectors: c.hideSelectors.length, consentSelectors: c.consentSelectors.length, procedural: c.procedural.length, scriptlets: !!c.script, ms: Math.round(performance.now() - t0) });
     }
-    if (this.e.autoconsent && !this.e.contentConfig.observeOnly) out.autoconsent = this.e.autoconsent.forFrame(msg.url, frame.isTop);
+    if (this.e.autoconsent && !this.e.contentConfig.observeOnly && !this.e.cache.userAnswersCookies(this.topUrl ?? msg.url)) out.autoconsent = this.e.autoconsent.forFrame(msg.url, frame.isTop);
     if (frame.isTop) {
       out.siteRules = this.e.cache.rulesFor(msg.url);
       const parkCookies = !!out.autoconsent;
