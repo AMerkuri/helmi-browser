@@ -209,6 +209,35 @@ class PageGesturesTest {
         }
     }
 
+    /**
+     * Back and forward tapped faster than the pages come: one step at a time, the taps in between
+     * add up, and the tab ends where they add up to.
+     */
+    @Test
+    fun quickBackAndForwardAddUp() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var tab: Tab? = null
+            scenario.onActivity { a -> tab = a.tabs.open("$base/q1") }
+            val t = tab!!
+            waitFor("page q1") { t.title == "q1" && t.progress == 100 }
+            scenario.onActivity { t.load("$base/q2") }
+            waitFor("page q2") { t.title == "q2" && t.progress == 100 }
+            scenario.onActivity { t.load("$base/q3") }
+            waitFor("page q3") { t.title == "q3" && t.progress == 100 && t.canGoBack }
+            scenario.onActivity {
+                t.goBack()
+                assertTrue("the first step is on its way", t.stepping)
+                t.goBack()
+                t.goForward()
+                t.goBack()
+                t.goBack() // past the first page: stops there
+            }
+            waitFor("back on the first page") { !t.stepping && t.url.endsWith("/q1") && t.progress == 100 }
+            SystemClock.sleep(1500)
+            scenario.onActivity { assertTrue("moved on from the first page: ${t.url}", t.url.endsWith("/q1") && !t.canGoBack && t.canGoForward) }
+        }
+    }
+
     /** A finger across the WebView, from and to fractions of its width, at [y] of its height. */
     private fun swipe(tab: Tab, from: Float, to: Float, y: Float = 0.5f) {
         val (x0, y0, w, h) = bounds(tab)
