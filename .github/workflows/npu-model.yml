@@ -20,7 +20,9 @@ concurrency:
 
 jobs:
   npu-model:
-    runs-on: ubuntu-latest
+    # 24.04, not ubuntu-latest: on 26.04 libc++1 (LLVM 22) no longer brings in libunwind.so.1,
+    # and the Qualcomm compiler plugin fails to load without it.
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
       contents: read
@@ -42,13 +44,6 @@ jobs:
         run: |
           # QAIRT's x86_64 libraries are built against LLVM's libc++, which the runner lacks.
           sudo apt-get update -q && sudo apt-get install -y -q libc++1 libc++abi1
-          # The compiler plugin also needs LLVM's libunwind.so.1, which newer runner images no
-          # longer pull in with libc++1: install the libunwind of the same LLVM release.
-          v=$(dpkg-query -W -f='${Depends}' libc++1 | grep -o 'libc++1-[0-9]*' | head -1 | grep -o '[0-9]*$')
-          sudo apt-get install -y -q "libunwind-$v"
-          lib=$(dirname "$(find /usr/lib -name 'libunwind.so.1' | head -1)")
-          echo "libunwind.so.1 in $lib"
-          echo "LD_LIBRARY_PATH=$lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0"
           # litert-torch main: the NPU pipeline and its Qwen3-0.6B / SM8750 config are newer
