@@ -183,7 +183,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             ) { s.backForwardCache = it }
             SwitchRow(
                 "Show model decisions",
-                "A note at the bottom of the page each time the on-device model decides about an overlay: what it hid, or what it left alone, with Undo or Hide.",
+                "A short message above the bottom bar, like the one after closing a tab, each time the on-device model decides about an overlay on this page: what it hid, with Undo, or what it left alone, with Hide.",
                 s.showModelDecisions,
             ) { s.showModelDecisions = it }
 
