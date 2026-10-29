@@ -228,7 +228,8 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
                 put("procedural", JsonArray(c.procedural))
                 if (frame.isTop) log("cosmetic: ${c.hideSelectors.size} hide, ${c.consentSelectors.size} consent, ${c.procedural.size} procedural, scriptlets=${c.script.isNotEmpty()}, ${(System.nanoTime() - t0) / 1_000_000} ms")
             }
-            val ac = if (enabled) e.autoconsent else null
+            // After an Undo on a cookie banner the user answers it: no autoconsent on the site.
+            val ac = if (enabled && !e.cache.userAnswersCookies(topUrl ?: url)) e.autoconsent else null
             ac?.let { put("autoconsent", it.forFrame(url, frame.isTop)) }
             if (enabled && frame.isTop) {
                 put("siteRules", EngineJson.encodeToJsonElement(ListSerializer(SiteRule.serializer()), e.cache.rulesFor(url)))

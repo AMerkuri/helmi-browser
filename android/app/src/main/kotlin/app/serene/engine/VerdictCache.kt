@@ -64,6 +64,10 @@ class VerdictCache(private val file: File? = null) {
     /** Elements the user undid on this site. */
     fun undone(url: String): List<SiteRule> = rulesFor(url).filter { it.source == "user" }
 
+    /** The user put a cookie banner back with Undo: they answer it themselves on this site, so
+     *  neither autoconsent nor a list's scriptlet presses its buttons. */
+    fun userAnswersCookies(url: String): Boolean = undone(url).any { it.was == "cookie_consent" }
+
     /** Drop one rule, so the element is judged afresh on the next load (reverses an undo). */
     @Synchronized fun remove(url: String, sig: String) {
         val site = siteOf(url)
@@ -73,9 +77,11 @@ class VerdictCache(private val file: File? = null) {
         save()
     }
 
-    /** Forget everything learned for one site, or for all sites. */
-    @Synchronized fun clear(site: String? = null) {
-        if (site == null) sites.clear() else sites.remove(site)
+    /** Forget everything learned for one site, or for all sites. [keepUndone] keeps the user's Undo rules. */
+    @Synchronized fun clear(site: String? = null, keepUndone: Boolean = false) {
+        if (site == null) sites.clear()
+        else if (!keepUndone) sites.remove(site)
+        else sites[site]?.let { list -> list.removeAll { it.source != "user" }; if (list.isEmpty()) sites.remove(site) }
         save()
     }
 

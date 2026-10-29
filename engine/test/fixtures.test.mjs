@@ -27,7 +27,9 @@ before(async () => {
     const url = new URL(req.url, 'http://x');
     const file = path.join(DIR, path.basename(url.pathname));
     if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    // A fixture's `csp` is sent as the page's Content-Security-Policy header.
+    const csp = expectOf(path.basename(file)).csp;
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...(csp && { 'content-security-policy': csp }) });
     // ?slow=ms: headers first, body later, like a slow news site.
     const slow = Number(url.searchParams.get('slow')) || 0;
     if (slow) res.flushHeaders();
@@ -234,6 +236,21 @@ test('a hidden cookie banner opens again from the site\'s "Manage cookies", and 
   }
   // Remembered without its state classes, which every open dialog on the site has.
   assert.deepEqual(cache.rulesFor(base + file).map((r) => [r.sig, r.action]), [['x-modal.zz-cookie-consent', 'hide']]);
+});
+
+// Undo on a cookie banner the list answers: the user answers it, so the list's scriptlet (and
+// autoconsent) leave it alone until Hide again.
+test('after Undo on a cookie banner, no rule answers it for the user', async () => {
+  const file = 'cookie-reopen.html', sig = 'x-modal.zz-cookie-consent';
+  const cache = new VerdictCache();
+  cache.undo(base + file, sig, 'cookie_consent');
+  const { state, events } = await runFixture(file, { cache });
+  assert.deepEqual(state.clicked, [], 'nothing pressed for the user');
+  assert.ok(!state.gone, 'the banner stays up');
+  assert.ok(!events.some((e) => e.type === 'listConsent' || e.type === 'autoconsent'), 'nothing answered it');
+  cache.remove(base + file, sig); // Hide again
+  const again = await runFixture(file, { cache });
+  assert.deepEqual(again.state.clicked, ['necessary']);
 });
 
 // seb.ee: the lists hide the cookie dialog, but its backdrop is a sibling and the rest of the

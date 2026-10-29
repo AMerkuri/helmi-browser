@@ -33,6 +33,10 @@ export class VerdictCache {
   /** Elements the user undid on this site. */
   undone(url) { return this.rulesFor(url).filter((r) => r.source === 'user'); }
 
+  /** The user put a cookie banner back with Undo: they answer it themselves on this site, so
+   *  neither autoconsent nor a list's scriptlet presses its buttons. */
+  userAnswersCookies(url) { return this.undone(url).some((r) => r.was === 'cookie_consent'); }
+
   /** Drop one rule, so the element is judged afresh on the next load (reverses an undo). */
   remove(url, sig) {
     const site = siteOf(url);

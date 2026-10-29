@@ -143,9 +143,10 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
             }
             if (site != null) {
                 Spacer(Modifier.height(8.dp))
-                // A first visit again: the site's cookies (consent choices included), storage and Serene's rules for it.
+                // A first visit again: the site's cookies (consent choices included), storage and Serene's rules for
+                // it, except what the user put back with Undo (so a cookie banner they undid comes back for them).
                 TextButton(onClick = {
-                    app.engine.cache.clear(site)
+                    app.engine.cache.clear(site, keepUndone = true)
                     SiteData.clear(tab.url) { tab.reload() }
                 }) { Text("Clear site data and reload") }
                 // The engine's ms-stamped log for this page, to paste into a bug report or a chat.
