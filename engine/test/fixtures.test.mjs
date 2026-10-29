@@ -58,8 +58,9 @@ function stubClassifier(calls) {
 // A fixture's own `rules` are added to the lists as one more list, trusted like uBO's unless
 // `trusted` is false, and a cookie list like EasyList's cookie sections when `consent` is set.
 // `then(page)` runs after the wait, before the page is read; what it returns is state.then.
-// `fixtureRulesText(exp)` can change the fixture's own rules.
-async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0, trusted = true, then = null, fixtureRulesText = exp => exp.rules } = {}) {
+// `fixtureRulesText(exp)` can change the fixture's own rules. `tap` replaces the fixture's
+// tapFirst (null: no tap).
+async function runFixture(file, { cache = new VerdictCache(), query = '', withAutoconsent = true, hostDelayMs = 0, trusted = true, then = null, fixtureRulesText = exp => exp.rules, tap } = {}) {
   const exp = expectOf(file);
   const events = [], llmCalls = [];
   const text = fixtureRulesText(exp);
@@ -68,7 +69,8 @@ async function runFixture(file, { cache = new VerdictCache(), query = '', withAu
   const context = await newContext(browser, { engine, onEvent: (e) => events.push(e), probe: true, hostDelayMs });
   const page = await context.newPage();
   await page.goto(base + file + query);
-  if (exp.tapFirst) { await page.waitForTimeout(300); await page.tap(exp.tapFirst); }
+  const tapFirst = tap === undefined ? exp.tapFirst : tap;
+  if (tapFirst) { await page.waitForTimeout(300); await page.tap(tapFirst); }
   // taps: ms after load at which the user touches the bottom of the screen (trying to scroll).
   const t0 = Date.now();
   const until = (ms) => page.waitForTimeout(Math.max(0, ms - (Date.now() - t0)));
@@ -280,5 +282,25 @@ test('a list-hidden cookie modal: its backdrop and the inert page go, and its de
       assert.ok(!state.clicked.includes('accept'), `${query}: never accept`);
       if (query === '?nodecline') assert.equal(answer, undefined, 'no reject to report');
     }
+  }
+});
+
+// delfi.ee: the header's "Sisene" (sign in) opens a sign-in dialog that takes seconds to load,
+// past the tap's own window; the model then hid it as a login wall. A dialog the user asked for
+// stays, also when an earlier visit cached a hide for it. One that opens on its own still goes.
+test('a sign-in dialog the user opened stays up however long it takes to load', async () => {
+  const file = 'login-asked.html';
+  const cache = new VerdictCache();
+  const auto = await runFixture(file, { cache, query: '?auto', tap: null });
+  assert.ok(!auto.state.visible[0][1], 'opened on its own, the model hides it');
+  assert.ok(auto.llmCalls.length > 0, 'the model was asked');
+  const other = await runFixture(file, { query: '?auto', tap: '#news' });
+  assert.ok(!other.state.visible[0][1], 'a tap that does not ask for it does not keep it');
+  assert.ok(cache.rulesFor(base + file).some((r) => r.label === 'login_wall' && r.action === 'hide'), 'the hide is cached');
+  for (const visit of ['fresh', 'cached']) {
+    const { state, events, llmCalls } = await runFixture(file, visit === 'cached' ? { cache } : {});
+    for (const [sel, shown] of state.visible) assert.ok(shown, `${visit}: ${sel} should stay visible`);
+    assert.equal(llmCalls.length, 0, `${visit}: the model is not asked`);
+    assert.ok(!events.some((e) => e.type === 'candidate' && e.verdict && e.verdict.action !== 'ignore'), `${visit}: nothing acted on`);
   }
 });
