@@ -156,7 +156,9 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onReport) { Text("Report missed popup") }
-                if (site != null) OutlinedButton(onClick = { app.engine.cache.clear(site); tab.reload() }) { Text("Forget this site") }
+                // Both close the sheet: the page starts again, and the model's notes (Settings › Flags)
+                // show above the bottom bar, which the sheet would cover.
+                if (site != null) OutlinedButton(onClick = { app.engine.cache.clear(site); tab.reload(); onDismiss() }) { Text("Forget this site") }
             }
             if (site != null) {
                 Spacer(Modifier.height(8.dp))
@@ -164,6 +166,7 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 TextButton(onClick = {
                     app.engine.cache.clear(site)
                     SiteData.clear(tab.url) { tab.reload() }
+                    onDismiss()
                 }) { Text("Clear site data and reload") }
                 // The engine's ms-stamped log for this page, to paste into a bug report or a chat.
                 TextButton(onClick = {
