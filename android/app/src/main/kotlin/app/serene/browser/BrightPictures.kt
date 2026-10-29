@@ -130,7 +130,11 @@ internal class BrightPictures(
             const look = () => {
                 if (asked && performance.now() - asked.at < 3000) return;
                 asked = null;
-                if (off || !dark.matches || document.visibilityState !== 'visible') return;
+                if (!dark.matches) {
+                    for (const img of document.querySelectorAll('img[' + ATTR + ']')) img.removeAttribute(ATTR);
+                    return;
+                }
+                if (off || document.visibilityState !== 'visible') return;
                 const vv = visualViewport;
                 const W = vv.width, H = vv.height, ox = vv.offsetLeft, oy = vv.offsetTop;
                 const pics = [], imgs = new Map();

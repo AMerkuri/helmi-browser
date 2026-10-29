@@ -126,6 +126,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     private val pictures = BrightPictures(webView, app.settings, main, { activityOf(webView.context)?.window }) {
         !destroyed && !swipe.active && !pull.active && !painting && !TabPreviews.covered
     }
+    private val resetPictures = Runnable { pictures.reset() }
 
     init {
         with(webView.settings) {
@@ -359,6 +360,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         val on = app.settings.darkSite(siteOf(url))
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, !on)
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
+        // Dimmed pictures were judged in the old theme. The page's prefers-color-scheme listener
+        // doesn't always hear the change, so look again once the page has the new theme.
+        main.removeCallbacks(resetPictures)
+        main.postDelayed(resetPictures, 1000)
     }
 
     /**
