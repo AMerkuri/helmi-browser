@@ -113,6 +113,9 @@ class SereneApp : Application() {
 
     private var classifier: LiteRtClassifier? = null
 
+    /** Battery saver as BatterySaverNotice last saw it, null until it first looks. */
+    var batterySaverSeen: Boolean? = null
+
     /** Tests swap in a stub model here. */
     @VisibleForTesting var classifierOverride: Classifier? = null
 
