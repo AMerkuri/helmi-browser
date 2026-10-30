@@ -391,8 +391,20 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     fun reload() = webView.reload()
     fun stop() = webView.stopLoading()
-    fun goBack() { snapshot(); go(BACK) }
-    fun goForward() { snapshot(); go(HistorySwipe.FORWARD) }
+    fun goBack() = step(BACK)
+    fun goForward() = step(HistorySwipe.FORWARD)
+
+    /**
+     * The back and forward buttons: the page slides as a swipe does, all the way. That also keeps
+     * the steps apart: quick taps had WebView's back/forward cache restore one page while the next
+     * step started, and the page came back drawing only its background, for good (err.ee on the
+     * Fold). A tap while a slide is still on its way does nothing.
+     */
+    private fun step(dir: Int) {
+        if (swipe.active && !swipe.covering) return
+        snapshot(beforeSwipe = true) // the page left, for the way back
+        if (!swipe.play(dir)) go(dir)
+    }
 
     /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
     fun go(dir: Int) { if (webView.canGoBackOrForward(dir)) webView.goBackOrForward(dir) }
@@ -481,7 +493,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * back/forward cache: without it the page reloads behind the picture and visibly changes when
      * it shows, so a swipe shows the plain title card instead.
      */
-    fun snapshot() {
+    fun snapshot(beforeSwipe: Boolean = false) {
         if (!backForwardCache) return
         if (destroyed || swipe.active || pull.active || painting || TabPreviews.covered || !webView.isAttachedToWindow) return
         val w = webView.width
@@ -495,9 +507,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         try {
             PixelCopy.request(window, Rect(xy[0], xy[1], xy[0] + w, xy[1] + h), bmp, { result ->
-                // A swipe that started meanwhile may be in the picture.
-                // A page the cache brought back blank (see Settings.backForwardCache) would make every swipe to it blank.
-                if (result == PixelCopy.SUCCESS && !swipe.active && !destroyed && !Snapshots.isFlat(bmp)) Snapshots.put(id, index, Snapshot(item.url, bmp))
+                // A swipe that started meanwhile may be in the picture, unless it was asked for
+                // just before the swipe (its first frame is the page as it is). A page the cache
+                // brought back blank would make every swipe to it blank.
+                if (result == PixelCopy.SUCCESS && (beforeSwipe || !swipe.active) && !destroyed && !Snapshots.isFlat(bmp)) Snapshots.put(id, index, Snapshot(item.url, bmp))
             }, main)
         } catch (e: IllegalArgumentException) { // window not attached to a surface yet
         }

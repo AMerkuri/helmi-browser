@@ -176,7 +176,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             )
             SwitchRow(
                 "Back/forward cache",
-                if (Tab.backForwardCacheSupported) "Going back or forward resumes the page as it was, and swipes show a picture of it. Off: the page loads again, and swipes show its title. Quick back and forward taps can leave a page blank with it on."
+                if (Tab.backForwardCacheSupported) "Going back or forward resumes the page as it was, and swipes show a picture of it. Off: the page loads again, and swipes show its title."
                 else "Not supported by this WebView: pages load again, and swipes show the page's title.",
                 s.backForwardCache && Tab.backForwardCacheSupported,
                 enabled = Tab.backForwardCacheSupported,

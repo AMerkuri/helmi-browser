@@ -36,10 +36,7 @@ class Settings(context: Context) {
     private val wifiOnlyPref = bool("wifi_only_downloads", true)
     var wifiOnlyDownloads: Boolean get() = wifiOnlyPref.state; set(v) = wifiOnlyPref.set(v)
 
-    // Off by default: with WebView's (experimental) cache, quick back and forward taps left a page
-    // drawing only its background, for good, even after a reload (err.ee on the Fold, 2026-10-30).
-    // A new key, so the old default (on) that every phone kept does not keep it on.
-    private val backForwardCachePref = bool("flag_back_forward_cache_v2", false)
+    private val backForwardCachePref = bool("flag_back_forward_cache", true)
     /** Flag: WebView's back/forward cache, and swipe previews with it (off: a title card, and back reloads). */
     var backForwardCache: Boolean get() = backForwardCachePref.state; set(v) = backForwardCachePref.set(v)
 

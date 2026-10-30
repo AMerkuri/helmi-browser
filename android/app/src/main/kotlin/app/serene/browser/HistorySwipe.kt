@@ -18,9 +18,9 @@ import kotlin.math.abs
  * without it they show as a plain card with the page's title. Once the swipe lets go, the
  * snapshot or card stays over the WebView until the real page has drawn.
  *
- * Driven by the in-page swipe ([SereneWebView]) and by Android's back gesture (predictive back,
- * in BrowserScreen). The screen draws the layers from [direction], [progress] and [target]; the
- * WebView itself is moved here, with translationX.
+ * Driven by the in-page swipe ([SereneWebView]), Android's back gesture (predictive back, in
+ * BrowserScreen) and the back and forward buttons ([play]). The screen draws the layers from
+ * [direction], [progress] and [target]; the WebView itself is moved here, with translationX.
  */
 class HistorySwipe(private val tab: Tab) {
     /** [BACK], [FORWARD], or 0 when no swipe is on. */
@@ -66,6 +66,18 @@ class HistorySwipe(private val tab: Tab) {
         covering = false
         coverAlpha = 1f
         set(0f)
+        return true
+    }
+
+    /**
+     * The back or forward button: the same slide as a swipe, all the way, the page leaving to the
+     * right (back) or the next one coming in from the right (forward). A page still covered from
+     * the last step is shown at once first. False when it can't start.
+     */
+    fun play(dir: Int): Boolean {
+        if (covering) reset()
+        if (!start(dir, fromRight = false)) return false
+        finish(commit = true)
         return true
     }
 
