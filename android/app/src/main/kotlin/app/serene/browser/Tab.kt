@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import app.serene.browser.HistorySwipe.Companion.BACK
 import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.ScriptHandler
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
@@ -123,6 +124,9 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     // Follows the Settings flags while the tab is open.
     private val flags: Job
 
+    // Settings › Theme › "Dim pictures", for the documents to come.
+    private var dimScript: ScriptHandler? = null
+
     init {
         with(webView.settings) {
             javaScriptEnabled = true
@@ -152,6 +156,16 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 snapshotFlow { backForwardCache }.collect {
                     if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, it)
                     if (!it) Snapshots.clear(id)
+                }
+            }
+            // Dimming and its level, and where it applies: the sites the dark theme darkens.
+            launch {
+                snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
+                    if (documentStartSupported) {
+                        dimScript?.remove()
+                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
+                    }
+                    webView.evaluateJavascript(js, null)
                 }
             }
             // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
@@ -564,6 +578,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // Old WebViews without DOCUMENT_START_SCRIPT: best effort, may lose the race.
             if (!documentStartSupported) {
                 view.evaluateJavascript(KEEP_PICTURES, null)
+                view.evaluateJavascript(dimPicturesScript(app.settings), null)
                 view.evaluateJavascript(contentScript(view.context), null)
             }
         }
@@ -695,13 +710,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             addEventListener('pageshow', e => { if (e.persisted) SereneBridge.postMessage(JSON.stringify({ type: 'serene-doc-restored', id })); });
         }"""
 
+        private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
+
         /**
          * Darkening a page leaves its pictures as they are. WebView would invert the ones it takes
          * for icons or drawings (few colors: logos, diagrams, scans); `color-scheme: only light`
-         * opts an element out of forced darkening, and does nothing otherwise.
+         * opts an element out of forced darkening, and does nothing otherwise. They are dimmed
+         * instead, if the user wants (dimPicturesScript).
          */
-        private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
-
         private const val KEEP_PICTURES = """(() => {
             try {
                 const sheet = new CSSStyleSheet();

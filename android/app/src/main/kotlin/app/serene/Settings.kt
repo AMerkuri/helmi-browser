@@ -81,6 +81,16 @@ class Settings(context: Context) {
     /** Drops [site]'s own choice: it follows [darkSites]. */
     fun resetDarkSite(site: String) = setDarkSite(site, darkSites)
 
+    private val dimPicturesPref = bool("dim_pictures", true)
+    /** In the dark theme, dim the pictures of the sites it darkens ([darkSite]). */
+    var dimPictures: Boolean get() = dimPicturesPref.state; set(v) = dimPicturesPref.set(v)
+
+    private val dimStrengthPref = string("dim_pictures_strength", DimStrength.LIGHT.name)
+    /** How much [dimPictures] dims. */
+    var dimStrength: DimStrength
+        get() = runCatching { DimStrength.valueOf(dimStrengthPref.state) }.getOrDefault(DimStrength.LIGHT)
+        set(v) = dimStrengthPref.set(v.name)
+
     // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
     // lists added to the defaults later reach them too).
     private val listsEnabledPref = Pref("lists_enabled", prefs.getStringSet("lists_enabled", null)?.toSet() ?: FilterLists.DEFAULT_ENABLED) { putStringSet("lists_enabled", it) }
@@ -130,6 +140,13 @@ enum class ThemeMode(val label: String) {
     SYSTEM("System default"),
     LIGHT("Light"),
     DARK("Dark"),
+}
+
+/** Settings › Theme › "Dim pictures": how bright a picture stays, in percent (CSS brightness()). */
+enum class DimStrength(val label: String, val percent: Int) {
+    LIGHT("Light", 90),
+    MEDIUM("Medium", 80),
+    STRONG("Strong", 70),
 }
 
 enum class SearchEngine(val label: String, val template: String) {
