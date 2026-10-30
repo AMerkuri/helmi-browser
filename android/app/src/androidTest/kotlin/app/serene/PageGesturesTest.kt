@@ -26,7 +26,7 @@ import kotlin.concurrent.thread
 
 /**
  * The page gestures with real touches: a swipe to the right goes back, to the left forward,
- * a pull down at the top reloads, and a swipe on a carousel stays the carousel's.
+ * a pull down at the top reloads, and a swipe on a carousel or a zoomed-in page stays the page's.
  */
 @RunWith(AndroidJUnit4::class)
 class PageGesturesTest {
@@ -129,6 +129,51 @@ class PageGesturesTest {
             var pulling = true
             scenario.onActivity { pulling = t.pull.active }
             assertFalse(pulling)
+        }
+    }
+
+    /**
+     * A zoomed-in page pans sideways under the finger instead of going back, until it is panned to
+     * its edge: from there a swipe goes back, as in Chrome.
+     */
+    @Test
+    fun zoomedInPagePans() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var tab: Tab? = null
+            scenario.onActivity { a ->
+                tab = a.tabs.open("$base/z1")
+                a.currentFocus?.clearFocus()
+                WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime())
+            }
+            val t = tab!!
+            waitFor("page z1") { t.title == "z1" && t.progress == 100 }
+            scenario.onActivity { t.load("$base/z2") }
+            waitFor("page z2") { t.title == "z2" && t.progress == 100 && t.canGoBack }
+            SystemClock.sleep(500)
+
+            // Zoomed in about the middle: the page can pan both ways.
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { t.webView.zoomBy(3f) }
+            waitFor("the zoom") { t.webView.scrollX > t.webView.width / 2 }
+            SystemClock.sleep(500)
+            var before = 0
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { before = t.webView.scrollX }
+            swipe(t, from = 0.35f, to = 0.65f)
+            SystemClock.sleep(1500)
+            var url = ""
+            var after = 0
+            scenario.onActivity {
+                url = t.url
+                after = t.webView.scrollX
+            }
+            assertTrue("a pan on the zoomed-in page went back to $url", url.endsWith("/z2"))
+            assertTrue("the zoomed-in page did not pan ($before -> $after)", after < before)
+
+            // At its left edge, the same swipe goes back.
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { t.webView.scrollTo(0, t.webView.scrollY) }
+            waitFor("the left edge") { t.webView.scrollX == 0 }
+            SystemClock.sleep(500)
+            swipe(t, from = 0.25f, to = 0.85f)
+            waitFor("a swipe at the edge to go back") { t.url.endsWith("/z1") && !t.swipe.active }
         }
     }
 
