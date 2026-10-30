@@ -645,9 +645,7 @@ private fun TabCard(
     onLiftEnd: suspend (Float) -> Unit,
 ) {
     val image = remember(picture) { picture?.asImageBitmap() }
-    // A blank tab shows the start page, as BrowserScreen does; it has no picture.
-    val blank = image == null && !tab.openedByPage && !tab.downloadPage && (tab.url.isEmpty() || tab.url == "about:blank")
-    val placeholder = if (blank) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
+    val placeholder = MaterialTheme.colorScheme.surface
     val lift = rememberDraggableState(onLift)
     Column(
         modifier
@@ -666,8 +664,8 @@ private fun TabCard(
                 .background(placeholder),
         ) {
             if (image != null) Canvas(Modifier.fillMaxSize()) { drawCover(image) }
-            else if (blank) {
-                // Laid out as on screen, then shrunk to the card, so it is the start page exactly.
+            else {
+                // Laid out as on screen, then shrunk to the card, so it is what the cube and the page show.
                 Box(
                     Modifier
                         .align(Alignment.Center)
@@ -676,8 +674,8 @@ private fun TabCard(
                             scaleX = cardW / pageW
                             scaleY = cardH / pageH
                         },
-                ) { startPage() }
-            } else TitleCard(tab)
+                ) { PageFallback(tab, startPage) }
+            }
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
@@ -714,9 +712,21 @@ private fun TabCard(
     }
 }
 
-/** A tab without a picture (a new tab, a page not yet seen): its site and title. */
+/**
+ * A tab without a picture, at page size: a blank tab's start page (as BrowserScreen shows it),
+ * else its site and title. The cube's faces show it as it is and Cover Flow's cards shrink it.
+ */
 @Composable
-internal fun TitleCard(tab: Tab) {
+internal fun PageFallback(tab: Tab, startPage: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        if (!tab.openedByPage && !tab.downloadPage && (tab.url.isEmpty() || tab.url == "about:blank")) startPage()
+        else TitleCard(tab)
+    }
+}
+
+/** A tab without a picture (a page not yet seen): its site and title. */
+@Composable
+private fun TitleCard(tab: Tab) {
     val host = host(tab)
     Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         if (host == null) {
