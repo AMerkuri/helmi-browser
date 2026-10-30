@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,6 +57,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
+import app.serene.DimStrength
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
 import app.serene.SereneApp
@@ -149,6 +152,19 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 "Darkens sites that have no dark theme of their own. Sites with one use it, and pictures keep their colors.",
                 s.darkSites, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.darkSites = it }
+            SwitchRow(
+                "Dim pictures",
+                "In the dark theme, pictures on darkened sites are shown dimmer, so white ones don't glare at night. Their colors stay. " +
+                    DimStrength.entries.joinToString(", ", postfix = " brightness.") { "${it.label.lowercase()} ${it.percent}%" }.replaceFirstChar { it.uppercase() },
+                s.dimPictures, enabled = s.theme != ThemeMode.LIGHT,
+            ) { s.dimPictures = it }
+            if (s.dimPictures && s.theme != ThemeMode.LIGHT) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DimStrength.entries.forEach { d ->
+                        FilterChip(selected = s.dimStrength == d, onClick = { s.dimStrength = d }, label = { Text(d.label) })
+                    }
+                }
+            }
             // Sites switched in ⋮ › Dark theme; X puts one back on the setting above.
             s.darkSiteChoices.toSortedMap().forEach { (site, on) ->
                 ListItem(
@@ -181,6 +197,11 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 s.backForwardCache && Tab.backForwardCacheSupported,
                 enabled = Tab.backForwardCacheSupported,
             ) { s.backForwardCache = it }
+            SwitchRow(
+                "Show model decisions",
+                "A short message above the bottom bar, like the one after closing a tab, each time the on-device model decides about an overlay on this page: what it hid, with Undo, or what it left alone, with Hide.",
+                s.showModelDecisions,
+            ) { s.showModelDecisions = it }
 
             Section("About")
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)

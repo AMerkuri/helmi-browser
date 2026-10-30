@@ -15,7 +15,7 @@ class StatsTest {
         var t = Totals(since = 0)
         repeat(3) { t = t.withBlocked("example.com", "script") }
         t = t.withBlocked("example.com", "image").withBlocked("news.example", "xmlhttprequest")
-        t = t.withCleared("news.example", "cookie_consent").withCleared("news.example", "newsletter").withPage().withModelCall(800)
+        t = t.withCleared("news.example", "cookie_consent").withCleared("news.example", "newsletter").withPage().withModelCall(800, acted = true)
         assertEquals(5, t.requestsBlocked)
         assertEquals(2, t.annoyances)
         assertEquals(3L, t.requests["script"])

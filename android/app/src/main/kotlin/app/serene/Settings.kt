@@ -40,6 +40,10 @@ class Settings(context: Context) {
     /** Flag: WebView's back/forward cache, and swipe previews with it (off: a title card, and back reloads). */
     var backForwardCache: Boolean get() = backForwardCachePref.state; set(v) = backForwardCachePref.set(v)
 
+    private val modelNotesPref = bool("flag_model_notes", false)
+    /** Flag: a note at the bottom each time the model decides about an overlay, with Undo or Hide. */
+    var showModelDecisions: Boolean get() = modelNotesPref.state; set(v) = modelNotesPref.set(v)
+
     private val searchPref = string("search_engine", SearchEngine.DUCKDUCKGO.name)
     var searchEngine: SearchEngine
         get() = runCatching { SearchEngine.valueOf(searchPref.state) }.getOrDefault(SearchEngine.DUCKDUCKGO)
@@ -76,6 +80,16 @@ class Settings(context: Context) {
 
     /** Drops [site]'s own choice: it follows [darkSites]. */
     fun resetDarkSite(site: String) = setDarkSite(site, darkSites)
+
+    private val dimPicturesPref = bool("dim_pictures", true)
+    /** In the dark theme, dim the pictures of the sites it darkens ([darkSite]). */
+    var dimPictures: Boolean get() = dimPicturesPref.state; set(v) = dimPicturesPref.set(v)
+
+    private val dimStrengthPref = string("dim_pictures_strength", DimStrength.LIGHT.name)
+    /** How much [dimPictures] dims. */
+    var dimStrength: DimStrength
+        get() = runCatching { DimStrength.valueOf(dimStrengthPref.state) }.getOrDefault(DimStrength.LIGHT)
+        set(v) = dimStrengthPref.set(v.name)
 
     // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
     // lists added to the defaults later reach them too).
@@ -126,6 +140,13 @@ enum class ThemeMode(val label: String) {
     SYSTEM("System default"),
     LIGHT("Light"),
     DARK("Dark"),
+}
+
+/** Settings › Theme › "Dim pictures": how bright a picture stays, in percent (CSS brightness()). */
+enum class DimStrength(val label: String, val percent: Int) {
+    LIGHT("Light", 90),
+    MEDIUM("Medium", 80),
+    STRONG("Strong", 70),
 }
 
 enum class SearchEngine(val label: String, val template: String) {

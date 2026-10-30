@@ -49,6 +49,7 @@ class ModelManager(private val context: Context, private val settings: Settings,
     fun readyFile(): File? = file().takeIf { state == ModelState.Ready && it.exists() }
 
     fun refresh() {
+        ModelCatalog.retiredFiles.forEach { File(dir, it).delete() }
         val f = file()
         state = when {
             f.exists() && f.length() == spec.sizeBytes -> ModelState.Ready

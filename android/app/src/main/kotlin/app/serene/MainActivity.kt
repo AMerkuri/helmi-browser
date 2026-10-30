@@ -30,6 +30,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -48,8 +49,10 @@ import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
 import app.serene.ui.cardTitle
 import app.serene.ui.applyNightMode
+import app.serene.ui.modelNote
 import app.serene.ui.nightUiMode
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 
 enum class Screen { Browser, Tabs, Settings, Downloads }
 
@@ -63,7 +66,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         private set
     private var openingTabs = false
     private lateinit var batterySaver: BatterySaverNotice
-    /** "Closed <page>", with Undo. */
+    /** "Closed <page>", with Undo, and the model notes (Settings › Flags). */
     @VisibleForTesting val snackbar = SnackbarHostState()
 
     // The Theme setting this activity was created with, for API < 31 (see attachBaseContext).
@@ -131,6 +134,24 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                 if (closed == null) return@LaunchedEffect
                 val r = snackbar.showSnackbar("Closed ${cardTitle(closed.tab)}", actionLabel = "Undo", duration = SnackbarDuration.Short)
                 if (r == SnackbarResult.ActionPerformed) tabs.reopen(closed) else tabs.forget(closed)
+            }
+            // Settings › Flags › Show model decisions: a note per model verdict on the tab in front.
+            // Shown from this scope, so the next page change does not cancel a note on screen.
+            val tab = tabs.current
+            val version = tab?.version
+            val notes = rememberCoroutineScope()
+            LaunchedEffect(tab, version) {
+                val s = tab?.session ?: return@LaunchedEffect
+                val recs = s.takeModelNotices()
+                if (!app.settings.showModelDecisions) return@LaunchedEffect
+                recs.forEach { rec ->
+                    notes.launch {
+                        val r = snackbar.showSnackbar(modelNote(rec), actionLabel = if (rec.acted) "Undo" else "Hide", duration = SnackbarDuration.Short)
+                        if (r != SnackbarResult.ActionPerformed) return@launch
+                        if (rec.acted) s.undo(rec) else s.hide(rec)
+                        tab.reload()
+                    }
+                }
             }
             SereneTheme {
                 BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }

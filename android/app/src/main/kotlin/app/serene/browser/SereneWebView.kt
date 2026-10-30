@@ -13,8 +13,8 @@ import kotlin.math.abs
  *
  * A gesture only becomes ours when the page itself would not use it: the WebView reports the
  * scroll the page could not take (overScrollBy), as Chrome's own swipe navigation does. A
- * carousel, a map or a zoomed-in page keeps its swipes, and so does a page that handles the
- * touches in script. Once a gesture is ours, the page gets a cancel and no more of it.
+ * carousel, a map or a zoomed-in page keeps its swipes (a zoomed-in page until it is panned to
+ * its edge, as in Chrome), and so does a page that handles the touches in script. Once a gesture is ours, the page gets a cancel and no more of it.
  */
 @SuppressLint("ViewConstructor")
 class SereneWebView(context: Context, private val swipe: HistorySwipe, private val pull: PullRefresh) : android.webkit.WebView(context) {
@@ -116,14 +116,17 @@ class SereneWebView(context: Context, private val swipe: HistorySwipe, private v
         cancel.recycle()
     }
 
-    // Called with the scroll the page could not use (WebView's overscroll), while it runs.
+    // Called with the page's own scroll as well as with the scroll it could not use (WebView's
+    // overscroll), while it runs. Only a scroll past the page's edge counts: a zoomed-in page
+    // pans sideways inside its range, and that pan is the page's until it reaches the edge.
     override fun overScrollBy(
         deltaX: Int, deltaY: Int, scrollX: Int, scrollY: Int, scrollRangeX: Int, scrollRangeY: Int,
         maxOverScrollX: Int, maxOverScrollY: Int, isTouchEvent: Boolean,
     ): Boolean {
         if (mode == Mode.Deciding) {
-            if (deltaX != 0 && abs(deltaX) >= abs(deltaY)) overX = if (deltaX > 0) 1 else -1
-            if (deltaY < 0 && abs(deltaY) > abs(deltaX)) overY = -1
+            val pastX = scrollX + deltaX < 0 || scrollX + deltaX > scrollRangeX
+            if (deltaX != 0 && pastX && abs(deltaX) >= abs(deltaY)) overX = if (deltaX > 0) 1 else -1
+            if (deltaY < 0 && scrollY + deltaY < 0 && abs(deltaY) > abs(deltaX)) overY = -1
         }
         return super.overScrollBy(deltaX, deltaY, scrollX, scrollY, scrollRangeX, scrollRangeY, maxOverScrollX, maxOverScrollY, isTouchEvent)
     }

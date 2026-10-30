@@ -25,7 +25,8 @@ import kotlin.concurrent.thread
 /**
  * The tab switcher: each tab's card shows its page, a tap at the side brings that card to the
  * middle, a tap in the middle opens its tab, and pushing the middle card up closes its tab, which
- * the "Closed …" bar's Undo brings back. Three pages of one colour each, so the cards can be told apart on a screenshot.
+ * the "Closed …" bar's Undo brings back. The handle under the cards, held pulled to a side, moves
+ * the cards that way and settles on a card. Three pages of one colour each, so the cards can be told apart on a screenshot.
  */
 @RunWith(AndroidJUnit4::class)
 class CoverFlowTest {
@@ -86,6 +87,17 @@ class CoverFlowTest {
                 drag(scenario, cards = -0.7f)
                 SystemClock.sleep(1000)
                 assertCards(scenario, "after a drag back to green", middle = "green", left = "red")
+
+                // A short tug on the handle moves one card; held all the way, the cards run to the end.
+                scrub(scenario, pull = 0.35f, holdMs = 0)
+                SystemClock.sleep(1000)
+                assertCards(scenario, "after a tug on the handle", middle = "blue", left = "green")
+                scrub(scenario, pull = -1.2f, holdMs = 600)
+                SystemClock.sleep(1000)
+                assertCards(scenario, "after holding the handle left", middle = "red", left = null)
+                scrub(scenario, pull = 0.35f, holdMs = 0)
+                SystemClock.sleep(1000)
+                assertCards(scenario, "after a tug back to green", middle = "green", left = "red")
 
                 // A tap on the middle card opens its tab.
                 tap(scenario) { it.centerX }
@@ -162,7 +174,8 @@ class CoverFlowTest {
             val decor = a.window.decorView
             decor.getLocationOnScreen(origin)
             val page = a.pageBounds
-            l = CoverFlowLayout.of(decor.width.toFloat(), decor.height.toFloat(), page.height / page.width, a.resources.displayMetrics.density)
+            val nav = decor.rootWindowInsets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+            l = CoverFlowLayout.of(decor.width.toFloat(), decor.height.toFloat(), page.height / page.width, a.resources.displayMetrics.density, nav.toFloat())
         }
         return l!! to origin
     }
@@ -189,6 +202,31 @@ class CoverFlowTest {
         for (step in 1..30) inst.sendPointerSync(MotionEvent.obtain(t, t + step * 20L, MotionEvent.ACTION_MOVE, x0 + dx * step / 30f, py, 0))
         for (step in 31..40) inst.sendPointerSync(MotionEvent.obtain(t, t + step * 20L, MotionEvent.ACTION_MOVE, x0 + dx, py, 0))
         inst.sendPointerSync(MotionEvent.obtain(t, t + 41 * 20L, MotionEvent.ACTION_UP, x0 + dx, py, 0))
+    }
+
+    /**
+     * Grabs the handle's knob, pulls it [pull] of the way (to the right is positive) beyond the
+     * touch slop, holds it there [holdMs], and lets go.
+     */
+    private fun scrub(scenario: ActivityScenario<MainActivity>, pull: Float, holdMs: Long) {
+        val (l, o) = layout(scenario)
+        var slop = 0
+        scenario.onActivity { slop = android.view.ViewConfiguration.get(it).scaledTouchSlop }
+        val x0 = o[0] + l.centerX
+        val dx = pull * l.maxPull + Math.signum(pull) * slop
+        val py = o[1] + l.handleY
+        val t = SystemClock.uptimeMillis()
+        val inst = InstrumentationRegistry.getInstrumentation()
+        inst.sendPointerSync(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x0, py, 0))
+        for (step in 1..6) inst.sendPointerSync(MotionEvent.obtain(t, t + step * 16L, MotionEvent.ACTION_MOVE, x0 + dx * step / 6f, py, 0))
+        var at = t + 6 * 16L
+        val end = SystemClock.uptimeMillis() + holdMs
+        while (SystemClock.uptimeMillis() < end) {
+            SystemClock.sleep(16)
+            at += 16
+            inst.sendPointerSync(MotionEvent.obtain(t, at, MotionEvent.ACTION_MOVE, x0 + dx, py, 0))
+        }
+        inst.sendPointerSync(MotionEvent.obtain(t, at + 16, MotionEvent.ACTION_UP, x0 + dx, py, 0))
     }
 
     private fun swipeUp(scenario: ActivityScenario<MainActivity>) {

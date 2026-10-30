@@ -1,9 +1,10 @@
 name: npu-model-release
 
 # Publishes an npu-model build as a release of this repo, the download the app's model list points
-# at (ModelCatalog in android/app/src/main/kotlin/app/serene/SereneApp.kt). It takes the artifact
+# at (ModelCatalog in android/app/src/main/kotlin/app/serene/SereneApp.kt). It takes an artifact
 # of an npu-model run that was tested on a phone, so the released file is the one tested: put the
-# run's sha256 and size in ModelCatalog, and the tag in its URL.
+# run's sha256 and size in ModelCatalog, and the tag in its URL. The NPU build is the npu-model-*
+# artifact; a finetune run also has the GPU and CPU builds as gpu-model-*.
 on:
   workflow_dispatch:
     inputs:
@@ -13,6 +14,9 @@ on:
       tag:
         description: Release tag, the one in ModelCatalog's URL (e.g. npu-qwen3-0.6b-sm8750-1)
         required: true
+      artifact:
+        description: Which of the run's artifacts (npu-model-* for the NPU build, gpu-model-* for the GPU and CPU builds)
+        default: npu-model-*
 
 jobs:
   release:
@@ -24,7 +28,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: npu-model-*
+          pattern: ${{ inputs.artifact }}
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
           path: npu
@@ -34,13 +38,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.run_id }}
           TAG: ${{ inputs.tag }}
+          ARTIFACT: ${{ inputs.artifact }}
         run: |
           cd npu
           ls -l
           sha256sum -c SHA256SUMS
           {
-            echo "Qwen3-0.6B compiled ahead of time for a Qualcomm NPU, from npu-model run $RUN_ID."
-            echo "Serene downloads it from its model list on a phone with that chip."
+            if [[ "$ARTIFACT" == gpu-model-* ]]; then
+              echo "Qwen3-0.6B fine-tuned for Helmi, for the GPU and CPU (INT8, and 4-bit in blocks of 32), from npu-model run $RUN_ID."
+              echo "Helmi downloads them from its model list."
+            else
+              echo "Qwen3-0.6B compiled ahead of time for a Qualcomm NPU, from npu-model run $RUN_ID."
+              echo "Helmi downloads it from its model list on a phone with that chip."
+            fi
             echo
             echo '```'
             cat SHA256SUMS
