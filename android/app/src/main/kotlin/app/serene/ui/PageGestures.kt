@@ -36,7 +36,7 @@ import kotlin.math.roundToInt
 /**
  * Android's back gesture goes back through the tab's history with the same animation as the
  * in-page swipe: the page follows the finger from either edge. A back button press (three-button
- * navigation) sends no progress and just goes back.
+ * navigation) sends no progress and goes back as the back button does, with the slide.
  */
 @Composable
 fun HistoryBackHandler(tab: Tab) {

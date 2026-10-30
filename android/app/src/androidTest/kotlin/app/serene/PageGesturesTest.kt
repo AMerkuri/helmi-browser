@@ -7,6 +7,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.serene.browser.HistorySwipe
 import app.serene.browser.Snapshots
 import app.serene.engine.PageSession
 import app.serene.browser.Tab
@@ -206,6 +207,39 @@ class PageGesturesTest {
             waitFor("back on kept1") { t.url.endsWith("/kept1") }
             waitFor("kept1's session back") { t.session === first }
             assertEquals("kept1 was loaded again, not resumed: ${requests.filter { it.startsWith("/kept") }}", 1, requests.count { it == "/kept1" })
+        }
+    }
+
+    /**
+     * The back and forward buttons slide the page as a swipe does, and a tap while a slide is on
+     * its way does nothing: quick taps no longer pile up steps (they left pages blank with the
+     * back/forward cache).
+     */
+    @Test
+    fun buttonsSlideOneStepAtATime() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var tab: Tab? = null
+            scenario.onActivity { a -> tab = a.tabs.open("$base/b1") }
+            val t = tab!!
+            waitFor("page b1") { t.title == "b1" && t.progress == 100 }
+            scenario.onActivity { t.load("$base/b2") }
+            waitFor("page b2") { t.title == "b2" && t.progress == 100 }
+            scenario.onActivity { t.load("$base/b3") }
+            waitFor("page b3") { t.title == "b3" && t.progress == 100 && t.canGoBack }
+            scenario.onActivity {
+                t.goBack()
+                assertTrue("back slides", t.swipe.active && t.swipe.direction == HistorySwipe.BACK && !t.swipe.covering)
+                t.goBack() // during the slide: nothing
+            }
+            waitFor("back on b2") { t.url.endsWith("/b2") && t.progress == 100 }
+            waitFor("the slide to end") { !t.swipe.active }
+            SystemClock.sleep(1000)
+            scenario.onActivity { assertTrue("went further back: ${t.url}", t.url.endsWith("/b2") && t.canGoForward) }
+            scenario.onActivity {
+                t.goForward()
+                assertTrue("forward slides", t.swipe.active && t.swipe.direction == HistorySwipe.FORWARD)
+            }
+            waitFor("forward on b3") { t.url.endsWith("/b3") && t.progress == 100 && !t.swipe.active }
         }
     }
 
