@@ -21,9 +21,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -56,8 +58,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -119,6 +123,21 @@ private const val LIFT_CLOSES = 0.3f
 private const val TITLE_ROOM = 68f
 private const val TITLE_GAP = 24f
 private const val CARD_DROP = 40f
+/**
+ * The scrub handle under the cards, in dp: the strip you grab, how far under the reflection it
+ * sits, the longest its track gets, its knob, and the bottom buttons' row it stays above.
+ */
+private const val HANDLE_HEIGHT = 48f
+private const val HANDLE_GAP = 8f
+private const val HANDLE_TRACK = 280f
+private const val KNOB_WIDTH = 64f
+private const val KNOB_HEIGHT = 16f
+private const val BUTTONS = 56f
+/** The handle pulled less than this share of the way doesn't move the cards: a finger resting on it. */
+private const val SCRUB_DEAD = 0.12f
+/** Cards a second the handle moves just past that, and pulled all the way. */
+private const val SCRUB_SLOW = 1.5f
+private const val SCRUB_FAST = 12f
 
 /**
  * Where the cards go in a window [width] x [height] px, for pages [aspect] (height / width) tall.
@@ -136,6 +155,11 @@ data class CoverFlowLayout(
     val sideGap: Float,
     /** Above the middle card, for its title and site. */
     val titleRoom: Float,
+    /** The middle of the scrub handle's strip, under the reflection, and its width. */
+    val handleY: Float,
+    val handleWidth: Float,
+    /** How far the handle's knob goes either way from the middle. */
+    val maxPull: Float,
 ) {
     /** A drag across this much moves one card: a card's width, so a swipe doesn't run past the next one. */
     val perCard get() = cardWidth
@@ -147,8 +171,11 @@ data class CoverFlowLayout(
     }
 
     companion object {
-        /** [density] as in DisplayMetrics, for the title's room. */
-        fun of(width: Float, height: Float, aspect: Float, density: Float): CoverFlowLayout {
+        /**
+         * [density] as in DisplayMetrics, for the title's room. [navBottom] is the navigation
+         * bar's height, which the bottom buttons sit on; the handle stays above them.
+         */
+        fun of(width: Float, height: Float, aspect: Float, density: Float, navBottom: Float = 0f): CoverFlowLayout {
             val title = TITLE_ROOM * density
             // Narrow (a phone, the Fold's cover screen): over half the width. Wide (the Fold open,
             // landscape): less, so more cards show at the sides. Never so tall that the title
@@ -156,7 +183,15 @@ data class CoverFlowLayout(
             // down, by a little over half its room.
             val h = min(height * 0.46f, height * 0.54f - title)
             val w = min(width * if (width > height) 0.42f else 0.58f, h / aspect)
-            return CoverFlowLayout(w, w * aspect, width / 2, height * 0.42f + CARD_DROP * density, w * 0.62f, w * 0.2f, title)
+            val y = height * 0.42f + CARD_DROP * density
+            // Just under the reflection, where it fades out; on a low screen (the cover screen
+            // turned sideways) over its faded end, so it stays above the buttons.
+            val handleY = min(
+                y + w * aspect * (0.5f + REFLECTION) + (HANDLE_GAP + HANDLE_HEIGHT / 2) * density,
+                height - navBottom - (BUTTONS + HANDLE_HEIGHT / 2) * density,
+            )
+            val track = min(width * 0.7f, HANDLE_TRACK * density)
+            return CoverFlowLayout(w, w * aspect, width / 2, y, w * 0.62f, w * 0.2f, title, handleY, track, max((track - KNOB_WIDTH * density) / 2, 1f))
         }
     }
 }
@@ -165,8 +200,10 @@ data class CoverFlowLayout(
  * The open tabs as Cover Flow: each tab a picture of its page, the one in the middle facing you
  * and the others turned towards it on either side, standing on a black floor that reflects them.
  * Drag or fling sideways to flip through; tap a card at the side to bring it to the middle, and
- * the middle one to open it; push it up (or its ✕) to close it. Each card that comes to the
- * middle ticks, as a picker wheel does, and a card pushed up buzzes once it is far enough to close.
+ * the middle one to open it; push it up (or its ✕) to close it. Or hold the handle under the
+ * cards pulled to one side: the cards keep moving that way, faster the further it is pulled, and
+ * settle on a card when it springs back. Each card that comes to the middle ticks, as a picker
+ * wheel does, and a card pushed up buzzes once it is far enough to close.
  *
  * It is drawn over the browser screen: opening it, the page shrinks into its card; opening a
  * tab, the card grows back into the page, over that tab's live WebView, then this goes away.
@@ -192,6 +229,10 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
     // The middle card pushed up to close it.
     val lift = remember { Motion(0f, scope) }
     var liftId by remember { mutableLongStateOf(-1L) }
+    // The scrub handle's knob, pulled from the middle (px), and what moves the cards while it is held.
+    val knob = remember { Motion(0f, scope) }
+    var scrub by remember { mutableStateOf<Job?>(null) }
+    var scrubTo by remember { mutableStateOf(ScrubTarget()) }
     var leaving by remember { mutableStateOf(false) }
     @Suppress("UNUSED_VARIABLE") val pictures = TabPreviews.version // recompose when a picture comes in
 
@@ -326,7 +367,8 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
         val height = constraints.maxHeight.toFloat()
         val page = if (pageBounds.width > 0f && pageBounds.height > 0f) pageBounds else Rect(0f, 0f, width, height)
         val dens = LocalDensity.current
-        val layout = remember(width, height, page.width, page.height, dens.density) { CoverFlowLayout.of(width, height, page.height / page.width, dens.density) }
+        val navBottom = WindowInsets.navigationBars.getBottom(dens).toFloat()
+        val layout = remember(width, height, page.width, page.height, dens.density, navBottom) { CoverFlowLayout.of(width, height, page.height / page.width, dens.density, navBottom) }
         val cardW = with(dens) { layout.cardWidth.toDp() }
         val cardH = with(dens) { layout.cardHeight.toDp() }
         val reflH = cardH * REFLECTION
@@ -506,6 +548,80 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
             }
             TextButton(onClick = ::back, enabled = !leaving) { Text("Done", color = Color.White) }
         }
+
+        // The scrub handle: held pulled to one side, it moves the cards that way, every frame,
+        // at the speed scrubRate gives for how far it is pulled.
+        val scrubs = count > 1 && !leaving
+        LaunchedEffect(scrubs) {
+            if (!scrubs) {
+                scrub?.cancel()
+                scrub = null
+                knob.set(0f)
+            }
+        }
+        val pull = rememberDraggableState { dx -> knob.set((knob.value + dx).coerceIn(-layout.maxPull, layout.maxPull)) }
+        ScrubHandle(
+            modifier = Modifier
+                .offset { IntOffset(((width - layout.handleWidth) / 2).roundToInt(), (layout.handleY - HANDLE_HEIGHT / 2 * density).roundToInt()) }
+                .size(with(dens) { layout.handleWidth.toDp() }, HANDLE_HEIGHT.dp)
+                .graphicsLayer { alpha = if (count > 1) 1f - zoom.value else 0f }
+                .semantics { contentDescription = "Tab scrubber: hold it pulled left or right to move through the tabs" }
+                .draggable(
+                    pull,
+                    Orientation.Horizontal,
+                    enabled = scrubs,
+                    onDragStarted = {
+                        val to = ScrubTarget().also { scrubTo = it }
+                        scrub?.cancel()
+                        scrub = scope.launch {
+                            var last = withFrameNanos { it }
+                            while (!leaving) {
+                                val now = withFrameNanos { it }
+                                val rate = scrubRate(knob.value / layout.maxPull)
+                                to.moving(scroll.value, rate)
+                                // A long frame (a page drawing behind) doesn't jump several cards.
+                                val dt = min((now - last) / 1e9f, 0.05f)
+                                last = now
+                                if (rate != 0f) scroll.set((scroll.value + rate * dt).coerceIn(0f, (tabs.tabs.size - 1).toFloat()))
+                            }
+                        }
+                    },
+                    onDragStopped = {
+                        scrub?.cancel()
+                        scrub = null
+                        val rate = scrubRate(knob.value / layout.maxPull)
+                        knob.animateTo(0f, spring(dampingRatio = 0.55f, stiffness = 600f))
+                        if (!leaving && tabs.tabs.isNotEmpty()) {
+                            val to = scrubTo.settle(scroll.value).coerceIn(0, tabs.tabs.lastIndex)
+                            scroll.animateTo(to.toFloat(), spring(dampingRatio = 0.85f, stiffness = 260f), velocity = rate.coerceIn(-4f, 4f))
+                        }
+                    },
+                ),
+            pull = { knob.value / layout.maxPull },
+            maxPull = layout.maxPull,
+        )
+    }
+}
+
+/**
+ * A faint track with a plain, muted grey knob in its middle: [pull] is how far the knob is
+ * pulled, -1 (all the way left) to 1, [maxPull] that far in px. Thin to look at; the strip you
+ * grab is taller.
+ */
+@Composable
+private fun ScrubHandle(modifier: Modifier, pull: () -> Float, maxPull: Float) {
+    Canvas(modifier) {
+        val mid = Offset(size.width / 2, size.height / 2)
+        val knob = Size(KNOB_WIDTH.dp.toPx(), KNOB_HEIGHT.dp.toPx())
+        val trackH = knob.height + 4.dp.toPx()
+        drawRoundRect(
+            Color.White.copy(alpha = 0.1f),
+            topLeft = Offset(0f, mid.y - trackH / 2),
+            size = Size(size.width, trackH),
+            cornerRadius = CornerRadius(trackH / 2),
+        )
+        val at = Offset(mid.x + pull() * maxPull - knob.width / 2, mid.y - knob.height / 2)
+        drawRoundRect(Color(0xFF7A7A7A), topLeft = at, size = knob, cornerRadius = CornerRadius(knob.height / 2))
     }
 }
 
@@ -662,6 +778,44 @@ fun settleOn(at: Float, velocity: Float): Int = when {
     abs(velocity) < 1f -> at.roundToInt()
     velocity > 0f -> floor(at).toInt() + 1 + min((velocity / 8f).toInt(), 3)
     else -> ceil(at).toInt() - 1 - min((-velocity / 8f).toInt(), 3)
+}
+
+/**
+ * How fast the scrub handle pulled [pull] of the way (-1 left … 1 right) moves the cards, in
+ * cards a second, positive towards the cards on the right: none while barely pulled, then
+ * faster the further, slowly at first so a short pull goes card by card. (A touch screen doesn't
+ * tell how hard a finger presses, so how far it pulls stands in for how hard.)
+ */
+fun scrubRate(pull: Float): Float {
+    val a = abs(pull).coerceAtMost(1f)
+    if (a < SCRUB_DEAD) return 0f
+    val t = (a - SCRUB_DEAD) / (1f - SCRUB_DEAD)
+    return sign(pull) * (SCRUB_SLOW + (SCRUB_FAST - SCRUB_SLOW) * t * t)
+}
+
+/**
+ * Which card the cards settle on when the scrub handle is let go: on the way they were moving,
+ * to the card ahead unless one has only just come to the middle. And at least one card on from
+ * where they started that way, so a short tug moves exactly one.
+ */
+class ScrubTarget {
+    private var dir = 0
+    private var next = 0
+
+    /** The cards are at [at], moving at [rate] (from scrubRate). */
+    fun moving(at: Float, rate: Float) {
+        val d = sign(rate).toInt()
+        if (d == 0 || d == dir) return
+        dir = d
+        next = if (d > 0) floor(at).toInt() + 1 else ceil(at).toInt() - 1
+    }
+
+    /** Let go at [at]. The caller keeps it within the tabs. */
+    fun settle(at: Float): Int = when {
+        dir > 0 -> max(ceil(at - 0.2f).toInt(), next)
+        dir < 0 -> min(floor(at + 0.2f).toInt(), next)
+        else -> at.roundToInt()
+    }
 }
 
 /**
