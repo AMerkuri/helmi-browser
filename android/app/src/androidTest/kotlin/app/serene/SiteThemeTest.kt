@@ -117,9 +117,8 @@ class SiteThemeTest {
                 scenario.onActivity { tab = it.tabs.current }
                 InstrumentationRegistry.getInstrumentation().runOnMainSync {
                     app.settings.dimPictures = true
-                    app.settings.dimLevel = Settings.DIM_LEVEL_DEFAULT
-                    // The emulator's screen brightness would make the level its own.
-                    app.settings.dimFollowsBrightness = false
+                    // Strong: the drawing's white is clearly dimmer on screen.
+                    app.settings.dimStrength = DimStrength.STRONG
                 }
                 setTheme(app, ThemeMode.DARK, darkSites = true)
                 load(tab!!, "http://127.0.0.1:${server.localPort}/light.html", "Serene light page")
@@ -144,7 +143,7 @@ class SiteThemeTest {
                     app.settings.darkSites = true
                     app.settings.resetDarkSite(SITE)
                     app.settings.dimPictures = true
-                    app.settings.dimFollowsBrightness = true
+                    app.settings.dimStrength = DimStrength.LIGHT
                 }
                 server.close()
             }
@@ -158,7 +157,7 @@ class SiteThemeTest {
      */
     private fun expectDimmed(tab: Tab, where: String, dimmed: Boolean, wait: Boolean = true) {
         val end = SystemClock.uptimeMillis() + if (wait) 15_000 else 0
-        val filter = if (dimmed) "brightness(${Settings.DIM_LEVEL_DEFAULT / 100.0})" else "none"
+        val filter = if (dimmed) "brightness(${DimStrength.STRONG.percent / 100.0})" else "none"
         var wrong: List<String>
         do {
             if (wait) SystemClock.sleep(250)

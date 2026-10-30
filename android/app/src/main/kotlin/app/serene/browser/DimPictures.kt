@@ -1,17 +1,7 @@
 package app.serene.browser
 
-import android.content.Context
-import android.database.ContentObserver
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings.System as SystemSettings
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import app.serene.Settings
 import org.json.JSONObject
-import kotlin.math.pow
-import kotlin.math.roundToInt
 
 /**
  * Settings › Theme › "Dim pictures": in the dark theme, a white picture (a chart, a photo on a
@@ -29,8 +19,8 @@ import kotlin.math.roundToInt
  * or restyled, before the next paint. An element with much text of its own is a part of the page
  * with a backdrop, not a picture, and stays as it is (a filter would dim its text too).
  */
-fun dimPicturesScript(s: Settings, screen: Float?): String {
-    val level = dimLevel(s, screen)
+fun dimPicturesScript(s: Settings): String {
+    val level = if (s.dimPictures) s.dimStrength.percent / 100.0 else 1.0
     val choices = JSONObject(s.darkSiteChoices as Map<*, *>)
     return """(() => {
         const key = Symbol.for('serene.dimPictures');
@@ -87,39 +77,4 @@ fun dimPicturesScript(s: Settings, screen: Float?): String {
             if (e.target === document || e.target instanceof HTMLLinkElement) add(document.documentElement, true);
         }, true);
     })();"""
-}
-
-/**
- * CSS brightness() for pictures: the setting's level, or, following the screen brightness, a level
- * from the brightness slider's position alone: [Settings.DIM_LEVEL_MIN] at its lowest,
- * [Settings.DIM_LEVEL_MAX] at its highest, in between along the slider. In 5 % steps.
- */
-fun dimLevel(s: Settings, screen: Float?) = dimLevel(s.dimPictures, s.dimLevel, s.dimFollowsBrightness, screen)
-
-fun dimLevel(on: Boolean, percent: Int, followsScreen: Boolean, screen: Float?): Double {
-    if (!on) return 1.0
-    if (!followsScreen || screen == null) return percent / 100.0
-    // The brightness slider is about perceptual: its position is the value to the power 1/2.2.
-    val slider = screen.toDouble().coerceIn(0.0, 1.0).pow(1 / 2.2)
-    val percentNow = Settings.DIM_LEVEL_MIN + (Settings.DIM_LEVEL_MAX - Settings.DIM_LEVEL_MIN) * slider
-    return (percentNow / 5).roundToInt() * 5 / 100.0
-}
-
-/** The screen brightness setting, 0 to 1, as it changes; null when the phone doesn't say. */
-class ScreenBrightness(private val context: Context) {
-    var value by mutableStateOf(read())
-        private set
-
-    init {
-        context.contentResolver.registerContentObserver(
-            SystemSettings.getUriFor(SystemSettings.SCREEN_BRIGHTNESS), false,
-            object : ContentObserver(Handler(Looper.getMainLooper())) {
-                override fun onChange(selfChange: Boolean) { value = read() }
-            },
-        )
-    }
-
-    private fun read(): Float? = runCatching {
-        SystemSettings.getInt(context.contentResolver, SystemSettings.SCREEN_BRIGHTNESS) / 255f
-    }.getOrNull()?.coerceIn(0f, 1f)
 }

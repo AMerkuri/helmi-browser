@@ -13,7 +13,6 @@ class Settings(context: Context) {
 
     private fun bool(key: String, default: Boolean) = Pref(key, prefs.getBoolean(key, default)) { putBoolean(key, it) }
     private fun string(key: String, default: String) = Pref(key, prefs.getString(key, default) ?: default) { putString(key, it) }
-    private fun int(key: String, default: Int) = Pref(key, prefs.getInt(key, default)) { putInt(key, it) }
     private fun stringSet(key: String) = Pref(key, prefs.getStringSet(key, emptySet())!!.toSet()) { putStringSet(key, it) }
 
     private inner class Pref<T>(val key: String, initial: T, val write: android.content.SharedPreferences.Editor.(T) -> Unit) {
@@ -82,13 +81,11 @@ class Settings(context: Context) {
     /** In the dark theme, dim the pictures of the sites it darkens ([darkSite]). */
     var dimPictures: Boolean get() = dimPicturesPref.state; set(v) = dimPicturesPref.set(v)
 
-    private val dimFollowsBrightnessPref = bool("dim_pictures_follow_brightness", true)
-    /** Take the dimming level from the screen brightness (dimLevel in browser/DimPictures.kt), not [dimLevel]. */
-    var dimFollowsBrightness: Boolean get() = dimFollowsBrightnessPref.state; set(v) = dimFollowsBrightnessPref.set(v)
-
-    private val dimLevelPref = int("dim_pictures_level", DIM_LEVEL_DEFAULT)
-    /** How bright a dimmed picture stays, in percent (CSS brightness()), unless [dimFollowsBrightness]. */
-    var dimLevel: Int get() = dimLevelPref.state; set(v) = dimLevelPref.set(v.coerceIn(DIM_LEVEL_MIN, DIM_LEVEL_MAX))
+    private val dimStrengthPref = string("dim_pictures_strength", DimStrength.LIGHT.name)
+    /** How much [dimPictures] dims. */
+    var dimStrength: DimStrength
+        get() = runCatching { DimStrength.valueOf(dimStrengthPref.state) }.getOrDefault(DimStrength.LIGHT)
+        set(v) = dimStrengthPref.set(v.name)
 
     // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
     // lists added to the defaults later reach them too).
@@ -133,18 +130,19 @@ class Settings(context: Context) {
     var modelDownloadId: Long
         get() = prefs.getLong("model_download_id", -1)
         set(v) = prefs.edit { putLong("model_download_id", v) }
-
-    companion object {
-        const val DIM_LEVEL_MIN = 30
-        const val DIM_LEVEL_MAX = 90
-        const val DIM_LEVEL_DEFAULT = 70
-    }
 }
 
 enum class ThemeMode(val label: String) {
     SYSTEM("System default"),
     LIGHT("Light"),
     DARK("Dark"),
+}
+
+/** Settings › Theme › "Dim pictures": how bright a picture stays, in percent (CSS brightness()). */
+enum class DimStrength(val label: String, val percent: Int) {
+    LIGHT("Light", 90),
+    MEDIUM("Medium", 80),
+    STRONG("Strong", 70),
 }
 
 enum class SearchEngine(val label: String, val template: String) {

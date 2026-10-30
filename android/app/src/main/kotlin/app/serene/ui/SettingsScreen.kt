@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,7 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,22 +57,20 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
+import app.serene.DimStrength
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
 import app.serene.SereneApp
-import app.serene.Settings
 import app.serene.engine.FilterLists
 import app.serene.ThemeMode
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
-import app.serene.browser.dimLevel
 import app.serene.model.ModelState
 import app.serene.model.NpuBenchmark
 import app.serene.report.NpuRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,30 +154,15 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             ) { s.darkSites = it }
             SwitchRow(
                 "Dim pictures",
-                "In the dark theme, pictures on darkened sites are shown dimmer, so white ones don't glare at night. Their colors stay.",
+                "In the dark theme, pictures on darkened sites are shown dimmer, so white ones don't glare at night. Their colors stay. " +
+                    DimStrength.entries.joinToString(", ", postfix = " brightness.") { "${it.label.lowercase()} ${it.percent}%" }.replaceFirstChar { it.uppercase() },
                 s.dimPictures, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.dimPictures = it }
             if (s.dimPictures && s.theme != ThemeMode.LIGHT) {
-                val screen = app.brightness.value
-                SwitchRow(
-                    "Follow screen brightness",
-                    "Sets the brightness below from the screen's: ${Settings.DIM_LEVEL_MIN}% at the lowest screen brightness, ${Settings.DIM_LEVEL_MAX}% at the highest." +
-                        (screen?.let { " Screen brightness now: ${(it * 100).roundToInt()}%." } ?: ""),
-                    s.dimFollowsBrightness,
-                ) { s.dimFollowsBrightness = it }
-                // Following the screen, the slider shows the level it gives now and can't be moved.
-                val following = s.dimFollowsBrightness && screen != null
-                val shown = if (following) (dimLevel(s, screen) * 100).roundToInt() else s.dimLevel
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Brightness $shown%", Modifier.width(120.dp).alpha(if (following) 0.5f else 1f))
-                    Slider(
-                        value = shown.toFloat(),
-                        onValueChange = { s.dimLevel = (it / 10).roundToInt() * 10 },
-                        enabled = !following,
-                        valueRange = Settings.DIM_LEVEL_MIN.toFloat()..Settings.DIM_LEVEL_MAX.toFloat(),
-                        steps = if (following) 0 else (Settings.DIM_LEVEL_MAX - Settings.DIM_LEVEL_MIN) / 10 - 1,
-                        modifier = Modifier.weight(1f),
-                    )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DimStrength.entries.forEach { d ->
+                        FilterChip(selected = s.dimStrength == d, onClick = { s.dimStrength = d }, label = { Text(d.label) })
+                    }
                 }
             }
             // Sites switched in ⋮ › Dark theme; X puts one back on the setting above.
