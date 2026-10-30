@@ -44,7 +44,7 @@ import kotlin.math.sign
 /** A drag across this share of the width turns the cube a whole face: a thumb's short sweep on the bar is enough. */
 private const val SPAN = 0.5f
 /** A turn past this share of a face goes on to the next tab when let go; less turns back. */
-private const val COMMIT = 0.15f
+private const val COMMIT = 0.2f
 /** With no tab that way, the cube gives this much of the drag and turns back. */
 private const val RESIST = 0.15f
 /** How dark a face gets as it turns away, edge on. */

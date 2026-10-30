@@ -107,7 +107,7 @@ class TabCubeTest {
                 SystemClock.sleep(1000)
                 assertPage(scenario, "after the turn back to green", "green")
 
-                // A short drag (under 7.5% of the width) turns back.
+                // A short drag (under 10% of the width) turns back.
                 drag(scenario, from = 0.5f, by = 0.05f)
                 SystemClock.sleep(1000)
                 assertEquals("green", current(scenario))
