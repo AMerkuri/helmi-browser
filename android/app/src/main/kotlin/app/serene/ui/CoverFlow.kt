@@ -604,8 +604,9 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
 }
 
 /**
- * A faint track with a plain knob in its middle: [pull] is how far the knob is pulled, -1 (all
- * the way left) to 1, [maxPull] that far in px. Thin to look at; the strip you grab is taller.
+ * A faint track with a plain, muted grey knob in its middle: [pull] is how far the knob is
+ * pulled, -1 (all the way left) to 1, [maxPull] that far in px. Thin to look at; the strip you
+ * grab is taller.
  */
 @Composable
 private fun ScrubHandle(modifier: Modifier, pull: () -> Float, maxPull: Float) {
@@ -620,7 +621,7 @@ private fun ScrubHandle(modifier: Modifier, pull: () -> Float, maxPull: Float) {
             cornerRadius = CornerRadius(trackH / 2),
         )
         val at = Offset(mid.x + pull() * maxPull - knob.width / 2, mid.y - knob.height / 2)
-        drawRoundRect(Color.White.copy(alpha = 0.85f), topLeft = at, size = knob, cornerRadius = CornerRadius(knob.height / 2))
+        drawRoundRect(Color(0xFF7A7A7A), topLeft = at, size = knob, cornerRadius = CornerRadius(knob.height / 2))
     }
 }
 
