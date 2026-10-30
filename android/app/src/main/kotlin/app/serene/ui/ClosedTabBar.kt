@@ -23,23 +23,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import app.serene.Haptics
+import app.serene.Threshold
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
 
 /**
  * The "Closed …" bar with Undo, as Chrome draws it: in the app's own colours (the default
- * snackbar is the inverse, a light bar on the dark theme), and swiped sideways to dismiss.
+ * snackbar is the inverse, a light bar on the dark theme), and swiped sideways to dismiss: it
+ * buzzes once dragged far enough to go.
  */
 @Composable
 fun ClosedTabBar(data: SnackbarData) {
     var dx by remember(data) { mutableFloatStateOf(0f) }
     var width by remember { mutableIntStateOf(0) }
     val fling = with(LocalDensity.current) { 800.dp.toPx() }
-    val drag = rememberDraggableState { dx += it }
+    val view = LocalView.current
+    val goes = remember(data) { Threshold { Haptics.threshold(view, it) } }
+    val drag = rememberDraggableState {
+        dx += it
+        goes.update(abs(dx) > width / 3f)
+    }
     val colors = MaterialTheme.colorScheme
     Snackbar(
         modifier = Modifier
@@ -51,6 +60,7 @@ fun ClosedTabBar(data: SnackbarData) {
                 drag,
                 Orientation.Horizontal,
                 onDragStopped = { velocity ->
+                    goes.set()
                     // Past a third of its width, or flung, it goes off that side; else it springs back.
                     val off = abs(dx) > width / 3f || abs(velocity) > fling
                     if (off) {

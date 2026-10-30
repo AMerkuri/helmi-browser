@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.animation.doOnEnd
+import app.serene.Haptics
+import app.serene.Threshold
 import kotlin.math.abs
 
 /**
@@ -20,7 +22,8 @@ import kotlin.math.abs
  *
  * Driven by the in-page swipe ([SereneWebView]) and by Android's back gesture (predictive back,
  * in BrowserScreen). The screen draws the layers from [direction], [progress] and [target]; the
- * WebView itself is moved here, with translationX.
+ * WebView itself is moved here, with translationX. The in-page swipe buzzes as it crosses the
+ * point where letting go goes to the page; Android's back gesture has its own.
  */
 class HistorySwipe(private val tab: Tab) {
     /** [BACK], [FORWARD], or 0 when no swipe is on. */
@@ -53,9 +56,11 @@ class HistorySwipe(private val tab: Tab) {
     val active get() = direction != 0
 
     private var animator: ValueAnimator? = null
+    private val commit = Threshold { Haptics.threshold(tab.webView, it) }
+    private var haptics = false
 
-    /** Starts a swipe if the tab has a page that way. */
-    fun start(dir: Int, fromRight: Boolean): Boolean {
+    /** Starts a swipe if the tab has a page that way. [haptics]: false for Android's back gesture, which buzzes itself. */
+    fun start(dir: Int, fromRight: Boolean, haptics: Boolean = true): Boolean {
         if (active || width <= 0f) return false
         val list = tab.webView.copyBackForwardList()
         val item = list.getItemAtIndex(list.currentIndex + dir) ?: return false
@@ -65,6 +70,8 @@ class HistorySwipe(private val tab: Tab) {
         targetLabel = item.title?.takeIf { it.isNotBlank() } ?: android.net.Uri.parse(item.url).host ?: item.url
         covering = false
         coverAlpha = 1f
+        this.haptics = haptics
+        commit.set()
         set(0f)
         return true
     }
@@ -74,13 +81,14 @@ class HistorySwipe(private val tab: Tab) {
         if (!active || covering) return
         animator?.cancel()
         set(dx * fingerSign / width)
+        if (haptics) commit.update(progress > COMMIT)
     }
 
     /** The finger let go at [velocityX] px/s: go on to the page or slide back. */
     fun release(velocityX: Float) {
         if (!active || covering) return
         val v = velocityX * fingerSign
-        finish(commit = if (abs(v) > flingVelocity) v > 0 else progress > 0.35f)
+        finish(commit = if (abs(v) > flingVelocity) v > 0 else progress > COMMIT)
     }
 
     fun cancel() = finish(commit = false)
@@ -184,6 +192,8 @@ class HistorySwipe(private val tab: Tab) {
         const val BACK = -1
         const val FORWARD = 1
         private const val PARALLAX = 0.3f
+        /** Let go past this share of the width, the swipe goes on to the page; less slides back. */
+        private const val COMMIT = 0.35f
         // As dark as Chrome's: the page coming in starts at about a third of its brightness and
         // brightens as it comes in (measured from Chrome screenshots on the Fold).
         private const val SCRIM = 0.64f
