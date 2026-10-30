@@ -66,7 +66,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -132,7 +131,7 @@ private const val HANDLE_HEIGHT = 48f
 private const val HANDLE_GAP = 8f
 private const val HANDLE_TRACK = 280f
 private const val KNOB_WIDTH = 64f
-private const val KNOB_HEIGHT = 32f
+private const val KNOB_HEIGHT = 16f
 private const val BUTTONS = 56f
 /** The handle pulled less than this share of the way doesn't move the cards: a finger resting on it. */
 private const val SCRUB_DEAD = 0.12f
@@ -605,39 +604,23 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
 }
 
 /**
- * A track with a knob in its middle: [pull] is how far the knob is pulled, -1 (all the way left)
- * to 1, [maxPull] that far in px. The arrow at the end it is pulled towards lights up.
+ * A faint track with a plain knob in its middle: [pull] is how far the knob is pulled, -1 (all
+ * the way left) to 1, [maxPull] that far in px. Thin to look at; the strip you grab is taller.
  */
 @Composable
 private fun ScrubHandle(modifier: Modifier, pull: () -> Float, maxPull: Float) {
     Canvas(modifier) {
-        val p = pull()
         val mid = Offset(size.width / 2, size.height / 2)
         val knob = Size(KNOB_WIDTH.dp.toPx(), KNOB_HEIGHT.dp.toPx())
-        val trackH = knob.height + 8.dp.toPx()
+        val trackH = knob.height + 4.dp.toPx()
         drawRoundRect(
-            Color.White.copy(alpha = 0.12f),
+            Color.White.copy(alpha = 0.1f),
             topLeft = Offset(0f, mid.y - trackH / 2),
             size = Size(size.width, trackH),
             cornerRadius = CornerRadius(trackH / 2),
         )
-        // ‹ and › at the ends.
-        val arm = 6.dp.toPx()
-        val stroke = 2.dp.toPx()
-        for (side in listOf(-1f, 1f)) {
-            val tip = Offset(mid.x + side * (size.width / 2 - 14.dp.toPx()), mid.y)
-            val c = Color.White.copy(alpha = 0.35f + 0.65f * (p * side).coerceIn(0f, 1f))
-            drawLine(c, tip, Offset(tip.x - side * arm, tip.y - arm), stroke, StrokeCap.Round)
-            drawLine(c, tip, Offset(tip.x - side * arm, tip.y + arm), stroke, StrokeCap.Round)
-        }
-        val at = Offset(mid.x + p * maxPull - knob.width / 2, mid.y - knob.height / 2)
-        drawRoundRect(Color.White.copy(alpha = 0.9f), topLeft = at, size = knob, cornerRadius = CornerRadius(knob.height / 2))
-        // Grip lines.
-        val grip = 5.dp.toPx()
-        for (k in -1..1) {
-            val x = at.x + knob.width / 2 + k * grip
-            drawLine(Color.Black.copy(alpha = 0.35f), Offset(x, mid.y - grip), Offset(x, mid.y + grip), stroke / 1.5f, StrokeCap.Round)
-        }
+        val at = Offset(mid.x + pull() * maxPull - knob.width / 2, mid.y - knob.height / 2)
+        drawRoundRect(Color.White.copy(alpha = 0.85f), topLeft = at, size = knob, cornerRadius = CornerRadius(knob.height / 2))
     }
 }
 
