@@ -34,7 +34,7 @@ object Snapshots {
 
     /**
      * The picture is one flat colour: a page that drew nothing but its background (WebView's
-     * back/forward cache can bring a page back like that). Such a picture is no picture of the page.
+     * back/forward cache can leave a page like that). Such a picture is no picture of the page.
      * A grid of points, leaving out the right edge, where the scrollbar is.
      */
     fun isFlat(bitmap: Bitmap): Boolean {

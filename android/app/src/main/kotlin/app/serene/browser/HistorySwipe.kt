@@ -10,9 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.core.animation.doOnEnd
 import kotlin.math.abs
 
-/** How far [dir] steps from [index] go in a history of [size] pages: never past either end. */
-fun historyStep(index: Int, size: Int, dir: Int) = (index + dir).coerceIn(0, (size - 1).coerceAtLeast(0)) - index
-
 /**
  * Swiping between pages of a tab's history, as Safari does. Going back, the page slides away
  * with the finger and the previous page shows underneath, coming in from a little to the side.
@@ -59,8 +56,7 @@ class HistorySwipe(private val tab: Tab) {
 
     /** Starts a swipe if the tab has a page that way. */
     fun start(dir: Int, fromRight: Boolean): Boolean {
-        // A step from the bottom bar still on its way: the page under the finger is about to change.
-        if (active || width <= 0f || tab.stepping) return false
+        if (active || width <= 0f) return false
         val list = tab.webView.copyBackForwardList()
         val item = list.getItemAtIndex(list.currentIndex + dir) ?: return false
         direction = dir

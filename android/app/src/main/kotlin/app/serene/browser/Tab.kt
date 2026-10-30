@@ -307,7 +307,6 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                     version++
                 }
                 // It is on screen as it was left: nothing to wait for.
-                restoredStep = true
                 painting = false
                 docLoading = false
                 shown()
@@ -362,7 +361,6 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     fun load(input: String) {
-        queuedSteps = 0
         val target = app.settings.searchEngine.let { resolveInput(input, it.template) }
         snapshot()
         webView.loadUrl(target)
@@ -396,87 +394,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     fun goBack() { snapshot(); go(BACK) }
     fun goForward() { snapshot(); go(HistorySwipe.FORWARD) }
 
-    /**
-     * One step through the history: [BACK] or [HistorySwipe.FORWARD]. A step asked for while the
-     * last one's page has not drawn yet waits for it, and the steps asked for meanwhile add up:
-     * WebView's back/forward cache left a page drawing nothing but its background, for good, when
-     * the next step started while it was being restored (quick taps on back and forward, err.ee).
-     */
-    fun go(dir: Int) {
-        if (stepping) queuedSteps += dir else step(dir)
-    }
-
-    /** A history step is on its way: its page has not drawn yet. */
-    var stepping = false
-        private set
-    private var queuedSteps = 0
-    private var stepSeq = 0
-    private val stepTimeout = Runnable { endStep(stepSeq) }
-
-    private fun step(dir: Int) {
-        val list = webView.copyBackForwardList()
-        val by = historyStep(list.currentIndex, list.size, dir)
-        if (by == 0) return
-        stepping = true
-        val seq = ++stepSeq
-        main.removeCallbacks(stepTimeout)
-        main.postDelayed(stepTimeout, STEP_MS)
-        main.removeCallbacks(drawnCheck)
-        restoredStep = false
-        // Drawn: the page the step went to has had a frame since it committed.
-        stepCommitted = if (WebViewFeature.isFeatureSupported(WebViewFeature.VISUAL_STATE_CALLBACK)) {
-            { WebViewCompat.postVisualStateCallback(webView, 0) { main.post { endStep(seq) } } }
-        } else null
-        webView.goBackOrForward(by)
-    }
-
-    // Requests the frame that ends the step once the step has committed (doUpdateVisitedHistory).
-    private var stepCommitted: (() -> Unit)? = null
-    // The step's page came back from the back/forward cache.
-    private var restoredStep = false
-
-    private fun endStep(seq: Int) {
-        if (!stepping || seq != stepSeq) return
-        stepping = false
-        stepCommitted = null
-        main.removeCallbacks(stepTimeout)
-        val n = queuedSteps
-        queuedSteps = 0
-        if (n != 0) step(n) else main.postDelayed(drawnCheck, 500)
-    }
-
-    private val drawnCheck = Runnable { if (restoredStep) checkDrawn() }
-
-    /**
-     * A page back from the back/forward cache that draws only its background is reloaded. It had
-     * content when it was left: it has a snapshot, and flat snapshots are not kept. Once per step,
-     * once nothing covers the page.
-     */
-    private fun checkDrawn(tries: Int = 0) {
-        if (destroyed || stepping || !backForwardCache) return
-        if (swipe.active || pull.active || TabPreviews.covered || !webView.isShown) {
-            if (tries < 10) main.postDelayed({ checkDrawn(tries + 1) }, 300)
-            return
-        }
-        val window = activityOf(webView.context)?.window ?: return
-        val list = webView.copyBackForwardList()
-        val item = list.currentItem ?: return
-        val index = list.currentIndex
-        if (Snapshots.get(id, index, item.url) == null || webView.width == 0 || webView.height == 0) return
-        val xy = IntArray(2).also { webView.getLocationInWindow(it) }
-        val bmp = Bitmap.createBitmap((webView.width / 8).coerceAtLeast(2), (webView.height / 8).coerceAtLeast(2), Bitmap.Config.ARGB_8888)
-        try {
-            PixelCopy.request(window, Rect(xy[0], xy[1], xy[0] + webView.width, xy[1] + webView.height), bmp, { result ->
-                val now = webView.copyBackForwardList()
-                if (result != PixelCopy.SUCCESS || destroyed || stepping || now.currentIndex != index || now.currentItem?.url != item.url) return@request
-                if (!Snapshots.isFlat(bmp)) return@request
-                Log.w(TAG, "back from the back/forward cache with nothing drawn: reloading ${item.url}")
-                current?.note("back from the back/forward cache with nothing drawn: loaded again")
-                webView.reload()
-            }, main)
-        } catch (e: IllegalArgumentException) { // window not attached to a surface yet
-        }
-    }
+    /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
+    fun go(dir: Int) { if (webView.canGoBackOrForward(dir)) webView.goBackOrForward(dir) }
 
     @Volatile private var destroyed = false
 
@@ -564,7 +483,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     fun snapshot() {
         if (!backForwardCache) return
-        if (destroyed || swipe.active || pull.active || painting || stepping || TabPreviews.covered || !webView.isAttachedToWindow) return
+        if (destroyed || swipe.active || pull.active || painting || TabPreviews.covered || !webView.isAttachedToWindow) return
         val w = webView.width
         val h = webView.height
         if (w == 0 || h == 0) return
@@ -577,7 +496,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         try {
             PixelCopy.request(window, Rect(xy[0], xy[1], xy[0] + w, xy[1] + h), bmp, { result ->
                 // A swipe that started meanwhile may be in the picture.
-                // A page that drew nothing (see checkDrawn) would turn every swipe to it blank.
+                // A page the cache brought back blank (see Settings.backForwardCache) would make every swipe to it blank.
                 if (result == PixelCopy.SUCCESS && !swipe.active && !destroyed && !Snapshots.isFlat(bmp)) Snapshots.put(id, index, Snapshot(item.url, bmp))
             }, main)
         } catch (e: IllegalArgumentException) { // window not attached to a surface yet
@@ -649,7 +568,6 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
         override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) {
             updateNav(pageUrl)
-            stepCommitted?.let { stepCommitted = null; it() }
             // A same-document step (#hash, history.pushState; single-page sites) has no load to
             // wait for, only the page's own redraw. A new document's load is waited for.
             main.postDelayed({ if (!docLoading) whenSettled() }, 50)
@@ -724,9 +642,6 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     companion object {
         private const val TAG = "SereneTab"
-        // Longest a history step waits for its page to draw before the next one goes.
-        private const val STEP_MS = 1000L
-
         private var script: String? = null
         val documentStartSupported: Boolean
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
