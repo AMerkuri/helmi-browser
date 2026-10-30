@@ -302,11 +302,8 @@ private fun Face(tab: Tab, image: ImageBitmap?, app: SereneApp, modifier: Modifi
     val preview = TabPreviews.get(tab)
     val shown = image ?: remember(preview) { preview?.asImageBitmap() }
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-        when {
-            shown != null -> Canvas(Modifier.fillMaxSize()) { drawCover(shown) }
-            tab.url.isEmpty() || tab.url == "about:blank" -> StartPage(app)
-            else -> TitleCard(tab)
-        }
+        if (shown != null) Canvas(Modifier.fillMaxSize()) { drawCover(shown) }
+        else PageFallback(tab) { StartPage(app) }
         Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black, alpha = shade()) })
     }
 }
