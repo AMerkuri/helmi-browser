@@ -154,8 +154,8 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 s.darkSites, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.darkSites = it }
             SwitchRow(
-                "Dim bright pictures",
-                "In the dark theme, pictures much brighter than the dark page around them, such as charts on white, are dimmed. Their colors stay.",
+                "Dim pictures",
+                "In the dark theme, pictures on darkened sites are shown dimmer, so white ones don't glare at night. Their colors stay.",
                 s.dimPictures, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.dimPictures = it }
             if (s.dimPictures && s.theme != ThemeMode.LIGHT) {

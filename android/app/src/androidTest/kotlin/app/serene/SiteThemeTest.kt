@@ -51,7 +51,7 @@ class SiteThemeTest {
             try {
                 var tab: Tab? = null
                 scenario.onActivity { tab = it.tabs.current }
-                // Dimming bright pictures has its own test below; here pictures keep their colors.
+                // Dimming pictures has its own test below; here pictures keep their colors.
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.dimPictures = false }
                 load(tab!!, "http://127.0.0.1:${server.localPort}/light.html", "Serene light page")
 
@@ -95,12 +95,12 @@ class SiteThemeTest {
     }
 
     /**
-     * Settings › Theme › "Dim bright pictures": on a darkened page the drawing (mostly white) is
-     * dimmed and the photo is not. A light page (light theme, or the site's dark theme off) keeps
-     * both as they are, and so does the setting off.
+     * Settings › Theme › "Dim pictures": on a darkened page both pictures are dimmed, from their
+     * first paint (no waiting needed after the load). A light page (light theme, or the site's dark
+     * theme off) keeps them as they are, and so does the setting off.
      */
     @Test
-    fun dimsBrightPictures() {
+    fun dimsPictures() {
         assumeTrue("the app's night mode needs API 31", Build.VERSION.SDK_INT >= 31)
         assumeTrue("WebView without algorithmic darkening", WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING))
         assumeTrue("WebView without document-start scripts", WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
@@ -120,20 +120,21 @@ class SiteThemeTest {
                 }
                 setTheme(app, ThemeMode.DARK, darkSites = true)
                 load(tab!!, "http://127.0.0.1:${server.localPort}/light.html", "Serene light page")
-                expectDimmed(tab!!, "dark page", drawing = true)
+                expectDimmed(tab!!, "dark page, as it loads", dimmed = true, wait = false)
+                expectDimmed(tab!!, "dark page", dimmed = true)
 
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.dimPictures = false }
-                expectDimmed(tab!!, "setting off", drawing = false)
+                expectDimmed(tab!!, "setting off", dimmed = false)
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.dimPictures = true }
-                expectDimmed(tab!!, "setting back on", drawing = true)
+                expectDimmed(tab!!, "setting back on", dimmed = true)
 
                 setDarkSite(app, SITE, false)
-                expectDimmed(tab!!, "the site's dark theme off", drawing = false)
+                expectDimmed(tab!!, "the site's dark theme off", dimmed = false)
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { app.settings.resetDarkSite(SITE) }
-                expectDimmed(tab!!, "the site back on the setting", drawing = true)
+                expectDimmed(tab!!, "the site back on the setting", dimmed = true)
 
                 setTheme(app, ThemeMode.LIGHT, darkSites = true)
-                expectDimmed(tab!!, "light theme", drawing = false)
+                expectDimmed(tab!!, "light theme", dimmed = false)
             } finally {
                 InstrumentationRegistry.getInstrumentation().runOnMainSync {
                     app.settings.theme = ThemeMode.SYSTEM
@@ -147,16 +148,20 @@ class SiteThemeTest {
         assertTrue(failures.joinToString("\n"), failures.isEmpty())
     }
 
-    /** Waits up to 15 s for the drawing to be dimmed (or not); the photo never is. */
-    private fun expectDimmed(tab: Tab, where: String, drawing: Boolean) {
-        val end = SystemClock.uptimeMillis() + 15_000
+    /**
+     * Waits up to 15 s for both pictures to be dimmed (or not), on screen too. With [wait] false
+     * checks their style once: the page has just loaded, and they are dimmed from the start.
+     */
+    private fun expectDimmed(tab: Tab, where: String, dimmed: Boolean, wait: Boolean = true) {
+        val end = SystemClock.uptimeMillis() + if (wait) 15_000 else 0
+        val filter = if (dimmed) "brightness(${Settings.DIM_LEVEL_DEFAULT / 100.0})" else "none"
         var wrong: List<String>
         do {
-            SystemClock.sleep(250)
+            if (wait) SystemClock.sleep(250)
             wrong = buildList {
-                val dimmed = evaluate(tab, "[...document.images].map(i => i.hasAttribute('data-serene-dim')).join()")
-                if (dimmed != "\"false,$drawing\"") add("dimmed photo,drawing: $dimmed")
-                if (drawing) {
+                val filters = evaluate(tab, "[...document.images].map(i => getComputedStyle(i).filter).join()")
+                if (filters != "\"$filter,$filter\"") add("filters of photo,drawing: $filters")
+                if (dimmed && wait) {
                     val screen = screenshot()
                     if (screen == null) { add("no screenshot"); return@buildList }
                     val origin = IntArray(2)

@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import app.serene.browser.HistorySwipe.Companion.BACK
 import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.ScriptHandler
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
@@ -123,10 +124,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     // Follows the Settings flags while the tab is open.
     private val flags: Job
 
-    private val pictures = BrightPictures(webView, app.settings, main, { activityOf(webView.context)?.window }) {
-        !destroyed && !swipe.active && !pull.active && !painting && !TabPreviews.covered
-    }
-    private val resetPictures = Runnable { pictures.reset() }
+    // Settings › Theme › "Dim pictures", for the documents to come.
+    private var dimScript: ScriptHandler? = null
 
     init {
         with(webView.settings) {
@@ -159,8 +158,15 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                     if (!it) Snapshots.clear(id)
                 }
             }
+            // Dimming and its level, and where it applies: the sites the dark theme darkens.
             launch {
-                snapshotFlow { app.settings.dimPictures to app.settings.dimLevel }.collect { pictures.reset() }
+                snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
+                    if (documentStartSupported) {
+                        dimScript?.remove()
+                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
+                    }
+                    webView.evaluateJavascript(js, null)
+                }
             }
             // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
             snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
@@ -268,10 +274,6 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 onDocMessage(data)
                 return@addWebMessageListener
             }
-            if (isMainFrame && data.startsWith("{\"type\":\"serene-pics\"")) {
-                main.post { pictures.onMessage(data, reply) }
-                return@addWebMessageListener
-            }
             val frame = object : FrameRef {
                 override val isTop = isMainFrame
                 override fun send(json: String) {
@@ -292,7 +294,6 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, BrightPictures.JS, setOf("*"))
         }
     }
 
@@ -360,10 +361,6 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         val on = app.settings.darkSite(siteOf(url))
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, !on)
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
-        // Dimmed pictures were judged in the old theme. The page's prefers-color-scheme listener
-        // doesn't always hear the change, so look again once the page has the new theme.
-        main.removeCallbacks(resetPictures)
-        main.postDelayed(resetPictures, 1000)
     }
 
     /**
@@ -374,11 +371,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     private fun setDarkening(on: Boolean) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
-        if (WebSettingsCompat.isAlgorithmicDarkeningAllowed(webView.settings) != on) {
-            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
-            // The page around the pictures went dark or light.
-            pictures.reset()
-        }
+        if (WebSettingsCompat.isAlgorithmicDarkeningAllowed(webView.settings) != on) WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
     }
 
     fun load(input: String) {
@@ -571,6 +564,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // Old WebViews without DOCUMENT_START_SCRIPT: best effort, may lose the race.
             if (!documentStartSupported) {
                 view.evaluateJavascript(KEEP_PICTURES, null)
+                view.evaluateJavascript(dimPicturesScript(app.settings), null)
                 view.evaluateJavascript(contentScript(view.context), null)
             }
         }
@@ -707,8 +701,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         /**
          * Darkening a page leaves its pictures as they are. WebView would invert the ones it takes
          * for icons or drawings (few colors: logos, diagrams, scans); `color-scheme: only light`
-         * opts an element out of forced darkening, and does nothing otherwise. Bright ones are
-         * dimmed instead (BrightPictures).
+         * opts an element out of forced darkening, and does nothing otherwise. They are dimmed
+         * instead, if the user wants (dimPicturesScript).
          */
         private const val KEEP_PICTURES = """(() => {
             try {

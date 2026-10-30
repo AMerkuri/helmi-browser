@@ -79,7 +79,7 @@ class Settings(context: Context) {
     fun resetDarkSite(site: String) = setDarkSite(site, darkSites)
 
     private val dimPicturesPref = bool("dim_pictures", true)
-    /** In the dark theme, dim pictures that are much brighter than the dark page around them. */
+    /** In the dark theme, dim the pictures of the sites it darkens ([darkSite]). */
     var dimPictures: Boolean get() = dimPicturesPref.state; set(v) = dimPicturesPref.set(v)
 
     private val dimLevelPref = int("dim_pictures_level", DIM_LEVEL_DEFAULT)
@@ -133,7 +133,7 @@ class Settings(context: Context) {
     companion object {
         const val DIM_LEVEL_MIN = 30
         const val DIM_LEVEL_MAX = 90
-        const val DIM_LEVEL_DEFAULT = 60
+        const val DIM_LEVEL_DEFAULT = 70
     }
 }
 
