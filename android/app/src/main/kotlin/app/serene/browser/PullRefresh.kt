@@ -9,11 +9,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.serene.Haptics
+import app.serene.Threshold
 import kotlin.math.exp
 
 /**
  * Pull down at the top of a page to reload it. The indicator comes down with the finger, slower
- * the further it goes, and reloads past [trigger]; it spins until the page has loaded.
+ * the further it goes, and reloads past [trigger] (a buzz as it gets there, and as it goes back
+ * under); it spins until the page has loaded.
  * Driven by [SereneWebView]; drawn by the screen from [distance] and [refreshing].
  */
 class PullRefresh(private val tab: Tab) {
@@ -30,11 +33,13 @@ class PullRefresh(private val tab: Tab) {
 
     private var animator: ValueAnimator? = null
     private var since = 0L
+    private val reloads = Threshold { Haptics.threshold(tab.webView, it) }
     private val main = Handler(Looper.getMainLooper())
 
     fun start(): Boolean {
         if (active || trigger <= 0f || tab.swipe.active) return false
         animator?.cancel()
+        reloads.set()
         return true
     }
 
@@ -43,6 +48,7 @@ class PullRefresh(private val tab: Tab) {
         // Resistance: the indicator follows the finger at first, then less and less.
         val max = trigger * 1.6f
         distance = if (dy <= 0f) 0f else max * (1 - exp(-dy / max))
+        reloads.update(distance >= trigger)
     }
 
     fun release() {

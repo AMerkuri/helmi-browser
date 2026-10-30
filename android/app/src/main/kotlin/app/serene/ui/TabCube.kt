@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
+import android.view.View
 import android.view.Window
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
@@ -30,7 +31,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import app.serene.Haptics
 import app.serene.SereneApp
+import app.serene.Threshold
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
@@ -61,6 +64,9 @@ private const val CAMERA = 2f
  * The faces are pictures: the current page is taken (PixelCopy) as the drag starts, and the tab
  * turned to shows its tab switcher picture ([TabPreviews]), or its start page or title. Once the
  * turn ends, that face covers the tab's page until its WebView has drawn, then fades into it.
+ *
+ * The drag buzzes as it passes the point where letting go turns to the tab beside, and as it
+ * comes back under it; with no tab that way, it never gets there.
  */
 class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
     /** How far the cube has turned: 0 is the tab the drag started on, 1 the next one, -1 the one before. */
@@ -99,6 +105,9 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
     // Whether the cube counts in TabPreviews.covered now.
     private var covers = false
     private val main = Handler(Looper.getMainLooper())
+    // The window's view, for the buzz.
+    private var view: View? = null
+    private val commit = Threshold { on -> view?.let { Haptics.threshold(it, on) } }
 
     /** The tab [dir] (1 or -1) from the one the drag started on, if there is one. */
     fun beside(dir: Int): Tab? {
@@ -111,6 +120,7 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
      * During a turn the finger takes the cube where it is, so tabs can be flicked through quickly.
      */
     fun start(window: Window?) {
+        view = window?.decorView
         if (from != null) return resume()
         val tab = tabs.current
         if (tab == null || width <= 0f || window == null || tab.swipe.active || tab.pull.active) return
@@ -118,6 +128,7 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         dragging = true
         dx = 0f
         turn = 0f
+        commit.set()
         // Its card in the switcher, as it is now: leaving the tab under the cube would take the cube.
         TabPreviews.capture(tab)
         copy(window, bounds) { bmp ->
@@ -156,6 +167,7 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         dragging = true
         val back = if (beside(turn.sign.toInt()) == null) RESIST else 1f
         dx = -turn * width * SPAN / back
+        commit.set(turns())
     }
 
     /** The finger moved [delta] px sideways. */
@@ -165,7 +177,11 @@ class TabCube(private val tabs: TabManager, private val scope: CoroutineScope) {
         var t = -dx / (width * SPAN)
         if (beside(t.sign.toInt()) == null) t *= RESIST
         turn = t.coerceIn(-1f, 1f)
+        commit.update(turns())
     }
+
+    /** Let go now, the cube would turn on to the tab beside. */
+    private fun turns() = abs(turn) > COMMIT && beside(turn.sign.toInt()) != null
 
     /** The finger let go at [velocity] px/s: on to the tab beside, or back. */
     fun release(velocity: Float) {

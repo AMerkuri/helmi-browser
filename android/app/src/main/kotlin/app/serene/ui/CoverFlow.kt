@@ -53,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -83,8 +84,10 @@ import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import app.serene.Haptics
 import app.serene.R
 import app.serene.SereneApp
+import app.serene.Threshold
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
@@ -107,6 +110,8 @@ private const val SIDE_ANGLE = 65f
 private const val SIDE_SCALE = 0.85f
 /** The reflection under each card, as a share of the card's height. */
 private const val REFLECTION = 0.3f
+/** The middle card pushed up this share of its height closes when let go. */
+private const val LIFT_CLOSES = 0.3f
 /**
  * Room above the middle card for its tab's title and site, in dp, the gap between them and the
  * card, and how far the card sits lower than it would without them.
@@ -160,7 +165,8 @@ data class CoverFlowLayout(
  * The open tabs as Cover Flow: each tab a picture of its page, the one in the middle facing you
  * and the others turned towards it on either side, standing on a black floor that reflects them.
  * Drag or fling sideways to flip through; tap a card at the side to bring it to the middle, and
- * the middle one to open it; push it up (or its ✕) to close it.
+ * the middle one to open it; push it up (or its ✕) to close it. Each card that comes to the
+ * middle ticks, as a picker wheel does, and a card pushed up buzzes once it is far enough to close.
  *
  * It is drawn over the browser screen: opening it, the page shrinks into its card; opening a
  * tab, the card grows back into the page, over that tab's live WebView, then this goes away.
@@ -201,9 +207,22 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
         zoom.animateTo(0f, tween(380, easing = FastOutSlowInEasing))
     }
 
-    // Light status and navigation bar icons on the black, the theme's again on the way out.
     val window = LocalActivity.current?.window
     val view = LocalView.current
+    // A tick for each card that comes to the middle. Not while a card flies there to open: that
+    // is no longer the user flipping through.
+    LaunchedEffect(Unit) {
+        var last = tabs.currentIndex
+        snapshotFlow { scroll.value.roundToInt() }.collect { i ->
+            // Past either end (the flow giving way) is no card.
+            if (i !in tabs.tabs.indices || i == last) return@collect
+            last = i
+            if (!leaving) Haptics.tick(view)
+        }
+    }
+    val liftCloses = remember { Threshold { Haptics.threshold(view, it) } }
+
+    // Light status and navigation bar icons on the black, the theme's again on the way out.
     val dark by remember { derivedStateOf { zoom.value < 0.5f } }
     // Again after a configuration change (folding, unfolding): the activity resets the icons then.
     DisposableEffect(dark, window, LocalConfiguration.current) {
@@ -417,12 +436,19 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
                         },
                         onClose = { close(tab) },
                         onLift = { dy ->
-                            if (liftId == -1L && abs(i - scroll.value) < 0.5f && !leaving) liftId = tab.id
-                            if (liftId == tab.id) lift.set(min(0f, lift.value + dy))
+                            if (liftId == -1L && abs(i - scroll.value) < 0.5f && !leaving) {
+                                liftId = tab.id
+                                liftCloses.set()
+                            }
+                            if (liftId == tab.id) {
+                                lift.set(min(0f, lift.value + dy))
+                                liftCloses.update(lift.value < -layout.cardHeight * LIFT_CLOSES)
+                            }
                         },
                         onLiftEnd = { velocity ->
                             if (liftId == tab.id) {
-                                if (lift.value < -layout.cardHeight * 0.3f || velocity < -1500f) close(tab)
+                                liftCloses.set()
+                                if (lift.value < -layout.cardHeight * LIFT_CLOSES || velocity < -1500f) close(tab)
                                 else scope.launch { lift.animateTo(0f, spring()).join(); if (lift.value == 0f) liftId = -1L }
                             }
                         },
