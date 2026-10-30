@@ -163,17 +163,21 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 val screen = app.brightness.value
                 SwitchRow(
                     "Follow screen brightness",
-                    "Dim pictures as much as below on a dim screen, less as the screen gets brighter, not at all on a bright one." +
-                        (screen?.let { " Screen brightness now: ${(it * 100).roundToInt()}%, pictures at ${(dimLevel(s, it) * 100).roundToInt()}%." } ?: ""),
+                    "Dims pictures the most on a dim screen, less as the screen gets brighter, not at all on a bright one." +
+                        (screen?.let { " Screen brightness now: ${(it * 100).roundToInt()}%." } ?: ""),
                     s.dimFollowsBrightness,
                 ) { s.dimFollowsBrightness = it }
+                // Following the screen, the slider shows the level it gives now and can't be moved.
+                val following = s.dimFollowsBrightness && screen != null
+                val shown = if (following) (dimLevel(s, screen) * 100).roundToInt() else s.dimLevel
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Brightness ${s.dimLevel}%", Modifier.width(120.dp))
+                    Text("Brightness $shown%", Modifier.width(120.dp).alpha(if (following) 0.5f else 1f))
                     Slider(
-                        value = s.dimLevel.toFloat(),
+                        value = shown.toFloat(),
                         onValueChange = { s.dimLevel = (it / 10).roundToInt() * 10 },
-                        valueRange = Settings.DIM_LEVEL_MIN.toFloat()..Settings.DIM_LEVEL_MAX.toFloat(),
-                        steps = (Settings.DIM_LEVEL_MAX - Settings.DIM_LEVEL_MIN) / 10 - 1,
+                        enabled = !following,
+                        valueRange = Settings.DIM_LEVEL_MIN.toFloat()..(if (following) 100f else Settings.DIM_LEVEL_MAX.toFloat()),
+                        steps = if (following) 0 else (Settings.DIM_LEVEL_MAX - Settings.DIM_LEVEL_MIN) / 10 - 1,
                         modifier = Modifier.weight(1f),
                     )
                 }
