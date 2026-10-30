@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -38,8 +39,14 @@ interface EngineEvents {
     fun cleared(site: String, label: String) {}
     /** Autoconsent answered a cookie pop-up "no" for the user. */
     fun consentRejected(site: String) {}
-    fun modelCall(ms: Long) {}
+    /** The model labelled an overlay; [acted] when the engine then clicked it away or hid it. */
+    fun modelCall(ms: Long, acted: Boolean) {}
+    /** The user reversed a model verdict: undid what it hid ([wasHidden]), or hid what it left alone. */
+    fun modelOverruled(wasHidden: Boolean) {}
 }
+
+/** Verdict sources that mean the model decided. */
+val MODEL_SOURCES = setOf("llm", "llm-unsure")
 
 /**
  * Host side of the hybrid engine. Port of engine/src/host/engine.mjs: one [PageSession] per tab
@@ -80,7 +87,17 @@ data class CandidateRecord(
     val decidedMs: Long? = null,
     val llmMs: Long? = null,
     val applied: String? = null,
-)
+    /** For a remembered ([cached]) verdict: the source that first made it ("llm", "heuristic", "user-hide", ...). */
+    val ruleSource: String? = null,
+) {
+    /** Who decided: the source, or for a remembered verdict the one that first made it. */
+    val decidedBy: String? get() = if (cached) ruleSource else source
+    val byModel: Boolean get() = decidedBy in MODEL_SOURCES
+    val acted: Boolean get() = action == "click" || action == "hide"
+}
+
+/** A model verdict on this page, for Settings › Flags › Show model decisions. */
+data class ModelNotice(val record: CandidateRecord, val at: Long = System.currentTimeMillis())
 
 /** A request the lists blocked: the rule and the list's title, when the engine knows them. */
 data class BlockedRequest(val url: String, val type: String, val list: String?, val rule: String?)
@@ -112,6 +129,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     private var generichide = false
     private val cleared = ConcurrentHashMap.newKeySet<String>()             // sigs counted, and "cookie_consent" once a banner is
     private val consentCounted = AtomicBoolean(false)
+    private val modelNotices = ConcurrentLinkedQueue<ModelNotice>()
 
     @Volatile var topUrl: String? = null
     @Volatile var enabled = true
@@ -124,7 +142,16 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     fun candidates(): List<CandidateRecord> = records.values.sortedBy { it.id }
 
     /** What the engine acted on: everything that was not left alone. */
-    fun actions(): List<CandidateRecord> = candidates().filter { it.action == "click" || it.action == "hide" || (it.cached && it.action != "ignore") }
+    fun actions(): List<CandidateRecord> = candidates().filter { it.acted || (it.cached && it.action != "ignore") }
+
+    /** Overlays the model looked at and left alone (now or on an earlier visit), once per element. */
+    fun leftByModel(): List<CandidateRecord> = candidates().filter { it.byModel && it.action == "ignore" }.distinctBy { it.features.sig }
+
+    /** Model verdicts made on this page since the last call, at most [maxAgeMs] old (older ones are dropped). */
+    fun takeModelNotices(maxAgeMs: Long = 5_000): List<CandidateRecord> {
+        val now = System.currentTimeMillis()
+        return generateSequence { modelNotices.poll() }.filter { now - it.at <= maxAgeMs }.map { it.record }.toList()
+    }
 
     /** Requests the lists blocked on this page, first to last (the first [MAX_BLOCKED] kept). */
     fun blocked(): List<BlockedRequest> = blocked.toList()
@@ -266,7 +293,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         val cached = msg["cached"]?.jsonPrimitive?.booleanOrNull == true
         if (cached) {
             val rule = e.cache.rulesFor(topUrl ?: f.url).firstOrNull { it.sig == f.sig }
-            update(CandidateRecord(id, f, cached = true, label = rule?.label, action = rule?.action, source = "cache", buttonLabel = rule?.buttonLabel))
+            update(CandidateRecord(id, f, cached = true, label = rule?.label, action = rule?.action, source = "cache", buttonLabel = rule?.buttonLabel, ruleSource = rule?.source))
             if (rule != null && rule.action != "ignore") countCleared(rule.label, f.sig)
             log("candidate #$id ${f.sig}: cached ${rule?.action}")
             return
@@ -302,10 +329,9 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
             v = try {
                 val r = classifier.classify(feats)
                 llmMs = r.ms
-                e.events?.modelCall(r.ms)
                 log("llm #$id: ${r.label}${r.confidence?.let { " p=%.2f".format(it) } ?: ""} ${r.ms} ms ${r.backend}${if (r.invalid) " INVALID: ${r.raw}" else ""}")
                 // The model only names the label; which button to press is the policy's call.
-                Policy.fromModel(r.label, r.confidence, feats, e.policy)
+                Policy.fromModel(r.label, r.confidence, feats, e.policy).also { e.events?.modelCall(r.ms, it.action == "click" || it.action == "hide") }
             } catch (t: Throwable) {
                 log("llm #$id error: ${t.message}")
                 Policy.verdict("content", -1, feats, "llm-error")
@@ -314,7 +340,9 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         v = v.copy(inFrame = inFrame)
         if (v.action == "click" || v.action == "hide") countCleared(v.label, f.sig)
         val decidedMs = (System.nanoTime() - t0) / 1_000_000
-        update(CandidateRecord(id, f, label = v.label, action = v.action, source = v.source, buttonLabel = v.buttonLabel, inFrame = inFrame, decidedMs = decidedMs, llmMs = llmMs))
+        val rec = CandidateRecord(id, f, label = v.label, action = v.action, source = v.source, buttonLabel = v.buttonLabel, inFrame = inFrame, decidedMs = decidedMs, llmMs = llmMs)
+        if (rec.byModel && modelNotices.size < 20) modelNotices += ModelNotice(rec)
+        update(rec)
         log("candidate #$id ${f.sig} → ${v.label}/${v.action} via ${v.source}${v.buttonLabel?.let { " \"$it\"" } ?: ""} in $decidedMs ms")
         frame.send(buildJsonObject {
             put("type", "verdict")
@@ -347,7 +375,34 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     fun undo(rec: CandidateRecord) {
         val url = topUrl ?: rec.features.url
         e.cache.undo(url, rec.features.sig, rec.label?.takeIf { it != "content" })
+        if (rec.byModel && rec.acted) e.events?.modelOverruled(wasHidden = true)
         log("undo ${rec.features.sig}")
+    }
+
+    /**
+     * The user says an overlay left alone is an annoyance after all: hide it on this site from now
+     * on, as the heuristics' kind when they named one (a cookie banner is then still parked for
+     * autoconsent). Undo in the site sheet reverses it.
+     */
+    fun hide(rec: CandidateRecord) {
+        val url = topUrl ?: rec.features.url
+        val label = rec.features.heuristic.label.takeIf { it != "content" } ?: "other"
+        e.cache.put(url, SiteRule(sig = rec.features.sig, label = label, action = "hide", source = "user-hide"))
+        if (rec.byModel) e.events?.modelOverruled(wasHidden = false)
+        log("hide ${rec.features.sig}")
+    }
+
+    /**
+     * Elements the user hid on this site. A remembered hide applies as CSS before the detector sees
+     * the element, so it is never a candidate on a later page: this is how the sheet lists it.
+     */
+    fun hiddenByUser(): List<SiteRule> = topUrl?.let(e.cache::hiddenByUser) ?: emptyList()
+
+    /** Reverse a Hide: drop the rule so the element is judged afresh on the next load. */
+    fun showAgain(rule: SiteRule) {
+        val url = topUrl ?: return
+        e.cache.remove(url, rule.sig)
+        log("show again ${rule.sig}")
     }
 
     /** Elements the user undid on this site, which Helmi leaves alone until hidden again. */

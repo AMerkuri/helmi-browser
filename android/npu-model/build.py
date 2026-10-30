@@ -17,6 +17,7 @@ and a reply stops after the label, and a smaller cache keeps the attention mask 
 where Qualcomm NPUs drop the prefill chunks after the first (LiteRT-LM issue 3508).
 
 Run by .github/workflows/npu-model.yml; locally: python build.py --work /tmp/npu (Linux x86_64).
+--model builds a fine-tuned checkpoint (engine/train/finetune.py) instead of Qwen/Qwen3-0.6B.
 """
 
 import argparse
@@ -37,6 +38,7 @@ def main() -> None:
   ap.add_argument("--work", required=True, help="working directory for the stages")
   ap.add_argument("--cache-length", type=int, default=512)
   ap.add_argument("--stages", default="export,calibrate,quantize,compile")
+  ap.add_argument("--model", default=None, help="Hugging Face id or checkpoint directory (default: the config's Qwen/Qwen3-0.6B)")
   args = ap.parse_args()
   work = pathlib.Path(args.work)
   work.mkdir(parents=True, exist_ok=True)
@@ -45,6 +47,8 @@ def main() -> None:
   config = pathlib.Path(npu_export.__file__).parent / "configs" / "qwen3_0.6b_qualcomm_sm8750.json"
   cfg = NpuPipelineConfig.load_json(str(config))
   cfg.cache_length = args.cache_length
+  if args.model:
+    cfg.model_id = args.model  # the fine-tuned checkpoint from engine/train/finetune.py
   print(cfg)
 
   exported = work / "exported" / "model.litertlm"

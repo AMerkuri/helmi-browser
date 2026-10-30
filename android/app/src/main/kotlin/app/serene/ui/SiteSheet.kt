@@ -54,7 +54,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import app.serene.engine.SiteRule
 
-private val LABELS = mapOf(
+/** What each overlay kind is called in the site sheet and the model note. */
+internal val LABELS = mapOf(
     "cookie_consent" to "Cookie banner",
     "newsletter" to "Newsletter pop-up",
     "notification_prompt" to "Notification prompt",
@@ -64,9 +65,27 @@ private val LABELS = mapOf(
     "chat_widget" to "Chat widget",
     "survey" to "Survey",
     "content" to "Page element",
+    "other" to "Overlay",
 )
 
-private val SOURCES = mapOf("heuristic" to "heuristics", "llm" to "on-device model", "cache" to "remembered", "chrome" to "page chrome")
+private val SOURCES = mapOf(
+    "heuristic" to "heuristics", "llm" to "on-device model", "llm-unsure" to "on-device model, unsure",
+    "cache" to "remembered", "chrome" to "page chrome", "user-hide" to "hidden by you",
+)
+
+/** Who decided a row: a remembered verdict keeps the name of what first made it. */
+private fun sourceName(rec: CandidateRecord): String? =
+    if (rec.cached) rec.ruleSource?.let { "${SOURCES[it] ?: it}, remembered" } ?: "remembered" else SOURCES[rec.source] ?: rec.source
+
+/** Settings › Flags › Show model decisions: one line per model verdict. */
+internal fun modelNote(rec: CandidateRecord): String {
+    val what = when (rec.action) {
+        "click" -> "${LABELS[rec.label] ?: rec.label}, pressed “${rec.buttonLabel ?: "close"}”"
+        "hide" -> "${LABELS[rec.label] ?: rec.label}, hidden"
+        else -> "left this alone: ${rec.features.text.take(40).ifBlank { rec.features.sig }}"
+    }
+    return "Model: $what" + (rec.llmMs?.let { " · %.1f s".format(it / 1000.0) } ?: "")
+}
 
 /** What Serene did on this page (and, a tap away, which lists blocked which requests and who answered its cookie banners), the per-site switch, undo (and hide again), and the report button. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -128,18 +147,34 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                     }
                 }
                 HorizontalDivider()
+                // The model's "content" answers: invisible on the page, so listed here with a way to overrule them.
+                val left = s.leftByModel()
+                if (left.isNotEmpty()) {
+                    Text("Left alone by the on-device model", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
+                    left.forEach { rec -> LeftAloneRow(rec) { s.hide(rec); tab.reload() } }
+                    HorizontalDivider()
+                }
                 // An undo sticks for the site; this is the way back without forgetting everything else.
                 val undone = s.undone()
                 if (undone.isNotEmpty()) {
                     Text("Shown on this site because you pressed Undo", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
-                    undone.forEach { rule -> UndoneRow(rule) { s.hideAgain(rule); tab.reload() } }
+                    undone.forEach { rule -> RuleRow(LABELS[rule.was ?: "content"] ?: rule.was ?: "Page element", rule.sig, "Hide again") { s.hideAgain(rule); tab.reload() } }
+                    HorizontalDivider()
+                }
+                // A Hide sticks for the site too, and the hidden element is no longer a candidate.
+                val hidden = s.hiddenByUser()
+                if (hidden.isNotEmpty()) {
+                    Text("Hidden on this site because you pressed Hide", Modifier.padding(top = 12.dp), style = MaterialTheme.typography.titleSmall)
+                    hidden.forEach { rule -> RuleRow(LABELS[rule.label] ?: rule.label, rule.sig, "Show again") { s.showAgain(rule); tab.reload() } }
                     HorizontalDivider()
                 }
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onReport) { Text("Report missed popup") }
-                if (site != null) OutlinedButton(onClick = { app.engine.cache.clear(site); tab.reload() }) { Text("Forget this site") }
+                // Both close the sheet: the page starts again, and the model's notes (Settings › Flags)
+                // show above the bottom bar, which the sheet would cover.
+                if (site != null) OutlinedButton(onClick = { app.engine.cache.clear(site); tab.reload(); onDismiss() }) { Text("Forget this site") }
             }
             if (site != null) {
                 Spacer(Modifier.height(8.dp))
@@ -148,6 +183,7 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 TextButton(onClick = {
                     app.engine.cache.clear(site, keepUndone = true)
                     SiteData.clear(tab.url) { tab.reload() }
+                    onDismiss()
                 }) { Text("Clear site data and reload") }
                 // The engine's ms-stamped log for this page, to paste into a bug report or a chat.
                 TextButton(onClick = {
@@ -261,7 +297,7 @@ private fun ActionRow(rec: CandidateRecord, onUndo: () -> Unit) {
             }
             Text("${LABELS[rec.label] ?: rec.label ?: "Overlay"}: $what", style = MaterialTheme.typography.bodyMedium)
             Text(
-                listOfNotNull(SOURCES[rec.source] ?: rec.source, rec.features.text.take(60).takeIf { it.isNotBlank() }).joinToString(" · "),
+                listOfNotNull(sourceName(rec), rec.features.text.take(60).takeIf { it.isNotBlank() }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -270,15 +306,32 @@ private fun ActionRow(rec: CandidateRecord, onUndo: () -> Unit) {
 }
 
 @Composable
-private fun UndoneRow(rule: SiteRule, onHideAgain: () -> Unit) {
+private fun LeftAloneRow(rec: CandidateRecord, onHide: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(LABELS[rule.was ?: "content"] ?: rule.was ?: "Page element", style = MaterialTheme.typography.bodyMedium)
             Text(
-                rule.sig, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                rec.features.text.take(80).ifBlank { rec.features.sig }, style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                listOfNotNull(sourceName(rec), rec.llmMs?.let { "%.1f s".format(it / 1000.0) }).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onHide) { Text("Hide") }
+    }
+}
+
+@Composable
+private fun RuleRow(title: String, sig: String, action: String, onAction: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                sig, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(onClick = onHideAgain) { Text("Hide again") }
+        TextButton(onClick = onAction) { Text(action) }
     }
 }

@@ -181,6 +181,11 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 s.backForwardCache && Tab.backForwardCacheSupported,
                 enabled = Tab.backForwardCacheSupported,
             ) { s.backForwardCache = it }
+            SwitchRow(
+                "Show model decisions",
+                "A short message above the bottom bar, like the one after closing a tab, each time the on-device model decides about an overlay on this page: what it hid, with Undo, or what it left alone, with Hide.",
+                s.showModelDecisions,
+            ) { s.showModelDecisions = it }
 
             Section("About")
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)

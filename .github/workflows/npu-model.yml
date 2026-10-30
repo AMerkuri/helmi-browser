@@ -8,6 +8,11 @@ name: npu-model
 # test, and a push trigger also fired whenever a branch merged main or touched this file.
 on:
   workflow_dispatch:
+    inputs:
+      finetune:
+        description: Fine-tune Qwen3-0.6B on engine/train first (about 1.5 hours on the runner)
+        type: boolean
+        default: false
 
 concurrency:
   group: npu-model-${{ github.ref }}
@@ -15,8 +20,10 @@ concurrency:
 
 jobs:
   npu-model:
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
+    # 24.04, not ubuntu-latest: on 26.04 libc++1 (LLVM 22) no longer brings in libunwind.so.1,
+    # and the Qualcomm compiler plugin fails to load without it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
     permissions:
       contents: read
     steps:
@@ -45,6 +52,63 @@ jobs:
             "litert-torch @ git+https://github.com/google-ai-edge/litert-torch.git@c677a8069d63fc86a6d14e11168dfc387fd9357c" \
             ai-edge-litert-sdk-qualcomm-nightly==2.4.0.dev20261024
           python -c "import ai_edge_litert_sdk_qualcomm as q; p = q.path_to_sdk_libs(); print(p); assert p and p.is_dir()"
+      # Optional: a LoRA fine-tune on the hand-written training set (engine/train), merged into a
+      # Hugging Face checkpoint that the export below takes instead of Qwen/Qwen3-0.6B. Cached by
+      # its inputs, so a rebuild of the same model skips the training.
+      - uses: actions/setup-node@v4
+        if: inputs.finetune
+        with:
+          node-version: 22
+      - uses: actions/cache/restore@v4
+        if: inputs.finetune
+        id: finetuned
+        with:
+          path: ${{ runner.temp }}/qwen3-serene
+          key: npu-finetuned-${{ hashFiles('engine/train/**', 'engine/src/host/classifier.mjs', 'android/npu-model/constraints.txt') }}
+      - name: Fine-tune
+        if: inputs.finetune && steps.finetuned.outputs.cache-hit != 'true'
+        run: |
+          pip install -c android/npu-model/constraints.txt peft accelerate
+          node engine/train/make-train.mjs --check
+          node engine/train/make-train.mjs > "$RUNNER_TEMP/train.jsonl"
+          node engine/train/prompts.mjs "$RUNNER_TEMP/train.jsonl" > "$RUNNER_TEMP/train-prompts.jsonl"
+          python engine/train/finetune.py --prompts "$RUNNER_TEMP/train-prompts.jsonl" --out "$RUNNER_TEMP/qwen3-serene"
+      - uses: actions/cache/save@v4
+        if: inputs.finetune && steps.finetuned.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/qwen3-serene
+          key: ${{ steps.finetuned.outputs.cache-primary-key }}
+      - name: Model to build
+        run: echo "MODEL_ARG=${{ inputs.finetune && format('--model {0}/qwen3-serene', runner.temp) || '' }}" >> "$GITHUB_ENV"
+      # The fine-tuned model for the GPU and CPU too, in the two shapes the app offers there: INT8
+      # weights and 4-bit weights in blocks of 32, the recipes of the stock files on Hugging Face
+      # (litert-community/Qwen3-0.6B), with their prefill and cache sizes (litert-torch's defaults)
+      # and their metadata (qwen3-metadata.pbtext: chat template, stop token), because LiteRT-LM
+      # can't apply the template the checkpoint carries. About 6 minutes each.
+      - name: Export for the GPU and CPU
+        if: inputs.finetune
+        run: |
+          out="$RUNNER_TEMP/gpu"
+          for build in dynamic_wi8_afp32:Qwen3-0.6B-helmi.litertlm dynamic_wi4b32_afp32:Qwen3-0.6B-helmi_wi4b32.litertlm; do
+            recipe=${build%%:*}
+            python -m litert_torch.generative.export_hf --model "$RUNNER_TEMP/qwen3-serene" --output_dir "$out/$recipe" \
+              --quantization_recipe "$recipe" --litert_lm_llm_metadata_override "$PWD/android/npu-model/qwen3-metadata.pbtext"
+            mv "$out/$recipe/model.litertlm" "$out/${build#*:}"
+            rm -rf "$out/$recipe"
+          done
+          cd "$out"
+          ls -l
+          sha256sum *.litertlm | tee SHA256SUMS
+          echo "### GPU and CPU models" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: inputs.finetune
+        with:
+          name: gpu-model-${{ github.run_number }}-finetuned
+          path: ${{ runner.temp }}/gpu/
+          retention-days: 30
       # The first three stages take about 20 minutes and depend only on these inputs, so a
       # change to the compile stage reuses the quantized model. Saved before the compile, which
       # is the stage that fails.
@@ -52,10 +116,10 @@ jobs:
         id: quantized
         with:
           path: ${{ runner.temp }}/npu/quantized
-          key: npu-quantized-c677a80-512-${{ hashFiles('android/npu-model/calibration.jsonl', 'android/npu-model/constraints.txt') }}
+          key: npu-quantized-c677a80-512-${{ inputs.finetune && hashFiles('engine/train/**', 'engine/src/host/classifier.mjs') || 'base' }}-${{ hashFiles('android/npu-model/calibration.jsonl', 'android/npu-model/constraints.txt') }}
       - name: Export, calibrate and quantize
         if: steps.quantized.outputs.cache-hit != 'true'
-        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages export,calibrate,quantize
+        run: python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages export,calibrate,quantize $MODEL_ARG
       - uses: actions/cache/save@v4
         if: steps.quantized.outputs.cache-hit != 'true'
         with:
@@ -67,7 +131,7 @@ jobs:
       - name: Compile
         run: |
           pip install --no-deps --target "$RUNNER_TEMP/litert-2.3.0" ai-edge-litert==2.3.0
-          PYTHONPATH="$RUNNER_TEMP/litert-2.3.0" python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages compile
+          PYTHONPATH="$RUNNER_TEMP/litert-2.3.0" python android/npu-model/build.py --work "$RUNNER_TEMP/npu" --stages compile $MODEL_ARG
       - name: Checksum
         run: |
           cd "$RUNNER_TEMP/npu/npu"
@@ -79,6 +143,6 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: npu-model-${{ github.run_number }}
+          name: npu-model-${{ github.run_number }}${{ inputs.finetune && '-finetuned' || '' }}
           path: ${{ runner.temp }}/npu/npu/
           retention-days: 30

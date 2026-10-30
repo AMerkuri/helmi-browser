@@ -1,0 +1,25 @@
+Helmi model benchmark (NPU)
+App 0.1.0-debug build 224 (e4dee27)
+Phone: samsung SM-F966B, Android 17 · QTI SM8750
+Model: Qwen3-0.6B a16w8, compiled for SM8750, imported (780 MB, imported 29 M10 21:24), free reply cut off after the label
+Records: 159
+NPU libraries: libLiteRtCompilerPlugin_Qualcomm.so, libLiteRtDispatch_Qualcomm.so, libQnnHtp.so, libQnnHtpV79Skel.so, libQnnHtpV79Stub.so, libQnnSystem.so
+NPU (loaded in 729 ms, first call 332 ms): median 357 ms, p95 436 ms, first chunk median 146 ms, invalid 0, accuracy 91%, with the header guard 92%, content hidden 3/80
+Memory with the model loaded, over the process without it (PSS, largest sample between calls): +705 MB (native 58 MB, graphics 0 MB)
+The phone's available memory dropped by up to 803 MB
+NPU misses:
+  synthetic/app-banner: app_install → content
+  crawl/medium/div.ac.aj.ak: content → app_install
+  crawl/pinterest/div.box_k.elevation_k.fi: login_wall → app_install
+  crawl/healthline/div#sticky-nav: content → app_install
+  crawl/duckduckgo/div > div: app_install → cookie_consent
+  crawl/hs/article.ab-test-app-down: app_install → content
+  crawl/twitch/div.gvNWWY: content → app_install
+  synthetic/neg-privacy-article: content → cookie_consent
+  synthetic/neg-app-review: content → app_install
+  synthetic/neg-forum-composer: content → chat_widget
+  synthetic/et-notifications: notification_prompt → content
+  synthetic/et-paywall: paywall_teaser → app_install
+  synthetic/survey-et: survey → content
+  synthetic/chat-bot-et: chat_widget → content
+(NPU log lines: only the QnnDsp "Failed to deregister memHandles" errors at teardown, as with the stock build.)

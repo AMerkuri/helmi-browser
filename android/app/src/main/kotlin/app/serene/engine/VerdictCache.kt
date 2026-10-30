@@ -64,6 +64,9 @@ class VerdictCache(private val file: File? = null) {
     /** Elements the user undid on this site. */
     fun undone(url: String): List<SiteRule> = rulesFor(url).filter { it.source == "user" }
 
+    /** Elements the user hid on this site (Hide on one the model left alone). */
+    fun hiddenByUser(url: String): List<SiteRule> = rulesFor(url).filter { it.source == "user-hide" }
+
     /** The user put a cookie banner back with Undo: they answer it themselves on this site, so
      *  neither autoconsent nor a list's scriptlet presses its buttons. */
     fun userAnswersCookies(url: String): Boolean = undone(url).any { it.was == "cookie_consent" }
