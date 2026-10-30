@@ -160,7 +160,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             }
             // Dimming and its level, and where it applies: the sites the dark theme darkens.
             launch {
-                snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
+                snapshotFlow { dimPicturesScript(app.settings, app.brightness.value) }.collect { js ->
                     if (documentStartSupported) {
                         dimScript?.remove()
                         dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
@@ -564,7 +564,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // Old WebViews without DOCUMENT_START_SCRIPT: best effort, may lose the race.
             if (!documentStartSupported) {
                 view.evaluateJavascript(KEEP_PICTURES, null)
-                view.evaluateJavascript(dimPicturesScript(app.settings), null)
+                view.evaluateJavascript(dimPicturesScript(app.settings, app.brightness.value), null)
                 view.evaluateJavascript(contentScript(view.context), null)
             }
         }

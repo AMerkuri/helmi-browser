@@ -65,6 +65,7 @@ import app.serene.engine.FilterLists
 import app.serene.ThemeMode
 import app.serene.browser.SiteData
 import app.serene.browser.Tab
+import app.serene.browser.dimLevel
 import app.serene.model.ModelState
 import app.serene.model.NpuBenchmark
 import app.serene.report.NpuRequest
@@ -159,6 +160,13 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 s.dimPictures, enabled = s.theme != ThemeMode.LIGHT,
             ) { s.dimPictures = it }
             if (s.dimPictures && s.theme != ThemeMode.LIGHT) {
+                val screen = app.brightness.value
+                SwitchRow(
+                    "Follow screen brightness",
+                    "Dim pictures as much as below on a dim screen, less as the screen gets brighter, not at all on a bright one." +
+                        (screen?.let { " Screen brightness now: ${(it * 100).roundToInt()}%, pictures at ${(dimLevel(s, it) * 100).roundToInt()}%." } ?: ""),
+                    s.dimFollowsBrightness,
+                ) { s.dimFollowsBrightness = it }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Brightness ${s.dimLevel}%", Modifier.width(120.dp))
                     Slider(

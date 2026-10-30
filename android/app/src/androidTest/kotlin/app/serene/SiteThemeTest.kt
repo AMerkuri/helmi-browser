@@ -95,9 +95,10 @@ class SiteThemeTest {
     }
 
     /**
-     * Settings › Theme › "Dim pictures": on a darkened page both pictures are dimmed, from their
-     * first paint (no waiting needed after the load). A light page (light theme, or the site's dark
-     * theme off) keeps them as they are, and so does the setting off.
+     * Settings › Theme › "Dim pictures": on a darkened page the pictures are dimmed (a CSS
+     * background picture too), from their first paint (no waiting needed after the load). A light
+     * page (light theme, or the site's dark theme off) keeps them as they are, and so does the
+     * setting off.
      */
     @Test
     fun dimsPictures() {
@@ -105,7 +106,7 @@ class SiteThemeTest {
         assumeTrue("WebView without algorithmic darkening", WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING))
         assumeTrue("WebView without document-start scripts", WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
         val server = serve(
-            "/light.html" to page("Serene light page", "", PICTURES),
+            "/light.html" to page("Serene light page", "", PICTURES + BACKGROUND_PICTURE),
             "/photo.png" to png(photo),
             "/drawing.png" to png(drawing),
         )
@@ -117,6 +118,8 @@ class SiteThemeTest {
                 InstrumentationRegistry.getInstrumentation().runOnMainSync {
                     app.settings.dimPictures = true
                     app.settings.dimLevel = Settings.DIM_LEVEL_DEFAULT
+                    // The emulator's screen brightness would make the level its own.
+                    app.settings.dimFollowsBrightness = false
                 }
                 setTheme(app, ThemeMode.DARK, darkSites = true)
                 load(tab!!, "http://127.0.0.1:${server.localPort}/light.html", "Serene light page")
@@ -141,6 +144,7 @@ class SiteThemeTest {
                     app.settings.darkSites = true
                     app.settings.resetDarkSite(SITE)
                     app.settings.dimPictures = true
+                    app.settings.dimFollowsBrightness = true
                 }
                 server.close()
             }
@@ -159,8 +163,8 @@ class SiteThemeTest {
         do {
             if (wait) SystemClock.sleep(250)
             wrong = buildList {
-                val filters = evaluate(tab, "[...document.images].map(i => getComputedStyle(i).filter).join()")
-                if (filters != "\"$filter,$filter\"") add("filters of photo,drawing: $filters")
+                val filters = evaluate(tab, "[...document.images, document.getElementById('bg')].map(e => getComputedStyle(e).filter).join()")
+                if (filters != "\"$filter,$filter,$filter\"") add("filters of photo,drawing,background picture: $filters")
                 if (dimmed && wait) {
                     val screen = screenshot()
                     if (screen == null) { add("no screenshot"); return@buildList }
@@ -298,6 +302,10 @@ class SiteThemeTest {
         private const val WHITE = Color.WHITE
         private const val DARK = 1 // any dark background: WebView picks the shade
         private const val SITE = "127.0.0.1"
+
+        /** A picture as a CSS background, as techspot's "Featured Today" cards show theirs. */
+        private const val BACKGROUND_PICTURE =
+            "<div id=bg style='position:absolute;left:20px;top:180px;width:100px;height:60px;background:url(drawing.png) center/cover'></div>"
 
         private const val PICTURES =
             "<img src=photo.png style='position:absolute;left:20px;top:60px;width:100px;height:100px'>" +

@@ -1,7 +1,17 @@
 package app.serene.browser
 
+import android.content.Context
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings.System as SystemSettings
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import app.serene.Settings
 import org.json.JSONObject
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /**
  * Settings › Theme › "Dim pictures": in the dark theme, a white picture (a chart, a photo on a
@@ -13,23 +23,104 @@ import org.json.JSONObject
  * darkens sites: the setting, or the site's own choice in ⋮ › Dark theme (the top page's site,
  * also in its frames). The rule sits in `@media (prefers-color-scheme: dark)`, so it follows the
  * app theme as it changes. Run again, it replaces what it added before.
+ *
+ * Pictures are <img> and SVG images, and elements that show a picture as their CSS background
+ * (techspot's "Featured Today" cards): those are found by their computed style as they are added
+ * or restyled, before the next paint. An element with much text of its own is a part of the page
+ * with a backdrop, not a picture, and stays as it is (a filter would dim its text too).
  */
-fun dimPicturesScript(s: Settings): String {
-    val level = if (s.dimPictures) s.dimLevel / 100.0 else 1.0
+fun dimPicturesScript(s: Settings, screen: Float?): String {
+    val level = dimLevel(s, screen)
     val choices = JSONObject(s.darkSiteChoices as Map<*, *>)
     return """(() => {
         const key = Symbol.for('serene.dimPictures');
-        try { document.adoptedStyleSheets = document.adoptedStyleSheets.filter(x => x !== window[key]); } catch (e) {}
+        const st = window[key] || (window[key] = {});
+        try { document.adoptedStyleSheets = document.adoptedStyleSheets.filter(x => x !== st.sheet); } catch (e) {}
+        st.sheet = null;
         const level = $level, sites = $choices;
         let on = ${s.darkSites}, host = location.hostname;
         try { const a = location.ancestorOrigins; if (a && a.length) host = new URL(a[a.length - 1]).hostname; } catch (e) {}
         for (const site in sites) if (host === site || host.endsWith('.' + site)) on = sites[site];
         if (!on || level >= 1) return;
+        const ATTR = 'data-serene-dim-bg';
         try {
             const sheet = new CSSStyleSheet();
-            sheet.replaceSync('@media (prefers-color-scheme: dark) { img, svg image, input[type=image] { filter: brightness(' + level + ') !important; } }');
+            sheet.replaceSync('@media (prefers-color-scheme: dark) { img, svg image, input[type=image], [' + ATTR + '] { filter: brightness(' + level + ') !important; } }');
             document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-            window[key] = sheet;
-        } catch (e) {}
+            st.sheet = sheet;
+        } catch (e) { return; }
+        if (st.watching) return;
+        st.watching = true;
+        const check = (el) => {
+            if (el === document.documentElement || el === document.body || !el.isConnected) return;
+            const pic = getComputedStyle(el).backgroundImage.includes('url(') && el.textContent.length < 300;
+            if (pic !== el.hasAttribute(ATTR)) pic ? el.setAttribute(ATTR, '') : el.removeAttribute(ATTR);
+        };
+        // Elements to look at, with or without what is inside them; looked at before the next paint.
+        const pending = new Map();
+        let queued = false;
+        const flush = () => {
+            queued = false;
+            for (const [el, deep] of pending) {
+                check(el);
+                if (deep) for (const d of el.getElementsByTagName('*')) check(d);
+            }
+            pending.clear();
+        };
+        const add = (el, deep) => {
+            if (!(el instanceof Element)) return;
+            pending.set(el, deep || pending.get(el) || false);
+            if (!queued) { queued = true; requestAnimationFrame(flush); }
+        };
+        new MutationObserver((records) => {
+            for (const r of records) {
+                if (r.type === 'childList') {
+                    // A new style rule can give any element a background: look at them all.
+                    for (const n of r.addedNodes) add(n instanceof HTMLStyleElement ? document.documentElement : n, true);
+                }
+                // A class or style change restyles the element, and maybe a few inside it.
+                else add(r.target, r.target.getElementsByTagName('*').length <= 200);
+            }
+        }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style'] });
+        // So can a stylesheet that loads (one added late too), and the rest of the page loading.
+        addEventListener('load', (e) => {
+            if (e.target === document || e.target instanceof HTMLLinkElement) add(document.documentElement, true);
+        }, true);
     })();"""
+}
+
+/**
+ * CSS brightness() for pictures: the setting's level, or, following the screen brightness, that
+ * level when the screen is dim (the slider in its lowest third) and none when it is bright (the
+ * top third), in between from one to the other. In 5 % steps.
+ */
+fun dimLevel(s: Settings, screen: Float?) = dimLevel(s.dimPictures, s.dimLevel, s.dimFollowsBrightness, screen)
+
+fun dimLevel(on: Boolean, percent: Int, followsScreen: Boolean, screen: Float?): Double {
+    if (!on) return 1.0
+    val strongest = percent / 100.0
+    if (!followsScreen || screen == null) return strongest
+    // The brightness slider is about perceptual: its position is the value to the power 1/2.2.
+    val slider = screen.toDouble().pow(1 / 2.2)
+    val t = ((slider - 0.3) / 0.4).coerceIn(0.0, 1.0)
+    return ((strongest + (1 - strongest) * t) * 20).roundToInt() / 20.0
+}
+
+/** The screen brightness setting, 0 to 1, as it changes; null when the phone doesn't say. */
+class ScreenBrightness(private val context: Context) {
+    var value by mutableStateOf(read())
+        private set
+
+    init {
+        context.contentResolver.registerContentObserver(
+            SystemSettings.getUriFor(SystemSettings.SCREEN_BRIGHTNESS), false,
+            object : ContentObserver(Handler(Looper.getMainLooper())) {
+                override fun onChange(selfChange: Boolean) { value = read() }
+            },
+        )
+    }
+
+    private fun read(): Float? = runCatching {
+        SystemSettings.getInt(context.contentResolver, SystemSettings.SCREEN_BRIGHTNESS) / 255f
+    }.getOrNull()?.coerceIn(0f, 1f)
 }
