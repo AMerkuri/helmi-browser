@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -65,6 +66,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -82,6 +84,7 @@ import androidx.core.view.WindowCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import app.serene.R
+import app.serene.SereneApp
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
@@ -104,6 +107,13 @@ private const val SIDE_ANGLE = 65f
 private const val SIDE_SCALE = 0.85f
 /** The reflection under each card, as a share of the card's height. */
 private const val REFLECTION = 0.3f
+/**
+ * Room above the middle card for its tab's title and site, in dp, the gap between them and the
+ * card, and how far the card sits lower than it would without them.
+ */
+private const val TITLE_ROOM = 68f
+private const val TITLE_GAP = 24f
+private const val CARD_DROP = 40f
 
 /**
  * Where the cards go in a window [width] x [height] px, for pages [aspect] (height / width) tall.
@@ -119,9 +129,11 @@ data class CoverFlowLayout(
     val centerGap: Float,
     /** Between the cards further out, which stack up behind each other. */
     val sideGap: Float,
+    /** Above the middle card, for its title and site. */
+    val titleRoom: Float,
 ) {
-    /** A drag across this much moves one card. */
-    val perCard get() = cardWidth * 0.7f
+    /** A drag across this much moves one card: a card's width, so a swipe doesn't run past the next one. */
+    val perCard get() = cardWidth
 
     /** The horizontal distance from the centre of a card [d] places from the centre one. */
     fun x(d: Float): Float {
@@ -130,12 +142,16 @@ data class CoverFlowLayout(
     }
 
     companion object {
-        fun of(width: Float, height: Float, aspect: Float): CoverFlowLayout {
+        /** [density] as in DisplayMetrics, for the title's room. */
+        fun of(width: Float, height: Float, aspect: Float, density: Float): CoverFlowLayout {
+            val title = TITLE_ROOM * density
             // Narrow (a phone, the Fold's cover screen): over half the width. Wide (the Fold open,
-            // landscape): less, so more cards show at the sides. Never so tall that the reflection
-            // and the title don't fit under it.
-            val w = min(width * if (width > height) 0.42f else 0.58f, height * 0.46f / aspect)
-            return CoverFlowLayout(w, w * aspect, width / 2, height * 0.42f, w * 0.62f, w * 0.2f)
+            // landscape): less, so more cards show at the sides. Never so tall that the title
+            // doesn't fit above it, or the reflection under it. The title above moves the card
+            // down, by a little over half its room.
+            val h = min(height * 0.46f, height * 0.54f - title)
+            val w = min(width * if (width > height) 0.42f else 0.58f, h / aspect)
+            return CoverFlowLayout(w, w * aspect, width / 2, height * 0.42f + CARD_DROP * density, w * 0.62f, w * 0.2f, title)
         }
     }
 }
@@ -148,10 +164,11 @@ data class CoverFlowLayout(
  *
  * It is drawn over the browser screen: opening it, the page shrinks into its card; opening a
  * tab, the card grows back into the page, over that tab's live WebView, then this goes away.
- * [pageBounds] is where the page is, in the root's coordinates.
+ * [pageBounds] is where the page is, in the root's coordinates. A new tab's card is its start
+ * page, drawn at the page's size and shrunk to the card.
  */
 @Composable
-fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
+fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val origin = remember { tabs.current }
     val scroll = remember { Motion(tabs.currentIndex.toFloat(), scope) }
@@ -289,11 +306,13 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
         val width = constraints.maxWidth.toFloat()
         val height = constraints.maxHeight.toFloat()
         val page = if (pageBounds.width > 0f && pageBounds.height > 0f) pageBounds else Rect(0f, 0f, width, height)
-        val layout = remember(width, height, page.width, page.height) { CoverFlowLayout.of(width, height, page.height / page.width) }
         val dens = LocalDensity.current
+        val layout = remember(width, height, page.width, page.height, dens.density) { CoverFlowLayout.of(width, height, page.height / page.width, dens.density) }
         val cardW = with(dens) { layout.cardWidth.toDp() }
         val cardH = with(dens) { layout.cardHeight.toDp() }
         val reflH = cardH * REFLECTION
+        val pageW = with(dens) { page.width.toDp() }
+        val pageH = with(dens) { page.height.toDp() }
         val perCard = layout.perCard
         val count = tabs.tabs.size
         DisposableEffect(layout) {
@@ -329,7 +348,7 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
                 onDragStopped = { velocity ->
                     val v = -velocity / perCard // cards a second
                     val to = settleOn(scroll.value, v).coerceIn(0, tabs.tabs.lastIndex)
-                    scroll.animateTo(to.toFloat(), spring(dampingRatio = 0.85f, stiffness = 260f), velocity = v.coerceIn(-8f, 8f))
+                    scroll.animateTo(to.toFloat(), spring(dampingRatio = 0.85f, stiffness = 260f), velocity = v.coerceIn(-4f, 4f))
                 },
             ),
         ) {
@@ -380,10 +399,13 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
                                 transformOrigin = TransformOrigin(0.5f, 0.5f / (1f + REFLECTION))
                             },
                         picture = TabPreviews.get(tab),
+                        startPage = { StartPage(app, scrolls = false) },
                         zIndex = if (tab.id == zoomId && zoom.value > 0f) 1000f else -abs(i - s),
                         cardW = cardW,
                         cardH = cardH,
                         reflH = reflH,
+                        pageW = pageW,
+                        pageH = pageH,
                         flat = { zoom.value },
                         centered = { abs(i - scroll.value) < 0.5f && !leaving },
                         onTap = {
@@ -409,15 +431,25 @@ fun CoverFlowTabs(tabs: TabManager, pageBounds: Rect, onDone: () -> Unit) {
             }
         }
 
-        // The middle tab's title, as Cover Flow showed the album under its cover.
+        // The middle tab's title, as Cover Flow showed the album's, but above the card: under it,
+        // the thumb flipping through the cards covered it.
         val middle by remember { derivedStateOf { scroll.value.roundToInt().coerceIn(0, (tabs.tabs.size - 1).coerceAtLeast(0)) } }
+        val titleBottom = layout.centerY - layout.cardHeight / 2 - with(dens) { TITLE_GAP.dp.toPx() }
         tabs.tabs.getOrNull(middle)?.let { tab ->
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .offset { IntOffset(0, (layout.centerY + layout.cardHeight * (0.5f + REFLECTION * 0.55f)).roundToInt()) }
+                    // Its last line just above the card, however tall the text is.
+                    .layout { m, c ->
+                        val p = m.measure(c.copy(minHeight = 0))
+                        this.layout(p.width, p.height) { p.place(0, (titleBottom - p.height).roundToInt()) }
+                    }
                     .padding(horizontal = 32.dp)
-                    .graphicsLayer { alpha = (1f - 2f * abs(scroll.value - middle)).coerceIn(0f, 1f) * (1f - zoom.value) },
+                    .graphicsLayer {
+                        // Fades as the card is pushed up over it to close.
+                        val lifted = if (tab.id == liftId) (1f + lift.value / layout.cardHeight).coerceIn(0f, 1f) else 1f
+                        alpha = (1f - 2f * abs(scroll.value - middle)).coerceIn(0f, 1f) * (1f - zoom.value) * lifted
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(cardTitle(tab), color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
@@ -456,10 +488,13 @@ private fun TabCard(
     tab: Tab,
     modifier: Modifier,
     picture: Bitmap?,
+    startPage: @Composable () -> Unit,
     zIndex: Float,
     cardW: androidx.compose.ui.unit.Dp,
     cardH: androidx.compose.ui.unit.Dp,
     reflH: androidx.compose.ui.unit.Dp,
+    pageW: androidx.compose.ui.unit.Dp,
+    pageH: androidx.compose.ui.unit.Dp,
     flat: () -> Float,
     centered: () -> Boolean,
     onTap: () -> Unit,
@@ -468,7 +503,9 @@ private fun TabCard(
     onLiftEnd: suspend (Float) -> Unit,
 ) {
     val image = remember(picture) { picture?.asImageBitmap() }
-    val placeholder = MaterialTheme.colorScheme.surfaceVariant
+    // A blank tab shows the start page, as BrowserScreen does; it has no picture.
+    val blank = image == null && !tab.openedByPage && !tab.downloadPage && (tab.url.isEmpty() || tab.url == "about:blank")
+    val placeholder = if (blank) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
     val lift = rememberDraggableState(onLift)
     Column(
         modifier
@@ -487,7 +524,18 @@ private fun TabCard(
                 .background(placeholder),
         ) {
             if (image != null) Canvas(Modifier.fillMaxSize()) { drawCover(image) }
-            else TitleCard(tab)
+            else if (blank) {
+                // Laid out as on screen, then shrunk to the card, so it is the start page exactly.
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .requiredSize(pageW, pageH)
+                        .graphicsLayer {
+                            scaleX = cardW / pageW
+                            scaleY = cardH / pageH
+                        },
+                ) { startPage() }
+            } else TitleCard(tab)
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
@@ -580,13 +628,14 @@ private class Motion(initial: Float, private val scope: CoroutineScope) {
 
 /**
  * The card a drag let go at [at] with [velocity] (cards a second) settles on. A flick moves one
- * card on, as a pager does; only a fast one goes further, a card for each 6 cards a second,
- * 4 at most. (Projecting the fling's distance skipped several cards on a slight flick.)
+ * card on, as a pager does; only a hard one goes further, a card for each 8 cards a second,
+ * 3 at most. (Projecting the fling's distance skipped several cards on a slight flick; a card
+ * for each 6 a second still skipped one on an ordinary swipe, and 10 took too hard a flick.)
  */
 fun settleOn(at: Float, velocity: Float): Int = when {
     abs(velocity) < 1f -> at.roundToInt()
-    velocity > 0f -> floor(at).toInt() + 1 + min((velocity / 6f).toInt(), 4)
-    else -> ceil(at).toInt() - 1 - min((-velocity / 6f).toInt(), 4)
+    velocity > 0f -> floor(at).toInt() + 1 + min((velocity / 8f).toInt(), 3)
+    else -> ceil(at).toInt() - 1 - min((-velocity / 8f).toInt(), 3)
 }
 
 /**

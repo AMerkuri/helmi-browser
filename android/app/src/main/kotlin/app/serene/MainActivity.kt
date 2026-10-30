@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                         // grows into its page.
                         Screen.Browser, Screen.Tabs -> Box(Modifier.fillMaxSize()) {
                             BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it; tabs.sizeHidden(it.width.toInt(), it.height.toInt()) }, covered = screen == Screen.Tabs)
-                            if (screen == Screen.Tabs) CoverFlowTabs(tabs, pageBounds, onDone = { screen = Screen.Browser })
+                            if (screen == Screen.Tabs) CoverFlowTabs(app, tabs, pageBounds, onDone = { screen = Screen.Browser })
                         }
                         Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
                         Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })

@@ -33,12 +33,15 @@ import app.serene.stats.CATEGORY_NAMES
 import app.serene.stats.Totals
 import java.text.NumberFormat
 
-/** A blank tab: what Helmi is, and the totals of what it has cleared so far. */
+/**
+ * A blank tab: what Helmi is, and the totals of what it has cleared so far. Not [scrolls] on a
+ * tab switcher card, where a drag pushes the card up to close it.
+ */
 @Composable
-fun StartPage(app: SereneApp) {
+fun StartPage(app: SereneApp, scrolls: Boolean = true) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp),
+            Modifier.fillMaxSize().then(if (scrolls) Modifier.verticalScroll(rememberScrollState()) else Modifier).padding(horizontal = 24.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(painterResource(R.drawable.ic_helm), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp))
