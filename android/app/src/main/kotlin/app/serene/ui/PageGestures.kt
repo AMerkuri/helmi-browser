@@ -47,7 +47,7 @@ fun HistoryBackHandler(tab: Tab) {
         try {
             events.collect { e ->
                 if (!started && !swipe.active) {
-                    started = swipe.start(HistorySwipe.BACK, fromRight = e.swipeEdge == BackEventCompat.EDGE_RIGHT)
+                    started = swipe.start(HistorySwipe.BACK, fromRight = e.swipeEdge == BackEventCompat.EDGE_RIGHT, haptics = false)
                     startX = e.touchX
                 }
                 if (started) swipe.drag(e.touchX - startX)
