@@ -11,15 +11,13 @@ class DimLevelTest {
         assertEquals(0.7, dimLevel(true, 70, followsScreen = true, screen = null), 0.0)
     }
 
-    @Test fun followsTheScreen() {
-        // The slider in its lowest third: the level as set; in its top third: not dimmed.
-        assertEquals(0.5, dimLevel(true, 50, true, screen = 0f), 0.0)
-        assertEquals(0.5, dimLevel(true, 50, true, screen = 0.06f), 0.0) // slider ~28 %
-        assertEquals(1.0, dimLevel(true, 50, true, screen = 0.5f), 0.0) // slider ~73 %
-        assertEquals(1.0, dimLevel(true, 50, true, screen = 1f), 0.0)
-        // Halfway on the slider (value ~0.22): halfway between, in 5 % steps.
-        assertEquals(0.75, dimLevel(true, 50, true, screen = 0.5f.toDouble().pow(2.2).toFloat()), 0.0)
+    @Test fun followsTheScreenOnly() {
+        // 30 % at the lowest screen brightness, 90 % at the highest, whatever the level set.
+        assertEquals(0.3, dimLevel(true, 70, true, screen = 0f), 0.0)
+        assertEquals(0.3, dimLevel(true, 50, true, screen = 0f), 0.0)
+        assertEquals(0.9, dimLevel(true, 50, true, screen = 1f), 0.0)
+        // Halfway on the brightness slider (value ~0.22): halfway between.
+        assertEquals(0.6, dimLevel(true, 50, true, screen = Math.pow(0.5, 2.2).toFloat()), 0.0)
+        assertEquals(1.0, dimLevel(false, 50, true, screen = 0f), 0.0)
     }
-
-    private fun Double.pow(x: Double) = Math.pow(this, x)
 }

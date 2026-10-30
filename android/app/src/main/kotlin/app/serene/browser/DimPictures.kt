@@ -90,20 +90,19 @@ fun dimPicturesScript(s: Settings, screen: Float?): String {
 }
 
 /**
- * CSS brightness() for pictures: the setting's level, or, following the screen brightness, that
- * level when the screen is dim (the slider in its lowest third) and none when it is bright (the
- * top third), in between from one to the other. In 5 % steps.
+ * CSS brightness() for pictures: the setting's level, or, following the screen brightness, a level
+ * from the brightness slider's position alone: [Settings.DIM_LEVEL_MIN] at its lowest,
+ * [Settings.DIM_LEVEL_MAX] at its highest, in between along the slider. In 5 % steps.
  */
 fun dimLevel(s: Settings, screen: Float?) = dimLevel(s.dimPictures, s.dimLevel, s.dimFollowsBrightness, screen)
 
 fun dimLevel(on: Boolean, percent: Int, followsScreen: Boolean, screen: Float?): Double {
     if (!on) return 1.0
-    val strongest = percent / 100.0
-    if (!followsScreen || screen == null) return strongest
+    if (!followsScreen || screen == null) return percent / 100.0
     // The brightness slider is about perceptual: its position is the value to the power 1/2.2.
-    val slider = screen.toDouble().pow(1 / 2.2)
-    val t = ((slider - 0.3) / 0.4).coerceIn(0.0, 1.0)
-    return ((strongest + (1 - strongest) * t) * 20).roundToInt() / 20.0
+    val slider = screen.toDouble().coerceIn(0.0, 1.0).pow(1 / 2.2)
+    val percentNow = Settings.DIM_LEVEL_MIN + (Settings.DIM_LEVEL_MAX - Settings.DIM_LEVEL_MIN) * slider
+    return (percentNow / 5).roundToInt() * 5 / 100.0
 }
 
 /** The screen brightness setting, 0 to 1, as it changes; null when the phone doesn't say. */

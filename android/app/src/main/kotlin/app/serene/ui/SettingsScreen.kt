@@ -163,7 +163,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 val screen = app.brightness.value
                 SwitchRow(
                     "Follow screen brightness",
-                    "Dims pictures the most on a dim screen, less as the screen gets brighter, not at all on a bright one." +
+                    "Sets the brightness below from the screen's: ${Settings.DIM_LEVEL_MIN}% at the lowest screen brightness, ${Settings.DIM_LEVEL_MAX}% at the highest." +
                         (screen?.let { " Screen brightness now: ${(it * 100).roundToInt()}%." } ?: ""),
                     s.dimFollowsBrightness,
                 ) { s.dimFollowsBrightness = it }
@@ -176,7 +176,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                         value = shown.toFloat(),
                         onValueChange = { s.dimLevel = (it / 10).roundToInt() * 10 },
                         enabled = !following,
-                        valueRange = Settings.DIM_LEVEL_MIN.toFloat()..(if (following) 100f else Settings.DIM_LEVEL_MAX.toFloat()),
+                        valueRange = Settings.DIM_LEVEL_MIN.toFloat()..Settings.DIM_LEVEL_MAX.toFloat(),
                         steps = if (following) 0 else (Settings.DIM_LEVEL_MAX - Settings.DIM_LEVEL_MIN) / 10 - 1,
                         modifier = Modifier.weight(1f),
                     )

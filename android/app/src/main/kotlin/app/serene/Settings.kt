@@ -83,11 +83,11 @@ class Settings(context: Context) {
     var dimPictures: Boolean get() = dimPicturesPref.state; set(v) = dimPicturesPref.set(v)
 
     private val dimFollowsBrightnessPref = bool("dim_pictures_follow_brightness", true)
-    /** Dim pictures only as much as the screen is dim: [dimLevel] on a dim screen, none on a bright one. */
+    /** Take the dimming level from the screen brightness (dimLevel in browser/DimPictures.kt), not [dimLevel]. */
     var dimFollowsBrightness: Boolean get() = dimFollowsBrightnessPref.state; set(v) = dimFollowsBrightnessPref.set(v)
 
     private val dimLevelPref = int("dim_pictures_level", DIM_LEVEL_DEFAULT)
-    /** How bright a dimmed picture stays, in percent (CSS brightness()); the least, with [dimFollowsBrightness]. */
+    /** How bright a dimmed picture stays, in percent (CSS brightness()), unless [dimFollowsBrightness]. */
     var dimLevel: Int get() = dimLevelPref.state; set(v) = dimLevelPref.set(v.coerceIn(DIM_LEVEL_MIN, DIM_LEVEL_MAX))
 
     // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
