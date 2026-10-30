@@ -58,7 +58,7 @@ object ReaderHtml {
             <style>
             html { -webkit-text-size-adjust: 100%; background: ${css(t.background)}; }
             body { margin: 0; background: ${css(t.background)}; color: ${css(t.text)}; font-family: $font; font-size: ${style.textSize}px; line-height: 1.6; overflow-wrap: break-word; }
-            main { max-width: 34em; margin: 0 auto; padding: 64px 22px 120px; }
+            main { max-width: 34em; margin: 0 auto; padding: 20px 22px 120px; }
             .content { text-align: ${if (style.justify) "justify" else "start"}; hyphens: ${if (style.justify) "auto" else "manual"}; -webkit-hyphens: ${if (style.justify) "auto" else "manual"}; }
             header { margin-bottom: 1.6em; padding-bottom: 1.2em; border-bottom: 1px solid ${css(t.muted)}40; }
             h1.title { font-size: 1.55em; line-height: 1.25; margin: 0 0 .5em; text-align: start; }

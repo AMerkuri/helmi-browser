@@ -73,8 +73,8 @@ import kotlin.math.roundToInt
 /**
  * Reader mode: the page's article alone, in book typography, like an e-reader. A WebView of its
  * own with JavaScript off shows ReaderHtml; links open in the tab. Tapping the left or right edge
- * turns the page, the top bar hides while you read down and comes back when you scroll up (as in
- * Chrome), and the footer says how far along you are.
+ * turns the page, the top bar stays put above the article while it scrolls, and the footer says how
+ * far along you are.
  */
 @SuppressLint("ClickableViewAccessibility")
 @Composable
@@ -86,7 +86,6 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
     val bg = Color(theme.background)
     val fg = Color(theme.text)
     val muted = Color(theme.muted)
-    var chrome by remember { mutableStateOf(true) }
     var progress by remember { mutableFloatStateOf(0f) }
     var showStyle by remember { mutableStateOf(false) }
     // Where to scroll back to once a restyled page has laid out.
@@ -125,21 +124,14 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
                     })
                 }
             }
-            setOnScrollChangeListener { v, _, y, _, oldY ->
+            setOnScrollChangeListener { v, _, y, _, _ ->
                 val max = maxScroll(v as WebView)
                 progress = if (max > 0) (y.toFloat() / max).coerceIn(0f, 1f) else 1f
-                // Only scrolling moves the bar: a tap on empty space hiding it was a surprise.
-                when {
-                    y <= 0 -> chrome = true
-                    y > oldY + 8 -> chrome = false
-                    y < oldY - 8 -> chrome = true
-                }
             }
         }
     }
 
-    // Edge taps turn pages, and the scroll they cause hides or shows the bar. Links keep working:
-    // the WebView handles those.
+    // Edge taps turn pages. Links keep working: the WebView handles those.
     val tapToTurn = prefs.tapToTurn
     DisposableEffect(webView, tapToTurn) {
         val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -191,23 +183,23 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
                 .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                AndroidView(factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView }, modifier = Modifier.fillMaxSize())
-                if (chrome) {
-                    Row(
-                        Modifier.fillMaxWidth().background(bg.copy(alpha = 0.96f)).padding(horizontal = 4.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close reader") }
-                        Text(
-                            page.siteName.ifBlank { android.net.Uri.parse(page.url).host?.removePrefix("www.") ?: "" },
-                            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { showStyle = true }) { Text("Aa", color = Color(theme.accent), fontFamily = FontFamily.Serif, fontSize = 18.sp) }
-                    }
-                }
+            // The bar stays on screen above the article, so the X and Aa are always a tap away.
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close reader") }
+                Text(
+                    page.siteName.ifBlank { android.net.Uri.parse(page.url).host?.removePrefix("www.") ?: "" },
+                    style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { showStyle = true }) { Text("Aa", color = Color(theme.accent), fontFamily = FontFamily.Serif, fontSize = 18.sp) }
             }
+            AndroidView(
+                factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
             // The footer, as on an e-reader: how far along, and how long the rest takes.
             Row(Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 val left = (page.minutes * (1f - progress)).roundToInt()
