@@ -198,6 +198,11 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 enabled = Tab.backForwardCacheSupported,
             ) { s.backForwardCache = it }
             SwitchRow(
+                "Unload idle tabs",
+                "Tabs in the background let their page go to save memory, and load it again when you open them: a tab not opened for 30 minutes, the oldest beyond the 4 opened last, and most of them when the phone is low on memory or Helmi is in the background. Not a tab playing sound or video, or one with a form you typed in.",
+                s.discardTabs,
+            ) { s.discardTabs = it }
+            SwitchRow(
                 "Show model decisions",
                 "A short message above the bottom bar, like the one after closing a tab, each time the on-device model decides about an overlay on this page: what it hid, with Undo, or what it left alone, with Hide.",
                 s.showModelDecisions,

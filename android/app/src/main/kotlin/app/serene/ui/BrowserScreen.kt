@@ -205,7 +205,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                 ) {
                     val startPage = !tab.openedByPage && (tab.url.isEmpty() || tab.url == "about:blank")
                     val downloadPage = tab.downloadPage
-                    val crashed = tab.crashed?.takeIf { it.onScreen }
+                    val crashed = tab.unloaded?.takeIf { it.onScreen }
                     val swipe = tab.swipe
                     // Swiping back, the previous page is underneath; the WebView moves itself.
                     if (swipe.active && !swipe.targetOnTop) SwipeTarget(swipe)
@@ -218,8 +218,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                             // A WebView that has loaded nothing drew the address bar and the bars around
                             // it solid black; the start page covers it anyway.
                             // The same goes for a tab whose first page hasn't started yet (a link from
-                            // another app) or whose only navigation was a download.
-                            update = { it.visibility = if (startPage || downloadPage || !tab.hasPage || crashed != null) View.INVISIBLE else View.VISIBLE },
+                            // another app) or whose only navigation was a download, and a tab whose
+                            // page went to save memory until it has drawn again.
+                            update = { it.visibility = if (startPage || downloadPage || !tab.hasPage || crashed != null || tab.waking) View.INVISIBLE else View.VISIBLE },
                         )
                     }
                     // What covers the WebView moves with it.

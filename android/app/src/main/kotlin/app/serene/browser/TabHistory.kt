@@ -15,13 +15,16 @@ import java.util.concurrent.Executors
  * one [Saved] per tab in the order of the saved URLs.
  */
 object TabHistory {
-    /** A tab's [url] and its WebView state, the Bundle's byte arrays by key, in base64. */
+    /**
+     * A tab's [url] and its WebView state, the Bundle's byte arrays by key, in base64, and its
+     * [title], for its card while the tab waits to be shown (TabManager.restore).
+     */
     @Serializable
-    data class Saved(val url: String, val state: Map<String, String> = emptyMap()) {
+    data class Saved(val url: String, val state: Map<String, String> = emptyMap(), val title: String = "") {
         fun bytes(): Map<String, ByteArray> = runCatching { state.mapValues { Base64.getDecoder().decode(it.value) } }.getOrDefault(emptyMap())
 
         companion object {
-            fun of(url: String, bytes: Map<String, ByteArray>) = Saved(url, bytes.mapValues { Base64.getEncoder().encodeToString(it.value) })
+            fun of(url: String, bytes: Map<String, ByteArray>, title: String = "") = Saved(url, bytes.mapValues { Base64.getEncoder().encodeToString(it.value) }, title)
         }
     }
 

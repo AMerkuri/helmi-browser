@@ -22,6 +22,16 @@ class TabHistoryTest {
     }
 
     @Test
+    fun titleKeptAndOldFilesStillRead() {
+        val file = File(Files.createTempDirectory("tab-history").toFile(), "tab-history.json")
+        TabHistory.save(file, listOf(TabHistory.Saved.of("https://a.example/", state, "A page")))
+        assertEquals("A page", TabHistory.load(file).single().title)
+        // Written before titles were kept.
+        file.writeText("""[{"url":"https://b.example/","state":{}}]""")
+        assertEquals(TabHistory.Saved("https://b.example/"), TabHistory.load(file).single())
+    }
+
+    @Test
     fun unreadableFileIsNoHistory() {
         val file = File(Files.createTempDirectory("tab-history").toFile(), "tab-history.json")
         file.writeText("{not json")
