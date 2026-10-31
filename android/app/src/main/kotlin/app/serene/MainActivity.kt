@@ -27,6 +27,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +69,8 @@ class MainActivity : ComponentActivity(), FilePickerHost {
     private lateinit var batterySaver: BatterySaverNotice
     /** "Closed <page>", with Undo, and the model notes (Settings › Flags). */
     @VisibleForTesting val snackbar = SnackbarHostState()
+    /** A page's video in fullscreen, over everything. */
+    @VisibleForTesting val fullscreen = FullscreenHost(this)
 
     // The Theme setting this activity was created with, for API < 31 (see attachBaseContext).
     private var startTheme = ThemeMode.SYSTEM
@@ -153,6 +156,15 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                     }
                 }
             }
+            // A page's video (or other element) in fullscreen: over every screen until it exits.
+            val fullTab = tabs.tabs.firstOrNull { it.fullscreen != null }
+            val full = fullTab?.fullscreen
+            DisposableEffect(full) {
+                full?.let(fullscreen::show)
+                onDispose { fullscreen.hide() }
+            }
+            val video = fullTab?.fullscreenVideo
+            LaunchedEffect(full, video) { fullscreen.orient(video) }
             SereneTheme {
                 BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
                 Box(Modifier.fillMaxSize()) {
@@ -214,6 +226,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
             Intent.ACTION_WEB_SEARCH -> intent.getStringExtra("query")
             else -> null
         } ?: return
+        tabs.tabs.forEach { it.exitFullscreen() }
         tabs.open(url)
         screen = Screen.Browser
     }
@@ -225,6 +238,12 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         enableEdgeToEdge()
         // Pages follow the theme too; a WebView that isn't on screen misses the change.
         tabs.tabs.forEach { it.applyDarkening() }
+        fullscreen.onConfigurationChanged()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) fullscreen.onWindowFocused()
     }
 
     override fun onStart() {
