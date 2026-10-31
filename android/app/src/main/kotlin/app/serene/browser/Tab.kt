@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.Message
 import android.util.Log
 import android.view.PixelCopy
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import android.webkit.ConsoleMessage
@@ -30,6 +31,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.unit.IntSize
 import app.serene.browser.HistorySwipe.Companion.BACK
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.ScriptHandler
@@ -102,6 +104,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     var opener by mutableStateOf<Tab?>(null)
     /** Camera, microphone and location requests from this tab's pages; the prompt shows the first. */
     val permissions = PermissionRequests(app.sitePermissions) { webView.context as? PermissionHost }
+    /** The page's element in fullscreen (a video, usually): the activity shows it over everything. */
+    var fullscreen by mutableStateOf<Fullscreen?>(null)
+        private set
+    /** The fullscreen video's size, from the frame that plays it; null until it says, or for no video. */
+    var fullscreenVideo by mutableStateOf<IntSize?>(null)
+        private set
     /** Opens the windows this tab's pages ask for, as tabs; set by the tab manager. */
     internal var manager: TabManager? = null
 
@@ -195,6 +203,15 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             }
             // The page called window.close(): only a window a page opened may close itself.
             override fun onCloseWindow(window: WebView) { manager?.closeWindow(this@Tab) }
+            // requestFullscreen(): a video's fullscreen button, YouTube's player. Without these the
+            // button did nothing (WebView has no fullscreen of its own).
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                if (destroyed) callback.onCustomViewHidden() else fullscreen = Fullscreen(view, callback)
+            }
+            override fun onHideCustomView() {
+                fullscreen = null
+                fullscreenVideo = null
+            }
             // <input type=file>: GitHub's attach button, upload forms. The activity shows the picker.
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
                 (view.context as? FilePickerHost)?.pickFiles(params) { callback.onReceiveValue(it) } ?: false
@@ -285,6 +302,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 onDocMessage(data)
                 return@addWebMessageListener
             }
+            // From any frame: a video in a YouTube embed goes fullscreen in its own frame.
+            if (data.startsWith("{\"type\":\"helmi-fullscreen\"")) {
+                main.post { onFullscreenVideo(data) }
+                return@addWebMessageListener
+            }
             val frame = object : FrameRef {
                 override val isTop = isMainFrame
                 override fun send(json: String) {
@@ -305,7 +327,23 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, FULLSCREEN_JS, setOf("*"))
         }
+    }
+
+    private fun onFullscreenVideo(json: String) {
+        val o = runCatching { JSONObject(json) }.getOrNull() ?: return
+        val w = o.optInt("w")
+        val h = o.optInt("h")
+        if (w > 0 && h > 0 && !destroyed) fullscreenVideo = IntSize(w, h)
+    }
+
+    /** Leaves fullscreen: back, a link from another app, the tab closing. */
+    fun exitFullscreen() {
+        val f = fullscreen ?: return
+        fullscreen = null
+        fullscreenVideo = null
+        f.exit()
     }
 
     // Each document's engine session, by an id the document makes up at its start.
@@ -441,6 +479,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     /** Closed, but Undo may still bring it back: what plays stops, and what can wait does. */
     fun pause() {
+        exitFullscreen()
         webView.evaluateJavascript(PAUSE_MEDIA, null)
         webView.onPause()
     }
@@ -450,6 +489,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     fun destroy() {
         if (destroyed) return
+        exitFullscreen()
         destroyed = true
         main.removeCallbacksAndMessages(null)
         linkHref.removeCallbacksAndMessages(null)
