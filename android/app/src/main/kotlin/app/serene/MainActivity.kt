@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting var pageBounds by mutableStateOf(Rect.Zero)
         private set
     private var openingTabs = false
+    private lateinit var batterySaver: BatterySaverNotice
     /** "Closed <page>", with Undo, and the model notes (Settings › Flags). */
     @VisibleForTesting val snackbar = SnackbarHostState()
 
@@ -112,6 +113,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         enableEdgeToEdge()
         val app = application as SereneApp
         tabs = TabManager(this, app)
+        batterySaver = BatterySaverNotice(app)
         tabs.restore()
         TabPreviews.restore(this, tabs.tabs)
         handleIntent(intent)
@@ -225,6 +227,11 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         tabs.tabs.forEach { it.applyDarkening() }
     }
 
+    override fun onStart() {
+        super.onStart()
+        batterySaver.start(this)
+    }
+
     override fun onPause() {
         super.onPause()
         // The page as it was left, for its card after a restart.
@@ -233,6 +240,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
 
     override fun onStop() {
         super.onStop()
+        batterySaver.stop(this)
         tabs.save()
         TabPreviews.save(this, tabs.tabs)
         (application as SereneApp).stats.save()
