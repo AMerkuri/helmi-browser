@@ -17,6 +17,8 @@ import android.view.PixelCopy
 import android.view.ViewGroup
 import android.widget.Toast
 import android.webkit.ConsoleMessage
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -98,6 +100,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * page's window.opener: sign-in popups (Google, Apple) answer it and close themselves.
      */
     var opener by mutableStateOf<Tab?>(null)
+    /** Camera, microphone and location requests from this tab's pages; the prompt shows the first. */
+    val permissions = PermissionRequests(app.sitePermissions) { webView.context as? PermissionHost }
     /** Opens the windows this tab's pages ask for, as tabs; set by the tab manager. */
     internal var manager: TabManager? = null
 
@@ -141,6 +145,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // opener (LinkedIn's "Continue with Google") was left blank with no one to answer.
             // Windows only from a tap: javaScriptCanOpenWindowsAutomatically stays false.
             setSupportMultipleWindows(true)
+            // navigator.geolocation, behind Helmi's own prompt (onGeolocationPermissionsShowPrompt).
+            setGeolocationEnabled(true)
             // Passkeys and security keys: WebView passes navigator.credentials to Credential Manager
             // with the page's origin, as a browser does. Needs CREDENTIAL_MANAGER_SET_ORIGIN in the
             // manifest, and the passkey provider must trust Serene as a browser (docs/passkeys.md).
@@ -192,6 +198,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // <input type=file>: GitHub's attach button, upload forms. The activity shows the picker.
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
                 (view.context as? FilePickerHost)?.pickFiles(params) { callback.onReceiveValue(it) } ?: false
+            // Camera, microphone and location: asked per site (SitePermissions).
+            override fun onPermissionRequest(request: PermissionRequest) = permissions.onPermissionRequest(request)
+            override fun onPermissionRequestCanceled(request: PermissionRequest) = permissions.onPermissionRequestCanceled(request)
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) = permissions.onGeolocationPrompt(origin, callback)
+            override fun onGeolocationPermissionsHidePrompt() = permissions.onGeolocationHidePrompt()
             // Page errors go in the page log ("What Helmi did here", reports, e2e failures).
             override fun onConsoleMessage(m: ConsoleMessage): Boolean {
                 if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR || m.messageLevel() == ConsoleMessage.MessageLevel.WARNING) {
@@ -445,6 +456,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         flags.cancel()
         swipe.reset()
         pull.reset()
+        permissions.cancelAll()
         Snapshots.clear(id)
         webView.stopLoading()
         webView.destroy()
@@ -569,6 +581,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
             darkenFor(pageUrl)
+            // As in Chrome, a prompt goes with the page that asked.
+            permissions.cancelAll()
             docLoading = true
             painting = true
             // A new page: the download goes on in the notification and the downloads screen.

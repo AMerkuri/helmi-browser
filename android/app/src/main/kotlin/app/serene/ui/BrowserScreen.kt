@@ -261,6 +261,12 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     // A new tab from a link or picture opens behind this one, as in Chrome: the tab count goes up.
     tab.contextMenu?.let { p -> ContextMenu(app, tab, p, onDismiss = { tab.contextMenu = null }, onNewTab = { tabs.open(it, select = false) }) }
 
+    // A site asking for the camera, microphone or location. Not under the tab switcher: it waits
+    // until its tab is in front, as in Chrome.
+    if (!covered) tab.permissions.current?.let { ask ->
+        key(ask) { PermissionDialog(ask, onAnswer = { tab.permissions.answer(ask, it) }, onDismiss = { tab.permissions.dismiss(ask) }) }
+    }
+
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
 
     reportDir?.let { dir ->

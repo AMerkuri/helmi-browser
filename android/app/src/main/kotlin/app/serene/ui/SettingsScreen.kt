@@ -137,6 +137,8 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 }
             }
 
+            SitePermissionsSection(app.sitePermissions)
+
             Section("Theme")
             ThemeMode.entries.forEach { m ->
                 Row(Modifier.fillMaxWidth().clickable { s.theme = m }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
