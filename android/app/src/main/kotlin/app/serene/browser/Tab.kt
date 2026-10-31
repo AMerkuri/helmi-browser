@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import android.webkit.ConsoleMessage
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -122,12 +123,35 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     val swipe = HistorySwipe(this)
     val pull = PullRefresh(this)
 
+    /**
+     * The tab's page. A new one when the page's renderer went away (a crash, or Android killed it
+     * for memory, see [Crashed]): a WebView is dead for good once its renderer is.
+     */
+    var webView: SereneWebView by mutableStateOf(newWebView(context))
+        private set
+
     // MATCH_PARENT, not the default WRAP_CONTENT: with a wrap_content height the page's
     // viewport is 0 px tall, so every vh-sized element (bottom sheets, consent boxes) collapses.
-    val webView: WebView = SereneWebView(context, swipe, pull).apply {
+    private fun newWebView(context: Context) = SereneWebView(context, swipe, pull).apply {
         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         onScrolled = ::snapshotSoon
+        // A tab whose page went while it was not on screen gets it back once it is (Chrome too
+        // reloads such a tab when it is shown, not before).
+        onVisible = { main.post { if (crashed?.onScreen == false && webView.isAttachedToWindow) recover() } }
     }
+
+    /**
+     * The page's renderer went away and took the page with it: [crash] if it crashed, else Android
+     * killed it (low memory: the model holds over 2 GB). One renderer serves every tab, so every
+     * tab loses its page at once. The tab keeps [url] and its back/forward list ([state], as
+     * [history] gives it) and gets them back with [recover]. [onScreen]: it was on screen, so it
+     * shows that the page crashed until Reload (a page that crashes as it loads would otherwise
+     * crash over and over); one that was not gets its page back when it is shown.
+     */
+    class Crashed(val url: String, val state: Map<String, ByteArray>, val crash: Boolean, val onScreen: Boolean)
+
+    var crashed by mutableStateOf<Crashed?>(null)
+        private set
 
     // Follows the Settings flags while the tab is open.
     private val flags: Job
@@ -136,6 +160,31 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     private var dimScript: ScriptHandler? = null
 
     init {
+        setUp()
+        flags = app.scope.launch(Dispatchers.Main.immediate) {
+            launch {
+                snapshotFlow { backForwardCache }.collect {
+                    if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, it)
+                    if (!it) Snapshots.clear(id)
+                }
+            }
+            // Dimming and its level, and where it applies: the sites the dark theme darkens.
+            launch {
+                snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
+                    if (documentStartSupported) {
+                        dimScript?.remove()
+                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
+                    }
+                    webView.evaluateJavascript(js, null)
+                }
+            }
+            // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
+            snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
+        }
+    }
+
+    /** Settings, scripts and clients of [webView]: at the start, and again for the new one after a crash. */
+    private fun setUp() {
         with(webView.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -158,27 +207,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // Back/forward cache, as Chrome has: a page left is kept paused for a while, and back or
             // forward to it resumes it as it was instead of loading it again (no reload, no jump).
             // The page's engine session goes with it, see onDocMessage. A flag in Settings.
+            if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(this, backForwardCache)
         }
-        flags = app.scope.launch(Dispatchers.Main.immediate) {
-            launch {
-                snapshotFlow { backForwardCache }.collect {
-                    if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(webView.settings, it)
-                    if (!it) Snapshots.clear(id)
-                }
-            }
-            // Dimming and its level, and where it applies: the sites the dark theme darkens.
-            launch {
-                snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
-                    if (documentStartSupported) {
-                        dimScript?.remove()
-                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
-                    }
-                    webView.evaluateJavascript(js, null)
-                }
-            }
-            // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
-            snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
-        }
+        // The flags below follow changes; a new WebView starts from what they are now.
+        if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, dimPicturesScript(app.settings), setOf("*"))
         applyDarkening()
         if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, KEEP_PICTURES, setOf("*"))
         installEngine()
@@ -414,15 +446,19 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     fun load(input: String) {
         val target = app.settings.searchEngine.let { resolveInput(input, it.template) }
+        // After a crash: the history first, so the new page goes after the lost one and back still goes there.
+        recover()
         snapshot()
         webView.loadUrl(target)
         url = target
     }
 
     /** This tab's back/forward list as WebView saves it (the Bundle's byte arrays), for [restore] after a restart. */
-    fun history(): Map<String, ByteArray> {
+    fun history(): Map<String, ByteArray> = crashed?.state ?: if (destroyed) emptyMap() else stateOf(webView)
+
+    private fun stateOf(view: WebView): Map<String, ByteArray> {
         val b = Bundle()
-        if (destroyed || webView.saveState(b) == null) return emptyMap()
+        if (runCatching { view.saveState(b) }.getOrNull() == null) return emptyMap()
         return b.keySet().mapNotNull { k -> b.getByteArray(k)?.let { k to it } }.toMap()
     }
 
@@ -441,7 +477,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         canGoForward = webView.canGoForward()
     }
 
-    fun reload() = webView.reload()
+    /** Reload; after a crash, the page comes back (with its history). */
+    fun reload() { if (crashed != null) recover() else webView.reload() }
     fun stop() = webView.stopLoading()
     fun goBack() = step(BACK)
     fun goForward() = step(HistorySwipe.FORWARD)
@@ -453,6 +490,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * Fold). A tap while a slide is still on its way does nothing.
      */
     private fun step(dir: Int) {
+        // After a crash: the history comes back, and the step is taken in it.
+        if (crashed != null) {
+            recover()
+            return go(dir)
+        }
         if (swipe.active && !swipe.covering) return
         snapshot(beforeSwipe = true) // the page left, for the way back
         if (!swipe.play(dir)) go(dir)
@@ -460,6 +502,53 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
     fun go(dir: Int) { if (webView.canGoBackOrForward(dir)) webView.goBackOrForward(dir) }
+
+    /** Gets the page lost in a [crashed] renderer back, with its back/forward list; WebView loads it. */
+    fun recover() {
+        val c = crashed ?: return
+        crashed = null
+        if (destroyed) return
+        restore(c.url, c.state)
+    }
+
+    /**
+     * WebView's onRenderProcessGone: the renderer of [dead] crashed ([crash]) or was killed. Not
+     * handling it kills the app. [dead] can't be used again, so it goes, and a new WebView takes
+     * its place; what it showed waits in [crashed].
+     */
+    private fun renderGone(dead: WebView, crash: Boolean) {
+        if (dead !== webView || destroyed) return
+        val onScreen = dead.isAttachedToWindow && dead.isShown && dead.windowVisibility == View.VISIBLE
+        val before = crashed
+        // The back/forward list lives on in the app's process, so the dead WebView still saves it.
+        val state = before?.state ?: stateOf(dead)
+        Log.w(TAG, "renderer ${if (crash) "crashed" else "was killed"}, tab $id (${if (onScreen) "on screen" else "not on screen"}, ${state.size} history keys)")
+        // Everything about the page that was.
+        swipe.reset()
+        pull.reset()
+        main.removeCallbacks(snapshotLater)
+        main.removeCallbacks(shownTimeout)
+        onShown = null
+        contextMenu = null
+        blobUserAgent = null
+        pending = null
+        current = null
+        session = null
+        docSessions.clear()
+        docLoading = false
+        painting = false
+        progress = 100
+        version++
+        (dead.parent as? ViewGroup)?.removeView(dead)
+        dimScript = null
+        webView = newWebView(dead.context)
+        setUp()
+        dead.destroy()
+        // A start page or a download page had nothing to lose.
+        val page = url.takeIf { it.isNotEmpty() && it != "about:blank" && !downloadPage }
+        crashed = if (page == null && state.isEmpty()) null
+        else Crashed(page ?: "", state, crash, onScreen = onScreen || before?.onScreen == true)
+    }
 
     @Volatile private var destroyed = false
 
@@ -571,6 +660,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     private inner class Client : WebViewClient() {
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            renderGone(view, detail.didCrash())
+            return true
+        }
+
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val reqUrl = request.url.toString()
             if (request.isForMainFrame) {
