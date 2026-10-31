@@ -42,6 +42,7 @@ import app.serene.browser.FilePickerHost
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
 import app.serene.download.DownloadService
+import app.serene.ui.BookmarksScreen
 import app.serene.ui.BrowserScreen
 import app.serene.ui.ClosedTabBar
 import app.serene.ui.CoverFlowTabs
@@ -55,7 +56,7 @@ import app.serene.ui.nightUiMode
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
-enum class Screen { Browser, Tabs, Settings, Downloads }
+enum class Screen { Browser, Tabs, Settings, Downloads, Bookmarks }
 
 class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting lateinit var tabs: TabManager
@@ -177,6 +178,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                         }
                         Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
                         Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
+                        Screen.Bookmarks -> BookmarksScreen(app.bookmarks, onOpen = ::openBookmark, onBack = { screen = Screen.Browser })
                     }
                     // Over every screen, so its timer runs out (and the tab is let go) wherever you are.
                     // Just above the bottom bar (with the bar's own 12 dp), and the tab switcher's buttons.
@@ -206,6 +208,13 @@ class MainActivity : ComponentActivity(), FilePickerHost {
             openingTabs = false
             if (screen == Screen.Browser) screen = Screen.Tabs
         }
+    }
+
+    /** A bookmark: in the tab on screen (a start page or not), or a new tab. */
+    private fun openBookmark(url: String, newTab: Boolean) {
+        val tab = tabs.current
+        if (newTab || tab == null) tabs.open(url) else tab.load(url)
+        screen = Screen.Browser
     }
 
     override fun onNewIntent(intent: Intent) {
