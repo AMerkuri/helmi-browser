@@ -92,6 +92,9 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     /** A navigation has started showing something. Until then the WebView would draw black. */
     var hasPage by mutableStateOf(false)
         private set
+    /** Counts the page loads started in this tab (not same-document steps): what ends a find in page. */
+    var pageStarts by mutableIntStateOf(0)
+        private set
     /** The latest download from this tab; a bar over the page shows it until dismissed. */
     var downloadBar by mutableStateOf<Download?>(null)
     /** The link or picture the user long-pressed: the context menu shows it until dismissed. */
@@ -702,6 +705,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
+            pageStarts++
             darkenFor(pageUrl)
             docLoading = true
             painting = true

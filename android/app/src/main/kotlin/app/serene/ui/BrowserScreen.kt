@@ -59,6 +59,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -87,6 +90,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -122,6 +126,7 @@ import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
+import app.serene.browser.FindInPage
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
 import app.serene.engine.siteOf
@@ -140,6 +145,15 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     // Reader mode, for the current tab's page.
     var reader by remember { mutableStateOf<ReaderPage?>(null) }
     LaunchedEffect(tab.id) { reader = null }
+    // ⋮ › Find in page, while its bar is up. A new page, another tab or a new WebView after a
+    // crash ends it, as in Chrome; ending it clears the highlights.
+    var find by remember { mutableStateOf<FindInPage?>(null) }
+    LaunchedEffect(tab.id, tab.webView, tab.pageStarts) { find = null }
+    val finding = find?.takeIf { it.webView === tab.webView }
+    DisposableEffect(find) {
+        val f = find
+        onDispose { f?.close() }
+    }
 
     HistoryBackHandler(tab)
     // Back on the first page of a tab a page opened (a popup, a target=_blank link) closes it and
@@ -171,6 +185,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 
     // The page's article from engine/dist/reader.js.
     val openReader = {
+        find = null
         ReaderPage.extract(tab.webView) { page ->
             if (page == null) Toast.makeText(context, "Helmi found no article on this page", Toast.LENGTH_SHORT).show()
             else reader = page
@@ -190,7 +205,8 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                     .navigationBarsPadding()
                     .imePadding(),
             ) {
-                UrlBar(app, tab, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
+                if (finding != null) FindBar(finding, covered, onClose = { find = null })
+                else UrlBar(app, tab, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
                 if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
                 else Spacer(Modifier.height(2.dp))
                 val density = LocalDensity.current
@@ -248,7 +264,10 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                 ) {
                     BottomBar(
                         app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
-                        onReader = openReader,
+                        onReader = openReader, onFind = {
+                            // One per WebView: a second would lose the listener when the first closes.
+                            if (find?.webView !== tab.webView) find = FindInPage(tab.webView)
+                        },
                     )
                 }
             }
@@ -373,6 +392,60 @@ private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, autofocus: Boolea
     }
 }
 
+/**
+ * Find in page, in the address bar's place as in Chrome: the text, how many matches and which one
+ * is shown, previous, next, close. The page highlights as the text is typed; the keyboard's search
+ * key puts the keyboard away to show the page. Back closes it.
+ */
+@Composable
+private fun FindBar(find: FindInPage, covered: Boolean, onClose: () -> Unit) {
+    val state = remember(find) { TextFieldState() }
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(find) { focus.requestFocus() }
+    LaunchedEffect(find) { snapshotFlow { state.text.toString() }.collect { find.search(it) } }
+    // Not while the tab switcher is over the page: back closes that.
+    BackHandler(enabled = !covered, onBack = onClose)
+
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.padding(start = 8.dp).weight(1f).height(44.dp),
+        ) {
+            BasicTextField(
+                state = state,
+                lineLimits = TextFieldLineLimits.SingleLine,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
+                onKeyboardAction = { focusManager.clearFocus() },
+                modifier = Modifier.fillMaxSize().focusRequester(focus),
+                decorator = { inner ->
+                    Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            if (state.text.isEmpty()) Text("Find in page", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            inner()
+                        }
+                        val count = find.count
+                        if (count.isNotEmpty()) {
+                            Text(
+                                count,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (find.total == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
+                },
+            )
+        }
+        IconButton(onClick = { find.next(false) }, enabled = find.total > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous match") }
+        IconButton(onClick = { find.next(true) }, enabled = find.total > 0) { Icon(Icons.Filled.KeyboardArrowDown, "Next match") }
+        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close find in page") }
+    }
+}
+
 private fun displayUrl(url: String) = if (url == "about:blank") "" else url.removePrefix("https://").removeSuffix("/")
 
 @Composable
@@ -402,7 +475,7 @@ private fun ShieldButton(app: SereneApp, tab: Tab, onClick: () -> Unit) {
 @Composable
 private fun BottomBar(
     app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Screen) -> Unit, onReport: () -> Unit, onSite: () -> Unit,
-    onReader: () -> Unit,
+    onReader: () -> Unit, onFind: () -> Unit,
 ) {
     val menu = remember { MutableTransitionState(false) }
     fun close() { menu.targetState = false }
@@ -426,6 +499,7 @@ private fun BottomBar(
             BarMenu(menu, barTop) {
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
+                DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.crashed == null, onClick = { close(); onFind() })
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
