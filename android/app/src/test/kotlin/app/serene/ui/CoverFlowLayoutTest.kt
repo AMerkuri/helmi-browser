@@ -26,13 +26,13 @@ class CoverFlowLayoutTest {
             // Card and reflection above the bottom buttons (about 10% of the height).
             assertTrue("$name: too tall", l.centerY + l.cardHeight * 0.8f < h * 0.9f)
             assertTrue("$name: too wide", l.cardWidth <= w * 0.6f)
-            // The scrub handle: under the card, on screen above the buttons (56 dp over a 24 dp
-            // navigation bar), with room to pull.
+            // The tab scrollbar: under the card, on screen above the buttons (56 dp over a 24 dp
+            // navigation bar), long enough to pick a tab by its place.
             val nav = 24f * density
             val withNav = CoverFlowLayout.of(w, h, aspect, density, nav)
             assertTrue("$name: handle over the card", withNav.handleY - 24f * density > l.centerY + l.cardHeight / 2)
             assertTrue("$name: handle over the buttons", withNav.handleY + 24f * density <= h - nav - 56f * density + 1e-3f)
-            assertTrue("$name: handle too short", withNav.maxPull >= 60f * density)
+            assertTrue("$name: scrollbar too short", withNav.handleWidth >= 200f * density)
         }
     }
 
@@ -71,35 +71,38 @@ class CoverFlowLayoutTest {
     }
 
     @Test
-    fun theHandlePulledFurtherMovesFaster() {
-        assertEquals("barely pulled: still", 0f, scrubRate(0.05f), 0f)
-        assertEquals(0f, scrubRate(-0.1f), 0f)
-        assertTrue("right moves on", scrubRate(0.3f) > 0f)
-        assertTrue("left moves back", scrubRate(-0.3f) < 0f)
-        assertEquals("all the way", 12f, scrubRate(1f), 1e-4f)
-        assertEquals("further than the track is all the way", 12f, scrubRate(3f), 1e-4f)
-        assertEquals(-12f, scrubRate(-1f), 1e-4f)
-        var last = 0f
-        var p = 0.13f
-        while (p <= 1f) {
-            val r = scrubRate(p)
-            assertTrue("faster at $p", r > last)
-            assertEquals("same both ways at $p", r, -scrubRate(-p), 1e-5f)
-            last = r
-            p += 0.01f
-        }
-        assertTrue("a short pull goes card by card", scrubRate(0.2f) < 2f)
+    fun theKnobIsATabsShareOfTheTrack() {
+        val track = 280f * density
+        assertEquals("few tabs: 64 dp, to move a long way", 64f * density, knobWidth(track, 2, density), 1e-3f)
+        assertEquals(64f * density, knobWidth(track, 4, density), 1e-3f)
+        assertEquals("a tab's share", track / 7, knobWidth(track, 7, density), 1e-3f)
+        assertEquals("many tabs: still a fingertip's width", 24f * density, knobWidth(track, 40, density), 1e-3f)
+        assertEquals("never wider than the track", 10f, knobWidth(10f, 2, density), 1e-3f)
     }
 
     @Test
-    fun theHandleSettlesOnACardOn() {
-        fun letGo(vararg moves: Pair<Float, Float>, at: Float) = ScrubTarget().apply { for ((a, r) in moves) moving(a, r) }.settle(at)
-        assertEquals("never pulled far enough", 2, letGo(2f to 0f, at = 2f))
-        assertEquals("a short tug: one card on", 3, letGo(2f to 1.5f, at = 2.1f))
-        assertEquals("one card back", 1, letGo(2f to -1.5f, at = 1.9f))
-        assertEquals("held: the card ahead", 6, letGo(2f to 5f, 5.5f to 5f, at = 5.5f))
-        assertEquals("one only just come to the middle", 5, letGo(2f to 12f, at = 5.1f))
-        assertEquals("back the other way", 5, letGo(2f to 5f, 5.5f to -2f, at = 5.4f))
-        assertEquals("let go after easing off", 4, letGo(2f to 3f, 3.5f to 0f, at = 3.5f))
+    fun theKnobShowsWhereTheMiddleCardIs() {
+        val track = 700f
+        val knob = 100f
+        assertEquals("first tab: left end", 50f, knobCenter(0f, 5f, track, knob), 1e-3f)
+        assertEquals("last tab: right end", 650f, knobCenter(4f, 5f, track, knob), 1e-3f)
+        assertEquals("the middle tab of 5", 350f, knobCenter(2f, 5f, track, knob), 1e-3f)
+        assertEquals("between two while the cards move", 200f, knobCenter(1f, 5f, track, knob), 1e-3f)
+        assertEquals("past the ends (the flow giving way) stays on the track", 50f, knobCenter(-0.3f, 5f, track, knob), 1e-3f)
+        assertEquals(650f, knobCenter(4.3f, 5f, track, knob), 1e-3f)
+        assertEquals("one tab: in the middle", 350f, knobCenter(0f, 1f, track, knob), 1e-3f)
+    }
+
+    @Test
+    fun draggingTheKnobGoesToTheTabAtThatPlace() {
+        val track = 700f
+        val knob = 100f
+        for (count in 2..30) for (i in 0 until count) {
+            assertEquals("tab $i of $count there and back", i.toFloat(), scrollAt(knobCenter(i.toFloat(), count.toFloat(), track, knob), count, track, knob), 1e-3f)
+        }
+        assertEquals("off the left end: the first tab", 0f, scrollAt(-40f, 5, track, knob), 0f)
+        assertEquals("off the right end: the last tab", 4f, scrollAt(900f, 5, track, knob), 0f)
+        assertEquals("a tab for each step of a knob's width with 7 tabs", 1f, scrollAt(50f + track / 7, 7, track, track / 7), 1e-3f)
+        assertEquals("one tab", 0f, scrollAt(350f, 1, track, knob), 0f)
     }
 }
