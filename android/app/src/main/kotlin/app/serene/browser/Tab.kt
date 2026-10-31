@@ -319,7 +319,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             Log.w(TAG, "WebView too old for WEB_MESSAGE_LISTENER: Serene runs network rules only")
             return
         }
-        WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, _, isMainFrame, reply: JavaScriptReplyProxy ->
+        WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, origin, isMainFrame, reply: JavaScriptReplyProxy ->
             val data = message.data ?: return@addWebMessageListener
             if (destroyed) return@addWebMessageListener
             if (isMainFrame && data.startsWith("{\"type\":\"serene-download\"")) {
@@ -332,6 +332,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             }
             if (isMainFrame && data.startsWith("{\"type\":\"serene-doc")) {
                 onDocMessage(data)
+                return@addWebMessageListener
+            }
+            if (data.startsWith("{\"type\":\"helmi-share\"")) {
+                main.post { if (!destroyed) onWebShare(this@Tab, data, isMainFrame, origin) }
                 return@addWebMessageListener
             }
             // From any frame: a video in a YouTube embed goes fullscreen in its own frame.
@@ -360,6 +364,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
             WebViewCompat.addDocumentStartJavaScript(webView, FULLSCREEN_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, WEB_SHARE_JS, setOf("*"))
         }
     }
 
