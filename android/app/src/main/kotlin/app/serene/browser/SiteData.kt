@@ -1,7 +1,10 @@
 package app.serene.browser
 
+import android.content.Context
 import android.webkit.CookieManager
 import android.webkit.WebStorage
+import android.webkit.WebView
+import android.webkit.WebViewDatabase
 import app.serene.engine.siteOf
 import java.net.URI
 
@@ -50,9 +53,15 @@ object SiteData {
         }
     }
 
-    /** Everything every site stored. */
-    fun clearAll(done: () -> Unit) {
+    /** Everything every site stored: cookies, storage, and passwords typed into HTTP sign-in prompts. */
+    fun clearAll(context: Context, done: () -> Unit) {
         WebStorage.getInstance().deleteAllData()
+        WebViewDatabase.getInstance(context).clearHttpAuthUsernamePassword()
         CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush(); done() }
+    }
+
+    /** The pictures, scripts and pages WebView keeps on disk. The cache is the app's, shared by every WebView. */
+    fun clearCache(context: Context) {
+        WebView(context).apply { clearCache(true); destroy() }
     }
 }

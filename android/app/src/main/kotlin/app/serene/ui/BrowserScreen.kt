@@ -424,6 +424,7 @@ private fun BottomBar(
         ) {
             IconButton(onClick = { menu.targetState = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
             BarMenu(menu, barTop) {
+                DropdownMenuItem(text = { Text("History") }, onClick = { close(); onOpen(Screen.History) })
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
