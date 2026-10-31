@@ -138,4 +138,13 @@ class SereneWebView(context: Context, private val swipe: HistorySwipe, private v
 
     /** The page scrolled: the tab takes a fresh snapshot once it rests. */
     var onScrolled: (() -> Unit)? = null
+
+    // Also called as the view is attached to a window, with that window's visibility.
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE && isAttachedToWindow) onVisible?.invoke()
+    }
+
+    /** The view is now in a window on screen: attached to one that is visible, or its window became visible. */
+    var onVisible: (() -> Unit)? = null
 }

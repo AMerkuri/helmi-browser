@@ -6,6 +6,7 @@ import android.app.Activity
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -45,6 +46,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,7 +96,9 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
 
     BackHandler(onBack = onClose)
 
-    val webView = remember(page) {
+    // Bumped when the reader's renderer went (it is the tabs' renderer too): a new WebView, at the same place.
+    var renderer by remember { mutableIntStateOf(0) }
+    val webView = remember(page, renderer) {
         WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             with(settings) {
@@ -112,6 +117,13 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
                 // Only a tap on a link leaves the reader; nothing in the page can navigate by itself.
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     if (request.isForMainFrame && request.hasGesture()) onOpenLink(request.url.toString())
+                    return true
+                }
+
+                // Not handling it kills the app. The dead WebView goes; the disposal below destroys it.
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    (view.parent as? ViewGroup)?.removeView(view)
+                    renderer++
                     return true
                 }
 
@@ -196,10 +208,12 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
                 )
                 TextButton(onClick = { showStyle = true }) { Text("Aa", color = Color(theme.accent), fontFamily = FontFamily.Serif, fontSize = 18.sp) }
             }
-            AndroidView(
-                factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView },
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            )
+            key(webView) {
+                AndroidView(
+                    factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView },
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            }
             // The footer, as on an e-reader: how far along, and how long the rest takes.
             Row(Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 val left = (page.minutes * (1f - progress)).roundToInt()
