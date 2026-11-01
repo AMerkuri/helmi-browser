@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.pm.PackageManager
 import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -38,11 +39,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import app.serene.browser.FilePickerHost
+import app.serene.browser.PermissionHost
+import app.serene.browser.SitePermission
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
 import app.serene.download.DownloadService
 import app.serene.ui.BrowserScreen
+import app.serene.ui.AndroidBlockedDialog
 import app.serene.ui.ClosedTabBar
 import app.serene.ui.CoverFlowTabs
 import app.serene.ui.DownloadsScreen
@@ -57,7 +62,7 @@ import kotlinx.coroutines.launch
 
 enum class Screen { Browser, Tabs, Settings, Downloads }
 
-class MainActivity : ComponentActivity(), FilePickerHost {
+class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     @VisibleForTesting lateinit var tabs: TabManager
         private set
     @VisibleForTesting var screen by mutableStateOf(Screen.Browser)
@@ -98,6 +103,49 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         } catch (e: ActivityNotFoundException) {
             false
         }
+    }
+
+    // Android's own camera, microphone and location permissions, asked for when a site the user
+    // allowed needs one. One system dialog at a time: the others wait their turn.
+    private val permissionQueue = ArrayDeque<Pair<Set<SitePermission>, (Boolean) -> Unit>>()
+    private var permissionAsking: Pair<Set<SitePermission>, (Boolean) -> Unit>? = null
+    /** Android blocks these for Helmi for good ("Don't allow" twice): the way to its settings. */
+    @VisibleForTesting var blockedByAndroid by mutableStateOf<Set<SitePermission>?>(null)
+        private set
+    private val androidPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        val (kinds, done) = permissionAsking ?: return@registerForActivityResult
+        permissionAsking = null
+        done(kinds.all(::hasAndroidPermission))
+        nextAndroidPermission()
+    }
+
+    private fun hasAndroidPermission(kind: SitePermission) =
+        kind.android.any { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+
+    override fun requestAndroidPermissions(kinds: Set<SitePermission>, done: (Boolean) -> Unit) {
+        if (kinds.all(::hasAndroidPermission)) return done(true)
+        permissionQueue.addLast(kinds to done)
+        if (permissionAsking == null) nextAndroidPermission()
+    }
+
+    private fun nextAndroidPermission() {
+        val next = permissionQueue.removeFirstOrNull() ?: return
+        val (kinds, done) = next
+        val missing = kinds.filterNot(::hasAndroidPermission)
+        if (missing.isEmpty()) { done(true); return nextAndroidPermission() }
+        val settings = (application as SereneApp).settings
+        // Asked before and no rationale to show: Android answers no without a dialog. Say where
+        // to turn it on instead of failing silently.
+        val forGood = missing.filter { k -> k.android.all { it in settings.askedAndroidPermissions && !shouldShowRequestPermissionRationale(it) } }
+        if (forGood.isNotEmpty()) {
+            blockedByAndroid = forGood.toSet()
+            done(false)
+            return nextAndroidPermission()
+        }
+        val perms = missing.flatMap { it.android }
+        settings.askedAndroidPermissions += perms
+        permissionAsking = next
+        androidPermissions.launch(perms.toTypedArray())
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -188,6 +236,12 @@ class MainActivity : ComponentActivity(), FilePickerHost {
                             .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                             .padding(bottom = 52.dp),
                     ) { ClosedTabBar(it) }
+                }
+                blockedByAndroid?.let { kinds ->
+                    AndroidBlockedDialog(kinds, onDismiss = { blockedByAndroid = null }, onSettings = {
+                        blockedByAndroid = null
+                        startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+                    })
                 }
             }
         }
