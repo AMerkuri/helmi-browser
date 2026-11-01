@@ -131,6 +131,14 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("asked_notifications", false)
         set(v) = prefs.edit { putBoolean("asked_notifications", v) }
 
+    /**
+     * Android permissions Helmi has asked for for a site (camera, microphone, location). Once asked,
+     * no rationale means Android blocks it for good and shows no dialog (MainActivity).
+     */
+    var askedAndroidPermissions: Set<String>
+        get() = prefs.getStringSet("asked_android_permissions", emptySet())!!.toSet()
+        set(v) = prefs.edit { putStringSet("asked_android_permissions", v) }
+
     var modelDownloadId: Long
         get() = prefs.getLong("model_download_id", -1)
         set(v) = prefs.edit { putLong("model_download_id", v) }
