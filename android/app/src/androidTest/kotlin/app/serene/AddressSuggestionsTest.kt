@@ -97,8 +97,19 @@ class AddressSuggestionsTest {
     private fun roots(): List<AccessibilityNodeInfo> =
         inst.uiAutomation.windows.mapNotNull { it.root }.ifEmpty { listOfNotNull(inst.uiAutomation.rootInActiveWindow) }
 
-    private fun find(text: String): AccessibilityNodeInfo? =
-        roots().firstNotNullOfOrNull { it.findAccessibilityNodeInfosByText(text)?.firstOrNull() }
+    /**
+     * The node showing [text]. A walk of the tree: Compose doesn't answer
+     * findAccessibilityNodeInfosByText.
+     */
+    private fun find(text: String): AccessibilityNodeInfo? {
+        fun walk(n: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
+            if (n == null || depth > 40) return null
+            if (n.text?.toString() == text) return n
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)?.let { return it }
+            return null
+        }
+        return roots().firstNotNullOfOrNull { walk(it, 0) }
+    }
 
     /** The texts on screen, for a failure message. */
     private fun texts(): List<String> {
