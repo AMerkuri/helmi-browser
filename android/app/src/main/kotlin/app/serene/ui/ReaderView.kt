@@ -2,7 +2,6 @@ package app.serene.ui
 
 import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ViewGroup
@@ -58,13 +57,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.WindowCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import app.serene.reader.ReaderHtml
@@ -170,19 +167,7 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
     DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }
 
     // Status bar icons that show on the reader's page colour.
-    val view = LocalView.current
-    DisposableEffect(theme.dark) {
-        val window = (context as? Activity)?.window
-        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-        val before = controller?.isAppearanceLightStatusBars
-        val beforeNav = controller?.isAppearanceLightNavigationBars
-        controller?.isAppearanceLightStatusBars = !theme.dark
-        controller?.isAppearanceLightNavigationBars = !theme.dark
-        onDispose {
-            before?.let { controller.isAppearanceLightStatusBars = it }
-            beforeNav?.let { controller.isAppearanceLightNavigationBars = it }
-        }
-    }
+    SystemBarIcons(dark = theme.dark)
 
     CompositionLocalProvider(LocalContentColor provides fg) {
         Column(
