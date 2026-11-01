@@ -516,6 +516,15 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
                 // After Share, as in Chrome.
                 DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.crashed == null, onClick = { close(); onFind() })
+                // Chrome's ⋮ › Desktop site: this site's desktop pages, remembered for the site.
+                val web = onPage && (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
+                val desktop = web && app.settings.isDesktopSite(siteOf(tab.url))
+                DropdownMenuItem(
+                    text = { Text("Desktop site") },
+                    trailingIcon = { Switch(checked = desktop, onCheckedChange = null, enabled = web) },
+                    enabled = web,
+                    onClick = { close(); tab.setDesktopSite(!desktop) },
+                )
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {
