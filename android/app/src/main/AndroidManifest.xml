@@ -11,6 +11,21 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Opening a downloaded .apk hands it to the package installer, which asks the user first. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Sites the user allows (video calls, maps, voice search): asked for when a site first needs
+         one (SitePermissions). MODIFY_AUDIO_SETTINGS lets WebRTC route call audio. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Find in page's no-match buzz, Chrome's 50 ms vibration (a normal permission, no prompt). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The camera permission would otherwise make a camera required to install. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- enableOnBackInvokedCallback: predictive back, so Android's back gesture can drive the
          history swipe (BrowserScreen). On by default from Android 16; this turns it on for 13-15. -->

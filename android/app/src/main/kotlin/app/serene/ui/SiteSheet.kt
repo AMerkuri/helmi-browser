@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import app.serene.BuildConfig
 import app.serene.SereneApp
 import app.serene.browser.SiteData
+import app.serene.browser.permissionOrigin
 import app.serene.browser.Tab
 import app.serene.engine.BlockedRequest
 import app.serene.engine.CandidateRecord
@@ -168,6 +169,11 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                     hidden.forEach { rule -> RuleRow(LABELS[rule.label] ?: rule.label, rule.sig, "Show again") { s.showAgain(rule); tab.reload() } }
                     HorizontalDivider()
                 }
+                // Camera, microphone and location, as the user answered this site's prompts.
+                if (app.sitePermissions.forSite(site).isNotEmpty()) {
+                    SitePermissionRows(app.sitePermissions, site, permissionOrigin(tab.url))
+                    HorizontalDivider()
+                }
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -178,10 +184,12 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
             }
             if (site != null) {
                 Spacer(Modifier.height(8.dp))
-                // A first visit again: the site's cookies (consent choices included), storage and Serene's rules for
-                // it, except what the user put back with Undo (so a cookie banner they undid comes back for them).
+                // A first visit again: the site's cookies (consent choices included), storage, permissions and
+                // Serene's rules for it, except what the user put back with Undo (so a cookie banner they undid
+                // comes back for them).
                 TextButton(onClick = {
                     app.engine.cache.clear(site, keepUndone = true)
+                    app.sitePermissions.resetSite(site)
                     SiteData.clear(tab.url) { tab.reload() }
                     onDismiss()
                 }) { Text("Clear site data and reload") }

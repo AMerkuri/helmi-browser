@@ -63,7 +63,6 @@ import app.serene.SearchEngine
 import app.serene.SereneApp
 import app.serene.engine.FilterLists
 import app.serene.ThemeMode
-import app.serene.browser.SiteData
 import app.serene.browser.Tab
 import app.serene.model.ModelState
 import app.serene.model.NpuBenchmark
@@ -108,11 +107,14 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
                 modifier = Modifier.clickable { listsOpen = true },
             )
+            var clearing by rememberSaveable { mutableStateOf(false) }
             ListItem(
-                headlineContent = { Text("Browsing data") },
-                supportingContent = { Text("Cookies and site storage for every site, including consent choices, and the most cleaned-up sites on the new tab page.") },
-                trailingContent = { OutlinedButton(onClick = { SiteData.clearAll { }; app.stats.forgetSites() }) { Text("Clear") } },
+                headlineContent = { Text("Clear browsing data") },
+                supportingContent = { Text("History, cookies and site storage (including consent choices), and cached files.") },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable { clearing = true },
             )
+            if (clearing) ClearBrowsingDataDialog(app, onDismiss = { clearing = false })
             ListItem(
                 headlineContent = { Text("Learned site rules") },
                 supportingContent = { Text("Decisions remembered for ${remember(tick) { app.engine.cache.siteCount() }} sites, so the model runs about once per site.") },
@@ -136,6 +138,8 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                     })
                 }
             }
+
+            SitePermissionsSection(app.sitePermissions)
 
             Section("Theme")
             ThemeMode.entries.forEach { m ->

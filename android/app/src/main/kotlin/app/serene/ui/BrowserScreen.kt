@@ -59,8 +59,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenuItem
@@ -87,6 +91,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -122,8 +127,11 @@ import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
+import app.serene.browser.FindInPage
+import app.serene.browser.SharedText
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
+import app.serene.browser.openShareSheet
 import app.serene.engine.siteOf
 import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
@@ -140,6 +148,15 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     // Reader mode, for the current tab's page.
     var reader by remember { mutableStateOf<ReaderPage?>(null) }
     LaunchedEffect(tab.id) { reader = null }
+    // ⋮ › Find in page, while its bar is up. A new page, another tab or a new WebView after a
+    // crash ends it, as in Chrome; ending it clears the highlights.
+    var find by remember { mutableStateOf<FindInPage?>(null) }
+    LaunchedEffect(tab.id, tab.webView, tab.pageStarts) { find = null }
+    val finding = find?.takeIf { it.webView === tab.webView }
+    DisposableEffect(find) {
+        val f = find
+        onDispose { f?.close() }
+    }
 
     HistoryBackHandler(tab)
     // Back on the first page of a tab a page opened (a popup, a target=_blank link) closes it and
@@ -171,6 +188,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 
     // The page's article from engine/dist/reader.js.
     val openReader = {
+        find = null
         ReaderPage.extract(tab.webView) { page ->
             if (page == null) Toast.makeText(context, "Helmi found no article on this page", Toast.LENGTH_SHORT).show()
             else reader = page
@@ -190,7 +208,8 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                     .navigationBarsPadding()
                     .imePadding(),
             ) {
-                UrlBar(app, tab, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
+                if (finding != null) FindBar(finding, covered, onClose = { find = null })
+                else UrlBar(app, tab, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
                 if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
                 else Spacer(Modifier.height(2.dp))
                 val density = LocalDensity.current
@@ -249,7 +268,10 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                 ) {
                     BottomBar(
                         app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
-                        onReader = openReader,
+                        onReader = openReader, onFind = {
+                            // One per WebView: a second would lose the listener when the first closes.
+                            if (find?.webView !== tab.webView) find = FindInPage(tab.webView)
+                        },
                     )
                 }
             }
@@ -265,6 +287,12 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 
     // A new tab from a link or picture opens behind this one, as in Chrome: the tab count goes up.
     tab.contextMenu?.let { p -> ContextMenu(app, tab, p, onDismiss = { tab.contextMenu = null }, onNewTab = { tabs.open(it, select = false) }) }
+
+    // A site asking for the camera, microphone or location. Not under the tab switcher: it waits
+    // until its tab is in front, as in Chrome.
+    if (!covered) tab.permissions.current?.let { ask ->
+        key(ask) { PermissionDialog(ask, onAnswer = { tab.permissions.answer(ask, it) }, onDismiss = { tab.permissions.dismiss(ask) }) }
+    }
 
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
 
@@ -374,6 +402,60 @@ private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, autofocus: Boolea
     }
 }
 
+/**
+ * Find in page, in the address bar's place as in Chrome: the text, how many matches and which one
+ * is shown, previous, next, close. The page highlights as the text is typed; the keyboard's search
+ * key puts the keyboard away to show the page. Back closes it.
+ */
+@Composable
+private fun FindBar(find: FindInPage, covered: Boolean, onClose: () -> Unit) {
+    val state = remember(find) { TextFieldState() }
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(find) { focus.requestFocus() }
+    LaunchedEffect(find) { snapshotFlow { state.text.toString() }.collect { find.search(it) } }
+    // Not while the tab switcher is over the page: back closes that.
+    BackHandler(enabled = !covered, onBack = onClose)
+
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.padding(start = 8.dp).weight(1f).height(44.dp),
+        ) {
+            BasicTextField(
+                state = state,
+                lineLimits = TextFieldLineLimits.SingleLine,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
+                onKeyboardAction = { focusManager.clearFocus() },
+                modifier = Modifier.fillMaxSize().focusRequester(focus),
+                decorator = { inner ->
+                    Row(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            if (state.text.isEmpty()) Text("Find in page", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            inner()
+                        }
+                        val count = find.count
+                        if (count.isNotEmpty()) {
+                            Text(
+                                count,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (find.total == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
+                },
+            )
+        }
+        IconButton(onClick = { find.next(false) }, enabled = find.total > 0) { Icon(Icons.Filled.KeyboardArrowUp, "Previous match") }
+        IconButton(onClick = { find.next(true) }, enabled = find.total > 0) { Icon(Icons.Filled.KeyboardArrowDown, "Next match") }
+        IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close find in page") }
+    }
+}
+
 private fun displayUrl(url: String) = if (url == "about:blank") "" else url.removePrefix("https://").removeSuffix("/")
 
 @Composable
@@ -403,7 +485,7 @@ private fun ShieldButton(app: SereneApp, tab: Tab, onClick: () -> Unit) {
 @Composable
 private fun BottomBar(
     app: SereneApp, tabs: TabManager, tab: Tab, onOpen: (Screen) -> Unit, onReport: () -> Unit, onSite: () -> Unit,
-    onReader: () -> Unit,
+    onReader: () -> Unit, onFind: () -> Unit,
 ) {
     val menu = remember { MutableTransitionState(false) }
     fun close() { menu.targetState = false }
@@ -425,9 +507,16 @@ private fun BottomBar(
         ) {
             IconButton(onClick = { menu.targetState = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
             BarMenu(menu, barTop) {
-                DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
+                BookmarkItem(app, tab, enabled = onPage, onDone = ::close)
+                DropdownMenuItem(text = { Text("History") }, onClick = { close(); onOpen(Screen.History) })
+                DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
+                DropdownMenuItem(text = { Text("Bookmarks") }, onClick = { close(); onOpen(Screen.Bookmarks) })
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
+                val context = LocalContext.current
+                DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
+                // After Share, as in Chrome.
+                DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.unloaded == null, onClick = { close(); onFind() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {
@@ -455,6 +544,27 @@ private fun BottomBar(
             }
         }
     }
+}
+
+/** Chrome's star: saves the page, or (filled) takes it out of the bookmarks again. */
+@Composable
+private fun BookmarkItem(app: SereneApp, tab: Tab, enabled: Boolean, onDone: () -> Unit) {
+    val context = LocalContext.current
+    val saved = enabled && app.bookmarks.find(tab.url) != null
+    DropdownMenuItem(
+        text = { Text(if (saved) "Bookmarked" else "Bookmark") },
+        trailingIcon = {
+            if (saved) Icon(Icons.Filled.Star, "Saved", tint = MaterialTheme.colorScheme.primary)
+            else Icon(painterResource(R.drawable.ic_star_border), null)
+        },
+        enabled = enabled,
+        onClick = {
+            onDone()
+            val b = app.bookmarks.find(tab.url)
+            if (b != null) app.bookmarks.remove(b.id) else app.bookmarks.add(tab.url, tab.title)
+            Toast.makeText(context, if (b != null) "Bookmark removed" else "Bookmarked", Toast.LENGTH_SHORT).show()
+        },
+    )
 }
 
 /**

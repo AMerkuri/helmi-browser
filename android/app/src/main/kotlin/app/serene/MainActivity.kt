@@ -10,11 +10,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.content.pm.PackageManager
 import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.layout.Box
@@ -30,6 +30,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,17 +42,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import app.serene.browser.FilePickerHost
 import app.serene.browser.TabDiscard
+import app.serene.browser.PermissionHost
+import app.serene.browser.SitePermission
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
 import app.serene.download.DownloadService
+import app.serene.ui.BookmarksScreen
 import app.serene.ui.BrowserScreen
+import app.serene.ui.AndroidBlockedDialog
 import app.serene.ui.ClosedTabBar
 import app.serene.ui.CoverFlowTabs
 import app.serene.ui.DownloadsScreen
+import app.serene.ui.HistoryScreen
 import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
+import app.serene.ui.LocalSystemBars
+import app.serene.ui.SystemBars
 import app.serene.ui.cardTitle
 import app.serene.ui.applyNightMode
 import app.serene.ui.modelNote
@@ -59,9 +68,9 @@ import app.serene.ui.nightUiMode
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
-enum class Screen { Browser, Tabs, Settings, Downloads }
+enum class Screen { Browser, Tabs, Settings, Downloads, History, Bookmarks }
 
-class MainActivity : ComponentActivity(), FilePickerHost {
+class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     @VisibleForTesting lateinit var tabs: TabManager
         private set
     @VisibleForTesting var screen by mutableStateOf(Screen.Browser)
@@ -75,6 +84,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
     @VisibleForTesting val snackbar = SnackbarHostState()
     /** A page's video in fullscreen, over everything. */
     @VisibleForTesting val fullscreen = FullscreenHost(this)
+    private val systemBars = SystemBars(this)
 
     // The Theme setting this activity was created with, for API < 31 (see attachBaseContext).
     private var startTheme = ThemeMode.SYSTEM
@@ -104,6 +114,49 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         }
     }
 
+    // Android's own camera, microphone and location permissions, asked for when a site the user
+    // allowed needs one. One system dialog at a time: the others wait their turn.
+    private val permissionQueue = ArrayDeque<Pair<Set<SitePermission>, (Boolean) -> Unit>>()
+    private var permissionAsking: Pair<Set<SitePermission>, (Boolean) -> Unit>? = null
+    /** Android blocks these for Helmi for good ("Don't allow" twice): the way to its settings. */
+    @VisibleForTesting var blockedByAndroid by mutableStateOf<Set<SitePermission>?>(null)
+        private set
+    private val androidPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        val (kinds, done) = permissionAsking ?: return@registerForActivityResult
+        permissionAsking = null
+        done(kinds.all(::hasAndroidPermission))
+        nextAndroidPermission()
+    }
+
+    private fun hasAndroidPermission(kind: SitePermission) =
+        kind.android.any { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+
+    override fun requestAndroidPermissions(kinds: Set<SitePermission>, done: (Boolean) -> Unit) {
+        if (kinds.all(::hasAndroidPermission)) return done(true)
+        permissionQueue.addLast(kinds to done)
+        if (permissionAsking == null) nextAndroidPermission()
+    }
+
+    private fun nextAndroidPermission() {
+        val next = permissionQueue.removeFirstOrNull() ?: return
+        val (kinds, done) = next
+        val missing = kinds.filterNot(::hasAndroidPermission)
+        if (missing.isEmpty()) { done(true); return nextAndroidPermission() }
+        val settings = (application as SereneApp).settings
+        // Asked before and no rationale to show: Android answers no without a dialog. Say where
+        // to turn it on instead of failing silently.
+        val forGood = missing.filter { k -> k.android.all { it in settings.askedAndroidPermissions && !shouldShowRequestPermissionRationale(it) } }
+        if (forGood.isNotEmpty()) {
+            blockedByAndroid = forGood.toSet()
+            done(false)
+            return nextAndroidPermission()
+        }
+        val perms = missing.flatMap { it.android }
+        settings.askedAndroidPermissions += perms
+        permissionAsking = next
+        androidPermissions.launch(perms.toTypedArray())
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(newBase)
         startTheme = (newBase.applicationContext as SereneApp).settings.theme
@@ -117,7 +170,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        systemBars.apply()
         val app = application as SereneApp
         tabs = TabManager(this, app)
         batterySaver = BatterySaverNotice(app)
@@ -126,6 +179,8 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         handleIntent(intent)
 
         setContent {
+            // The tab switcher and the reader asking for their own bar icons, or going.
+            LaunchedEffect(Unit) { snapshotFlow { systemBars.asked }.collect { systemBars.apply() } }
             // Changes only: SereneApp applied the setting at start.
             LaunchedEffect(Unit) {
                 snapshotFlow { app.settings.theme }.drop(1).collect { theme ->
@@ -170,28 +225,38 @@ class MainActivity : ComponentActivity(), FilePickerHost {
             val video = fullTab?.fullscreenVideo
             LaunchedEffect(full, video) { fullscreen.orient(video) }
             SereneTheme {
-                BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
-                Box(Modifier.fillMaxSize()) {
-                    when (screen) {
-                        // The tab switcher is drawn over the browser, which shows through as a card
-                        // grows into its page.
-                        Screen.Browser, Screen.Tabs -> Box(Modifier.fillMaxSize()) {
-                            BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it; tabs.sizeHidden(it.width.toInt(), it.height.toInt()) }, covered = screen == Screen.Tabs)
-                            if (screen == Screen.Tabs) CoverFlowTabs(app, tabs, pageBounds, onDone = { screen = Screen.Browser })
+                CompositionLocalProvider(LocalSystemBars provides systemBars) {
+                    BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
+                    Box(Modifier.fillMaxSize()) {
+                        when (screen) {
+                            // The tab switcher is drawn over the browser, which shows through as a card
+                            // grows into its page.
+                            Screen.Browser, Screen.Tabs -> Box(Modifier.fillMaxSize()) {
+                                BrowserScreen(app, tabs, onOpen = ::open, onPageBounds = { pageBounds = it; tabs.sizeHidden(it.width.toInt(), it.height.toInt()) }, covered = screen == Screen.Tabs)
+                                if (screen == Screen.Tabs) CoverFlowTabs(app, tabs, pageBounds, onDone = { screen = Screen.Browser })
+                            }
+                            Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
+                            Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
+                            Screen.History -> HistoryScreen(app, onBack = { screen = Screen.Browser }, onOpen = ::openPage)
+                            Screen.Bookmarks -> BookmarksScreen(app.bookmarks, onOpen = ::openPage, onBack = { screen = Screen.Browser })
                         }
-                        Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
-                        Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
+                        // Over every screen, so its timer runs out (and the tab is let go) wherever you are.
+                        // Just above the bottom bar (with the bar's own 12 dp), and the tab switcher's buttons.
+                        SnackbarHost(
+                            snackbar,
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .widthIn(max = 600.dp)
+                                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                                .padding(bottom = 52.dp),
+                        ) { ClosedTabBar(it) }
                     }
-                    // Over every screen, so its timer runs out (and the tab is let go) wherever you are.
-                    // Just above the bottom bar (with the bar's own 12 dp), and the tab switcher's buttons.
-                    SnackbarHost(
-                        snackbar,
-                        Modifier
-                            .align(Alignment.BottomCenter)
-                            .widthIn(max = 600.dp)
-                            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-                            .padding(bottom = 52.dp),
-                    ) { ClosedTabBar(it) }
+                    blockedByAndroid?.let { kinds ->
+                        AndroidBlockedDialog(kinds, onDismiss = { blockedByAndroid = null }, onSettings = {
+                            blockedByAndroid = null
+                            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+                        })
+                    }
                 }
             }
         }
@@ -210,6 +275,13 @@ class MainActivity : ComponentActivity(), FilePickerHost {
             openingTabs = false
             if (screen == Screen.Browser) screen = Screen.Tabs
         }
+    }
+
+    /** A page from the history or the bookmarks: in the tab in front (a new one for [newTab]), as Chrome does. */
+    private fun openPage(url: String, newTab: Boolean) {
+        val tab = tabs.current
+        if (newTab || tab == null) tabs.open(url) else tab.load(url)
+        screen = Screen.Browser
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -237,9 +309,10 @@ class MainActivity : ComponentActivity(), FilePickerHost {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // uiMode is handled in place (see the manifest), so the system bar icons picked in onCreate
-        // keep the old theme when the system switches to dark: dark icons on a dark bar. Pick again.
-        enableEdgeToEdge()
+        // uiMode is handled in place (see the manifest): the bar icons for the new theme, unless the
+        // screen on top has its own. (enableEdgeToEdge also does this itself after a configuration
+        // change; this keeps it from depending on that.)
+        systemBars.apply()
         // Pages follow the theme too; a WebView that isn't on screen misses the change.
         tabs.tabs.forEach { it.applyDarkening() }
         fullscreen.onConfigurationChanged()
@@ -292,6 +365,7 @@ class MainActivity : ComponentActivity(), FilePickerHost {
         tabs.save()
         TabPreviews.save(this, tabs.tabs)
         (application as SereneApp).stats.save()
+        (application as SereneApp).history.save()
     }
 
     override fun onDestroy() {
