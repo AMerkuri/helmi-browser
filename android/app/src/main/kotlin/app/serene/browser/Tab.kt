@@ -492,7 +492,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     fun applyDarkening() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
-        val on = app.settings.darkSite(siteOf(url))
+        val on = !printing && app.settings.darkSite(siteOf(url))
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, !on)
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
     }
@@ -503,10 +503,23 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     private fun darkenFor(pageUrl: String) = setDarkening(app.settings.darkSite(siteOf(pageUrl)))
 
-    private fun setDarkening(on: Boolean) {
+    private fun setDarkening(want: Boolean) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
+        val on = want && !printing
         if (WebSettingsCompat.isAlgorithmicDarkeningAllowed(webView.settings) != on) WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
     }
+
+    /**
+     * While the print dialog has this tab's page (⋮ › Print…): the page isn't darkened, because
+     * WebView prints what auto dark mode made of it, a black sheet of paper. The dialog covers the
+     * tab meanwhile; the page darkens again when the dialog is done with it.
+     */
+    var printing = false
+        set(value) {
+            if (field == value || destroyed) return
+            field = value
+            applyDarkening()
+        }
 
     fun load(input: String) {
         val target = app.settings.searchEngine.let { resolveInput(input, it.template) }

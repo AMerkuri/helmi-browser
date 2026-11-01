@@ -11,8 +11,9 @@ import org.json.JSONObject
  * A document-start script, in every frame, built from the settings (the tab registers it again
  * when they change, and runs it on the page that is open). It applies where the dark theme
  * darkens sites: the setting, or the site's own choice in ⋮ › Dark theme (the top page's site,
- * also in its frames). The rule sits in `@media (prefers-color-scheme: dark)`, so it follows the
- * app theme as it changes. Run again, it replaces what it added before.
+ * also in its frames). The rule sits in `@media screen and (prefers-color-scheme: dark)`, so it
+ * follows the app theme as it changes, and a printed page has its pictures as they are. Run
+ * again, it replaces what it added before.
  *
  * Pictures are <img> and SVG images, and elements that show a picture as their CSS background
  * (techspot's "Featured Today" cards): those are found by their computed style as they are added
@@ -35,7 +36,7 @@ fun dimPicturesScript(s: Settings): String {
         const ATTR = 'data-serene-dim-bg';
         try {
             const sheet = new CSSStyleSheet();
-            sheet.replaceSync('@media (prefers-color-scheme: dark) { img, svg image, input[type=image], [' + ATTR + '] { filter: brightness(' + level + ') !important; } }');
+            sheet.replaceSync('@media screen and (prefers-color-scheme: dark) { img, svg image, input[type=image], [' + ATTR + '] { filter: brightness(' + level + ') !important; } }');
             document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
             st.sheet = sheet;
         } catch (e) { return; }
