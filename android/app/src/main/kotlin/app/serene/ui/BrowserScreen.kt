@@ -128,6 +128,7 @@ import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.FindInPage
+import app.serene.browser.PagePrint
 import app.serene.browser.SharedText
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
@@ -514,6 +515,8 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
                 val context = LocalContext.current
                 DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
+                // Chrome has it in its share sheet; the system dialog has "Save as PDF".
+                DropdownMenuItem(text = { Text("Print…") }, enabled = onPage && tab.crashed == null, onClick = { close(); PagePrint.print(context, tab.webView, tab.title, tab.url) { tab.printing = it } })
                 // After Share, as in Chrome.
                 DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.crashed == null, onClick = { close(); onFind() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
