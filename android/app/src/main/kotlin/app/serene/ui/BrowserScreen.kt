@@ -364,12 +364,13 @@ private fun UrlBar(app: SereneApp, tab: Tab, address: AddressEdit, covered: Bool
     // A new tab starts with the keyboard up, once the switcher (if any) is gone. Not one turned
     // to on the bar's cube: that is flipping through tabs, not starting one.
     LaunchedEffect(tab.id, covered) { if (!covered && autofocus && tab.url.isEmpty() && !tab.openedByPage) focus.requestFocus() }
-    // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome.
+    // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome. Not the
+    // remove dialog of a suggestion taking it away: the edit goes on after it.
     val imeVisible = WindowInsets.isImeVisible
     var imeWasVisible by remember { mutableStateOf(false) }
     LaunchedEffect(imeVisible) {
         if (imeVisible) imeWasVisible = true
-        else if (imeWasVisible) {
+        else if (imeWasVisible && address.removal == null) {
             imeWasVisible = false
             if (focused) focusManager.clearFocus()
         }

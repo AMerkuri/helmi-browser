@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -71,6 +73,12 @@ class AddressEdit(initial: String) {
     val state = TextFieldState(initial)
     var focused by mutableStateOf(false)
     var original by mutableStateOf<String?>(null)
+
+    /**
+     * The long-pressed suggestion whose remove dialog is up. The dialog takes the keyboard away,
+     * which would otherwise end the edit (and the dialog with the suggestions).
+     */
+    internal var removal by mutableStateOf<Removal?>(null)
 
     /** The last completion, or null: none, or the text changed since. */
     private var completed: Completion? = null
@@ -156,7 +164,10 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
         searches = withContext(Dispatchers.IO) { Suggestions.fetchSearchSuggestions(engine.suggest, query) }
     }
 
-    var removal by remember { mutableStateOf<Removal?>(null) }
+    var removal by edit::removal
+    DisposableEffect(edit) { onDispose { edit.removal = null } }
+    // The keyboard back after the dialog, as in Chrome: the edit goes on.
+    val keyboard = LocalSoftwareKeyboardController.current
 
     val goesTo = completion?.url ?: resolveInput(query, engine.template)
     val first = completion?.text ?: query
@@ -229,11 +240,11 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
     // Chrome's dialog: the suggestion, the question, Cancel and OK.
     removal?.let { r ->
         AlertDialog(
-            onDismissRequest = { removal = null },
+            onDismissRequest = { removal = null; keyboard?.show() },
             title = { Text(r.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
             text = { Text(r.question) },
-            confirmButton = { TextButton(onClick = { removal = null; r.remove() }) { Text("OK") } },
-            dismissButton = { TextButton(onClick = { removal = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { removal = null; r.remove(); keyboard?.show() }) { Text("OK") } },
+            dismissButton = { TextButton(onClick = { removal = null; keyboard?.show() }) { Text("Cancel") } },
         )
     }
 }
@@ -241,7 +252,7 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
 private const val FROM_HISTORY = "Remove suggestion from history?"
 
 /** A long-pressed suggestion: its [title] and [question] in the dialog, and what OK does. */
-private class Removal(val title: String, val question: String, val remove: () -> Unit)
+internal class Removal(val title: String, val question: String, val remove: () -> Unit)
 
 /**
  * The search for suggestion [s], as an address: a search even when it looks like an address
