@@ -104,7 +104,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     var opener by mutableStateOf<Tab?>(null)
     /** Camera, microphone and location requests from this tab's pages; the prompt shows the first. */
-    val permissions = PermissionRequests(app.sitePermissions) { webView.context as? PermissionHost }
+    val permissions = PermissionRequests(app.sitePermissions, pageUrl = { webView.url }) { webView.context as? PermissionHost }
     /** The page's element in fullscreen (a video, usually): the activity shows it over everything. */
     var fullscreen by mutableStateOf<Fullscreen?>(null)
         private set
@@ -223,7 +223,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         webView.webViewClient = Client()
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
-            override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: "" }
+            override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: ""; app.history.titled(view.url, t) }
             // A new tab beside this one, on screen; WebView loads the window's page into it.
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 val m = manager ?: return false
@@ -319,7 +319,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             Log.w(TAG, "WebView too old for WEB_MESSAGE_LISTENER: Serene runs network rules only")
             return
         }
-        WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, _, isMainFrame, reply: JavaScriptReplyProxy ->
+        WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, origin, isMainFrame, reply: JavaScriptReplyProxy ->
             val data = message.data ?: return@addWebMessageListener
             if (destroyed) return@addWebMessageListener
             if (isMainFrame && data.startsWith("{\"type\":\"serene-download\"")) {
@@ -332,6 +332,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             }
             if (isMainFrame && data.startsWith("{\"type\":\"serene-doc")) {
                 onDocMessage(data)
+                return@addWebMessageListener
+            }
+            if (data.startsWith("{\"type\":\"helmi-share\"")) {
+                main.post { if (!destroyed) onWebShare(this@Tab, data, isMainFrame, origin) }
                 return@addWebMessageListener
             }
             // From any frame: a video in a YouTube embed goes fullscreen in its own frame.
@@ -360,6 +364,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
             WebViewCompat.addDocumentStartJavaScript(webView, FULLSCREEN_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, WEB_SHARE_JS, setOf("*"))
         }
     }
 
@@ -716,8 +721,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
             darkenFor(pageUrl)
-            // As in Chrome, a prompt goes with the page that asked.
-            permissions.cancelAll()
+            // As in Chrome, a prompt goes with the page that asked (not the one starting now).
+            permissions.pageStarted(pageUrl)
             docLoading = true
             painting = true
             // A new page: the download goes on in the notification and the downloads screen.
@@ -745,6 +750,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
         override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) {
             updateNav(pageUrl)
+            if (!isReload) app.history.visit(pageUrl, view.title.orEmpty())
             // A same-document step (#hash, history.pushState; single-page sites) has no load to
             // wait for, only the page's own redraw. A new document's load is waited for.
             main.postDelayed({ if (!docLoading) whenSettled() }, 50)

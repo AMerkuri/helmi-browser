@@ -44,3 +44,53 @@ class SitePermissionsTest {
         assertEquals(emptyMap<SitePermission, Boolean>(), decodeChoices(""))
     }
 }
+
+class PermissionRequestsTest {
+    private class Choices : PermissionChoices {
+        val map = mutableMapOf<String, Map<SitePermission, Boolean>>()
+        override fun choices(origin: String) = map[origin].orEmpty()
+        override fun set(origin: String, kind: SitePermission, allow: Boolean) { map[origin] = choices(origin) + (kind to allow) }
+    }
+
+    private class Answer : android.webkit.GeolocationPermissions.Callback {
+        var allowed: Boolean? = null
+        override fun invoke(origin: String?, allow: Boolean, retain: Boolean) { allowed = allow }
+    }
+
+    private val host = object : PermissionHost {
+        override fun requestAndroidPermissions(kinds: Set<SitePermission>, done: (Boolean) -> Unit) = done(true)
+    }
+
+    @Test fun aPageAskingBeforeItsStartIsToldKeepsItsPrompt() {
+        var page = "https://maps.example.com/here"
+        val requests = PermissionRequests(Choices(), pageUrl = { page }) { host }
+        // WebView's page-started message can come after the new page has already asked.
+        val answer = Answer()
+        requests.onGeolocationPrompt("https://maps.example.com/", answer)
+        requests.pageStarted("https://maps.example.com/here")
+        assertEquals("https://maps.example.com", requests.current?.origin)
+        assertNull(answer.allowed)
+        requests.answer(requests.current!!, true)
+        assertEquals(true, answer.allowed)
+        assertNull(requests.current)
+
+        // The next page's start takes the last page's prompt with it.
+        // (A frame from another site on the maps page asks, and the prompt is not answered.)
+        val stale = Answer()
+        requests.onGeolocationPrompt("https://other.example.org/", stale)
+        assertEquals("https://other.example.org", requests.current?.origin)
+        page = "https://news.example.net/"
+        requests.pageStarted("https://news.example.net/")
+        assertNull(requests.current)
+        assertEquals(false, stale.allowed)
+    }
+
+    @Test fun rememberedChoicesNeedNoPrompt() {
+        val choices = Choices().apply { set("https://maps.example.com", SitePermission.Location, false) }
+        val requests = PermissionRequests(choices, pageUrl = { "https://maps.example.com/" }) { host }
+        val answer = Answer()
+        requests.onGeolocationPrompt("https://maps.example.com/", answer)
+        assertNull(requests.current)
+        assertEquals(false, answer.allowed)
+    }
+}

@@ -2,7 +2,6 @@ package app.serene.ui
 
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animate
@@ -76,7 +75,6 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
@@ -93,7 +91,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.core.view.WindowCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import app.serene.Haptics
@@ -252,7 +249,6 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
         zoom.animateTo(0f, tween(380, easing = FastOutSlowInEasing))
     }
 
-    val window = LocalActivity.current?.window
     val view = LocalView.current
     // A tick for each card that comes to the middle. Not while a card flies there to open: that
     // is no longer the user flipping through.
@@ -269,22 +265,7 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
 
     // Light status and navigation bar icons on the black, the theme's again on the way out.
     val dark by remember { derivedStateOf { zoom.value < 0.5f } }
-    // Again after a configuration change (folding, unfolding): the activity resets the icons then.
-    DisposableEffect(dark, window, LocalConfiguration.current) {
-        val bars = window?.let { WindowCompat.getInsetsController(it, view) }
-        val status = bars?.isAppearanceLightStatusBars
-        val nav = bars?.isAppearanceLightNavigationBars
-        if (dark && bars != null) {
-            bars.isAppearanceLightStatusBars = false
-            bars.isAppearanceLightNavigationBars = false
-        }
-        onDispose {
-            if (dark && bars != null) {
-                bars.isAppearanceLightStatusBars = status!!
-                bars.isAppearanceLightNavigationBars = nav!!
-            }
-        }
-    }
+    SystemBarIcons(dark = if (dark) true else null)
 
     /** Brings [tab] to the middle if it isn't, then grows it into the page and leaves. */
     fun open(tab: Tab) {
