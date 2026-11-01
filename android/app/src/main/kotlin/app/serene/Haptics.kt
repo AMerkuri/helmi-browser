@@ -25,11 +25,6 @@ object Haptics {
         )
     }
 
-    /** What was typed found nothing (find in page, as in Chrome). */
-    fun reject(view: View) {
-        view.performHapticFeedback(if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS)
-    }
-
     /** One item of a row went past, as on a picker wheel. */
     fun tick(view: View) {
         view.performHapticFeedback(if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.SEGMENT_TICK else HapticFeedbackConstants.CLOCK_TICK)

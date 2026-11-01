@@ -13,7 +13,7 @@ import app.serene.Haptics
  * goes away on a new page, another tab, or a new WebView after a crash; [close] clears the
  * highlights.
  */
-class FindInPage(val webView: WebView, private val onNoMatch: () -> Unit = { Haptics.reject(webView) }) {
+class FindInPage(val webView: WebView, private val onNoMatch: () -> Unit = { Haptics.threshold(webView, on = true) }) {
     /** The text looked for. */
     var query by mutableStateOf("")
         private set
@@ -25,7 +25,7 @@ class FindInPage(val webView: WebView, private val onNoMatch: () -> Unit = { Hap
         private set
 
     // The text grew since the last search (typed, not deleted): only then does nothing found buzz,
-    // as in Chrome. Once per search.
+    // as in Chrome, with the single tick the bottom-bar cube gives on turning to a tab. Once per search.
     private var grew = false
 
     init {
