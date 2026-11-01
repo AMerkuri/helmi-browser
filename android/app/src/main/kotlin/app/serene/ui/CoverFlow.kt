@@ -140,7 +140,7 @@ private const val CARD_DROP = 40f
 private const val HANDLE_HEIGHT = 48f
 private const val HANDLE_GAP = 8f
 private const val HANDLE_TRACK = 280f
-private const val KNOB_HEIGHT = 16f
+private const val KNOB_HEIGHT = 8f
 private const val KNOB_MIN = 24f
 private const val KNOB_MAX = 64f
 private const val BUTTONS = 56f
@@ -636,7 +636,7 @@ private fun ScrollBar(modifier: Modifier, center: () -> Float, knobWidth: () -> 
     Canvas(modifier) {
         val midY = size.height / 2
         val knob = Size(knobWidth(), KNOB_HEIGHT.dp.toPx())
-        val trackH = knob.height + 4.dp.toPx()
+        val trackH = knob.height + 2.dp.toPx()
         drawRoundRect(
             Color.White.copy(alpha = 0.1f),
             topLeft = Offset(0f, midY - trackH / 2),
