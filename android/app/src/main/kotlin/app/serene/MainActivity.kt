@@ -12,7 +12,6 @@ import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.layout.Box
@@ -165,7 +164,6 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         systemBars.apply()
         val app = application as SereneApp
         tabs = TabManager(this, app)
@@ -296,10 +294,9 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // uiMode is handled in place (see the manifest), so the system bar icons picked in onCreate
-        // keep the old theme when the system switches to dark: dark icons on a dark bar. Pick again,
-        // for the new theme and whatever is on screen (the tab switcher keeps its light icons).
-        enableEdgeToEdge()
+        // uiMode is handled in place (see the manifest): the bar icons for the new theme, unless the
+        // screen on top has its own. (enableEdgeToEdge also does this itself after a configuration
+        // change; this keeps it from depending on that.)
         systemBars.apply()
         // Pages follow the theme too; a WebView that isn't on screen misses the change.
         tabs.tabs.forEach { it.applyDarkening() }

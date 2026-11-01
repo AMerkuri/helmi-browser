@@ -1,7 +1,11 @@
 package app.serene.ui
 
-import android.app.Activity
 import android.content.res.Configuration
+import android.content.res.Resources
+import android.graphics.Color
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -11,7 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.core.view.WindowCompat
 
 /**
  * The status and navigation bar icons. They follow the app's theme, unless a screen drawn over the
@@ -23,7 +26,7 @@ import androidx.core.view.WindowCompat
  * open, or the reader going while the tab switcher was over it, left the old theme's icons: light
  * icons on the light theme until the next theme change.
  */
-class SystemBars(private val activity: Activity) {
+class SystemBars(private val activity: ComponentActivity) {
     /** One screen's ask: icons for a dark background, a light one, or null for none (the app's). */
     class Ask {
         var dark by mutableStateOf<Boolean?>(null)
@@ -37,15 +40,17 @@ class SystemBars(private val activity: Activity) {
     /** What the screens on top ask for (snapshot state: read it in a snapshotFlow to follow it). */
     val asked: Boolean? get() = newestAsk(asks.map { it.dark })
 
-    /** Sets the icons for what is on screen now and the activity's theme. */
-    fun apply() {
-        val appDark = activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-        val dark = newestAsk(asks.map { it.dark }) ?: appDark
-        WindowCompat.getInsetsController(activity.window, activity.window.decorView).run {
-            isAppearanceLightStatusBars = !dark
-            isAppearanceLightNavigationBars = !dark
-        }
-    }
+    // enableEdgeToEdge() runs its setup again on every configuration change (a hidden view in the
+    // window), after the activity's onConfigurationChanged, so setting the icons there was undone:
+    // the asks have to be in the styles it works out the icons from.
+    private fun dark(resources: Resources) = newestAsk(asks.map { it.dark })
+        ?: (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES)
+    private val status = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT, ::dark)
+    // The scrims behind 3-button navigation are enableEdgeToEdge's defaults.
+    private val navigation = SystemBarStyle.auto(Color.argb(0xe6, 0xFF, 0xFF, 0xFF), Color.argb(0x80, 0x1b, 0x1b, 0x1b), ::dark)
+
+    /** Edge to edge, with the icons for what is on screen now and the activity's theme. */
+    fun apply() = activity.enableEdgeToEdge(status, navigation)
 }
 
 /** The newest screen's ask, oldest first in [asks]; null when none asks (the app's theme decides). */
