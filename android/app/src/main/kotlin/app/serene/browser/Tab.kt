@@ -926,11 +926,17 @@ fun isWebLink(url: String) = url.startsWith("https://", ignoreCase = true) || ur
 
 fun isImageSrc(url: String) = isWebLink(url) || url.startsWith("data:image/", ignoreCase = true)
 
-/** URL bar input: a URL as typed, a host without scheme, or a search. */
+/**
+ * URL bar input: a URL as typed, a host without scheme, or a search. A host gets https, but an
+ * IPv4 address or localhost gets http, as in Chrome (a router or a dev server has no https).
+ */
 fun resolveInput(input: String, searchTemplate: String): String {
     val s = input.trim()
     if (s.isEmpty()) return "about:blank"
     if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(s) || s.startsWith("about:")) return s
-    val looksLikeHost = !s.contains(' ') && (Regex("""^[^/\s]+\.[a-zA-Z]{2,}(:\d+)?(/.*)?$""").matches(s) || s.startsWith("localhost"))
+    if (s.contains(' ')) return searchTemplate.replace("%s", URLEncoder.encode(s, "UTF-8"))
+    val local = Regex("""^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?([/?#].*)?$""", RegexOption.IGNORE_CASE).matches(s)
+    if (local) return "http://$s"
+    val looksLikeHost = Regex("""^[^/\s]+\.[a-zA-Z]{2,}(:\d+)?(/.*)?$""").matches(s)
     return if (looksLikeHost) "https://$s" else searchTemplate.replace("%s", URLEncoder.encode(s, "UTF-8"))
 }

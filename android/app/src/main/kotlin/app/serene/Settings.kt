@@ -49,6 +49,10 @@ class Settings(context: Context) {
         get() = runCatching { SearchEngine.valueOf(searchPref.state) }.getOrDefault(SearchEngine.DUCKDUCKGO)
         set(v) = searchPref.set(v.name)
 
+    private val searchSuggestionsPref = bool("search_suggestions", true)
+    /** The address bar asks the search engine for suggestions as you type (Chrome's "Autocomplete searches and URLs"). */
+    var searchSuggestions: Boolean get() = searchSuggestionsPref.state; set(v) = searchSuggestionsPref.set(v)
+
     private val themePref = string("theme", ThemeMode.SYSTEM.name)
     var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(themePref.state) }.getOrDefault(ThemeMode.SYSTEM)
@@ -157,9 +161,10 @@ enum class DimStrength(val label: String, val percent: Int) {
     STRONG("Strong", 70),
 }
 
-enum class SearchEngine(val label: String, val template: String) {
-    DUCKDUCKGO("DuckDuckGo", "https://duckduckgo.com/?q=%s"),
-    GOOGLE("Google", "https://www.google.com/search?q=%s"),
-    BRAVE("Brave Search", "https://search.brave.com/search?q=%s"),
-    STARTPAGE("Startpage", "https://www.startpage.com/do/search?q=%s"),
+/** [suggest]: where the address bar asks for search suggestions; each answers in the OpenSearch format. */
+enum class SearchEngine(val label: String, val template: String, val suggest: String) {
+    DUCKDUCKGO("DuckDuckGo", "https://duckduckgo.com/?q=%s", "https://duckduckgo.com/ac/?type=list&q=%s"),
+    GOOGLE("Google", "https://www.google.com/search?q=%s", "https://www.google.com/complete/search?client=firefox&ie=utf-8&oe=utf-8&q=%s"),
+    BRAVE("Brave Search", "https://search.brave.com/search?q=%s", "https://search.brave.com/api/suggest?q=%s"),
+    STARTPAGE("Startpage", "https://www.startpage.com/do/search?q=%s", "https://www.startpage.com/osuggestions?q=%s"),
 }
