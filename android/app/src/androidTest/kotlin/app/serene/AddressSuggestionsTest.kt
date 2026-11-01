@@ -1,5 +1,6 @@
 package app.serene
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -44,6 +45,7 @@ class AddressSuggestionsTest {
         app.settings.searchSuggestions = false // the emulator has no search engine to ask
         val site = "127.0.0.1:${server.localPort}"
         val page = "http://$site/harbour"
+        inst.uiAutomation.serviceInfo = inst.uiAutomation.serviceInfo.apply { flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS }
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 inst.runOnMainSync {
@@ -53,14 +55,16 @@ class AddressSuggestionsTest {
                 }
                 // The blank tab the test starts on has the address bar focused.
                 SystemClock.sleep(2000)
-                inst.sendStringSync("127")
-                waitFor("the site completed in the field") { find(site) != null }
+                type("127")
+                SystemClock.sleep(1000)
                 inst.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
-                waitFor("Go opens the completed site, over http") { url(scenario).startsWith("http://$site") }
+                // Without the completion, Go would search for "127".
+                waitFor("Go opens something (did the keys reach the address bar?)") { url(scenario).isNotEmpty() }
+                assertTrue("Go should open the completed site over http, opened: ${url(scenario)}", url(scenario).startsWith("http://$site"))
 
                 scenario.onActivity { it.tabs.open() }
                 SystemClock.sleep(2000)
-                inst.sendStringSync("harbour")
+                type("harbour")
                 waitFor("the page is suggested") { find("Harbour page") != null }
                 val row = find("Harbour page")!!
                 // The row is the clickable node; its text is merged into it.
@@ -81,8 +85,32 @@ class AddressSuggestionsTest {
         return u
     }
 
+    /** One key at a time, as a keyboard types: each letter goes through the field's completion. */
+    private fun type(text: String) {
+        for (c in text) {
+            inst.sendStringSync(c.toString())
+            inst.waitForIdleSync()
+        }
+    }
+
+    /** The app's windows (the keyboard's window may be the active one). */
+    private fun roots(): List<AccessibilityNodeInfo> =
+        inst.uiAutomation.windows.mapNotNull { it.root }.ifEmpty { listOfNotNull(inst.uiAutomation.rootInActiveWindow) }
+
     private fun find(text: String): AccessibilityNodeInfo? =
-        inst.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(text)?.firstOrNull()
+        roots().firstNotNullOfOrNull { it.findAccessibilityNodeInfosByText(text)?.firstOrNull() }
+
+    /** The texts on screen, for a failure message. */
+    private fun texts(): List<String> {
+        val out = mutableListOf<String>()
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 40) return
+            n.text?.toString()?.takeIf { it.isNotBlank() }?.let(out::add)
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        roots().forEach { walk(it, 0) }
+        return out
+    }
 
     private fun waitFor(what: String, timeoutMs: Long = 20_000, check: () -> Boolean) {
         val end = SystemClock.uptimeMillis() + timeoutMs
@@ -90,6 +118,6 @@ class AddressSuggestionsTest {
             if (check()) return
             SystemClock.sleep(200)
         }
-        assertTrue("timed out: $what", check())
+        assertTrue("timed out: $what; on screen: ${texts()}", check())
     }
 }

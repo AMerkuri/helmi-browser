@@ -84,6 +84,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -317,7 +318,9 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UrlBar(app: SereneApp, tab: Tab, address: AddressEdit, covered: Boolean, autofocus: Boolean, onShield: () -> Unit) {
-    var focused by address::focused
+    // The field's own focus, not the tab's: it stays focused when + opens a tab mid-edit.
+    var focused by remember { mutableStateOf(false) }
+    SideEffect { address.focused = focused }
     // The state-based field: dragging the cursor handle past the edge keeps scrolling the text,
     // where the TextFieldValue one stopped a character past what was on screen.
     val state = address.state
@@ -332,7 +335,7 @@ private fun UrlBar(app: SereneApp, tab: Tab, address: AddressEdit, covered: Bool
     val focusManager = LocalFocusManager.current
     val focus = remember { FocusRequester() }
     val context = LocalContext.current
-    LaunchedEffect(tab.url, focused) {
+    LaunchedEffect(address, tab.url, focused) {
         if (focused) {
             // The whole address, selected, as in Samsung Internet. After the tap that focused the
             // field has placed its cursor, which would otherwise undo the selection.
@@ -379,6 +382,7 @@ private fun UrlBar(app: SereneApp, tab: Tab, address: AddressEdit, covered: Bool
                 },
                 modifier = Modifier.fillMaxSize().focusRequester(focus).onFocusChanged {
                     focused = it.isFocused
+                    address.focused = it.isFocused
                 },
                 decorator = { inner ->
                     // Chrome's inline clear button: inside the field, at its end, while there is
