@@ -125,7 +125,6 @@ import app.serene.SereneApp
 import app.serene.browser.SharedText
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
-import app.serene.browser.copyLink
 import app.serene.browser.openShareSheet
 import app.serene.engine.siteOf
 import app.serene.reader.ReaderPage
@@ -438,7 +437,6 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
                 val context = LocalContext.current
                 DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
-                DropdownMenuItem(text = { Text("Copy link") }, enabled = onPage, onClick = { close(); copyLink(context, tab.url) })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {

@@ -1,21 +1,17 @@
 package app.serene.browser
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.SystemClock
 import android.util.Log
-import android.widget.Toast
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import org.json.JSONObject
 import java.net.URI
 
 /**
- * Sharing a page: ⋮ › Share and Copy link, and the Web Share API (navigator.share), which WebView
+ * Sharing a page: ⋮ › Share…, and the Web Share API (navigator.share), which WebView
  * leaves out. [WEB_SHARE_JS] defines navigator.share and navigator.canShare in every frame and
  * hands what the page shares to the app through SereneBridge; the app opens Android's share sheet
  * with it, as Chrome does. Text and links only: a page sharing files gets canShare() false and a
@@ -81,13 +77,6 @@ fun openShareSheet(context: Context, s: SharedText) {
         send.putExtra(Intent.EXTRA_SUBJECT, s.title.trim())
     }
     context.startActivity(Intent.createChooser(send, null))
-}
-
-/** ⋮ › Copy link: the page's address on the clipboard. */
-fun copyLink(context: Context, url: String) {
-    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Link", url))
-    // Android 13 and later show their own confirmation of a copy.
-    if (Build.VERSION.SDK_INT < 33) Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
 }
 
 /**
