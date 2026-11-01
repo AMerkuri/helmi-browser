@@ -26,11 +26,12 @@ object Haptics {
     }
 
     /**
-     * What was typed found nothing (find in page, as in Chrome): one click, a step firmer than the
-     * cube's tick (VIRTUAL_KEY plays the click effect, the gesture constants the lighter tick).
+     * What was typed found nothing (find in page, as in Chrome): one heavy click, two steps firmer
+     * than the cube's tick (LONG_PRESS plays the heavy click effect, VIRTUAL_KEY the plain click,
+     * the gesture constants the lighter tick).
      */
     fun miss(view: View) {
-        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
     }
 
     /** One item of a row went past, as on a picker wheel. */

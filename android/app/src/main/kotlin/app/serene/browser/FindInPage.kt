@@ -25,7 +25,7 @@ class FindInPage(val webView: WebView, private val onNoMatch: () -> Unit = { Hap
         private set
 
     // The text grew since the last search (typed, not deleted): only then does nothing found buzz,
-    // as in Chrome, with one click (Haptics.miss). Once per search.
+    // as in Chrome, with one heavy click (Haptics.miss). Once per search.
     private var grew = false
 
     init {
