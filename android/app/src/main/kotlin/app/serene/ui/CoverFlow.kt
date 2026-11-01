@@ -294,10 +294,10 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
         open(if (i >= 0) origin!! else tabs.tabs[scroll.value.roundToInt().coerceIn(0, tabs.tabs.lastIndex)])
     }
 
-    fun newTab(isPrivate: Boolean) {
+    fun newTab() {
         if (leaving) return
         // A new card at the end, which flies into the middle and opens.
-        val tab = tabs.open(isPrivate = isPrivate)
+        val tab = tabs.open()
         open(tab)
     }
 
@@ -533,17 +533,10 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = { newTab(false) }, enabled = !leaving) {
+            TextButton(onClick = ::newTab, enabled = !leaving) {
                 Icon(Icons.Filled.Add, null, tint = Color.White)
                 Spacer(Modifier.size(6.dp))
                 Text("New tab", color = Color.White)
-            }
-            if (app.privacy.supported) {
-                TextButton(onClick = { newTab(true) }, enabled = !leaving) {
-                    Icon(painterResource(R.drawable.ic_private), null, tint = PRIVATE_MARK)
-                    Spacer(Modifier.size(6.dp))
-                    Text("Private", color = Color.White)
-                }
             }
             TextButton(onClick = ::back, enabled = !leaving) { Text("Done", color = Color.White) }
         }
