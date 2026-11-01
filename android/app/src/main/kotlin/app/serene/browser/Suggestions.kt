@@ -1,5 +1,6 @@
 package app.serene.browser
 
+import app.serene.SearchEngine
 import app.serene.bookmarks.Bookmark
 import app.serene.bookmarks.Bookmarks
 import app.serene.engine.EngineJson
@@ -7,6 +8,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLDecoder
 import java.net.URLEncoder
 import kotlin.math.ln
 import kotlin.math.pow
@@ -24,6 +26,9 @@ data class PageSuggestion(
     val label: String get() = title.ifBlank { url }
 }
 
+/** A search made before (a search engine's results page in the history): its [text], how often, and last when (ms). */
+data class PastSearch(val text: String, val count: Int, val lastAt: Long)
+
 /** The field's inline completion: the [text] it shows, and the page Go opens ([url], with the scheme the page had). */
 data class Completion(val text: String, val url: String)
 
@@ -35,18 +40,25 @@ data class Completion(val text: String, val url: String)
 object Suggestions {
     const val MAX_PAGES = 5
     const val MAX_SEARCHES = 5
+    const val MAX_PAST_SEARCHES = 3
 
     /**
      * The pages that match [query] (every word, in the title or the address), best first: an address
      * that starts with what was typed, then a title or address with a word that starts with the
      * first word, then any other match; within those, bookmarks, pages visited often and lately.
+     * A search engine's results pages are left out, as in Chrome: they come back as [pastSearches]
+     * ([withSearches] keeps them, for the completion: duckduckgo.com is still a site).
      */
-    fun pages(query: String, visits: List<Visit>, bookmarks: List<Bookmark>, now: Long, limit: Int = MAX_PAGES): List<PageSuggestion> {
+    fun pages(
+        query: String, visits: List<Visit>, bookmarks: List<Bookmark>, now: Long, limit: Int = MAX_PAGES,
+        withSearches: Boolean = false, templates: List<String> = SEARCH_TEMPLATES,
+    ): List<PageSuggestion> {
         val words = History.words(query)
         if (words.isEmpty()) return emptyList()
         val byKey = LinkedHashMap<String, PageSuggestion>()
         for (v in visits) {
             if (!v.matches(words)) continue
+            if (!withSearches && searchOf(v.url, templates) != null) continue
             val k = Bookmarks.key(v.url)
             val seen = byKey[k]
             byKey[k] = if (seen == null) PageSuggestion(v.url, v.title, false, v.count, v.at)
@@ -70,9 +82,10 @@ object Suggestions {
      * at least twice (or bookmarked) whose address starts with what was typed, and its path once
      * the typing goes past the site (a "/"). Its text starts with [typed] as typed; null when there
      * is nothing to add (a space in it, no such page). The site's page visited most gives the
-     * completion's scheme and "www." (an http-only site stays http).
+     * completion's scheme and "www." (an http-only site stays http). A site in [hiddenSites]
+     * (removed with a long press) isn't completed.
      */
-    fun completion(typed: String, pages: List<PageSuggestion>): Completion? {
+    fun completion(typed: String, pages: List<PageSuggestion>, hiddenSites: Set<String> = emptySet()): Completion? {
         if (typed.isEmpty() || typed.any(Char::isWhitespace)) return null
         val lower = typed.lowercase()
         val bareTyped = typedAddress(lower) ?: return null
@@ -84,6 +97,7 @@ object Suggestions {
         for (p in pages) {
             val address = p.url.substringAfter("://").let { if (it.startsWith("www.", ignoreCase = true)) it.substring(4) else it }
             if (!address.lowercase().startsWith(bareTyped)) continue
+            if (hostPart(address).lowercase() in hiddenSites) continue
             val target = if (pastSite) address.trimEnd('/') else hostPart(address).lowercase()
             if (target.length <= bareTyped.length) continue
             // A bookmark counts as two visits: saved on purpose.
@@ -98,6 +112,60 @@ object Suggestions {
             ?: return null
         return Completion(typed + best.text.substring(bareTyped.length), best.url)
     }
+
+    /**
+     * Searches made before whose text starts with [query] (any case), as Chrome lists them under
+     * the typing: most often first, then the latest. Not the query itself (the first row is that
+     * search), nor ones in [hidden] (lower case). At most [limit].
+     */
+    fun pastSearches(
+        query: String, visits: List<Visit>, hidden: Set<String> = emptySet(), limit: Int = MAX_PAST_SEARCHES,
+        templates: List<String> = SEARCH_TEMPLATES,
+    ): List<PastSearch> {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return emptyList()
+        val byText = LinkedHashMap<String, PastSearch>()
+        for (v in visits) {
+            val text = searchOf(v.url, templates) ?: continue
+            val k = text.lowercase()
+            if (!k.startsWith(q) || k == q || k in hidden) continue
+            val seen = byText[k]
+            byText[k] = if (seen == null) PastSearch(text, v.count, v.at) else seen.copy(count = seen.count + v.count, lastAt = maxOf(seen.lastAt, v.at))
+        }
+        return byText.values.sortedWith(compareByDescending<PastSearch> { it.count }.thenByDescending { it.lastAt }).take(limit)
+    }
+
+    /**
+     * What was searched for, when [url] is a results page of one of the search engines (their
+     * [templates], "%s" where the text goes); null for any other page.
+     */
+    fun searchOf(url: String, templates: List<String> = SEARCH_TEMPLATES): String? {
+        val base = url.substringBefore('#').substringBefore('?')
+        val query = url.substringBefore('#').substringAfter('?', "")
+        if (query.isEmpty()) return null
+        for (t in templates) {
+            if (!sameAddress(base, t.substringBefore('?'))) continue
+            val name = t.substringAfter('?').split('&').firstOrNull { it.endsWith("=%s") }?.removeSuffix("=%s") ?: continue
+            val value = query.split('&').firstOrNull { it.substringBefore('=') == name }?.substringAfter('=', "") ?: continue
+            val text = runCatching { URLDecoder.decode(value, "UTF-8") }.getOrNull()?.trim()
+            if (!text.isNullOrEmpty()) return text
+        }
+        return null
+    }
+
+    /** The front page of the site [host] ("github.com"), with or without www, any scheme. */
+    fun isFrontPageOf(url: String, host: String): Boolean {
+        val address = bare(url).substringBefore('#').substringBefore('?').trimEnd('/')
+        return address == host.lowercase()
+    }
+
+    /** The site [Completion.text] names (its host), to hide from the completion. */
+    fun siteOf(c: Completion): String = hostPart(bare(c.url))
+
+    private fun sameAddress(a: String, b: String) = bare(a).trimEnd('/') == bare(b).trimEnd('/')
+
+    /** The search pages of the engines in Settings › Search, so a switch keeps the past searches. */
+    private val SEARCH_TEMPLATES: List<String> get() = SearchEngine.entries.map { it.template }
 
     /**
      * The address part of [query] as it compares with [bare] addresses: lower case, no scheme, no

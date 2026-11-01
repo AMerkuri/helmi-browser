@@ -116,4 +116,43 @@ class SuggestionsTest {
         assertEquals(emptyList<String>(), Suggestions.parseSearchSuggestions("""{"q":"x"}""", "x"))
         assertEquals(listOf("a", "b"), Suggestions.parseSearchSuggestions("""["q",["a","b","c"]]""", "q", limit = 2))
     }
+
+    private val engines = listOf("https://duckduckgo.com/?q=%s", "https://www.google.com/search?q=%s", "https://www.startpage.com/do/search?q=%s")
+
+    @Test
+    fun readsSearchesFromResultsPages() {
+        assertEquals("cookie banners", Suggestions.searchOf("https://duckduckgo.com/?q=cookie+banners&ia=web", engines))
+        assertEquals("ä & ö", Suggestions.searchOf("https://www.google.com/search?client=x&q=%C3%A4+%26+%C3%B6", engines))
+        assertEquals("gitu", Suggestions.searchOf("https://google.com/search?q=gitu#top", engines)) // no www
+        assertNull(Suggestions.searchOf("https://duckduckgo.com/", engines))
+        assertNull(Suggestions.searchOf("https://duckduckgo.com/?ia=web", engines))
+        assertNull(Suggestions.searchOf("https://example.com/?q=gitu", engines))
+    }
+
+    @Test
+    fun pastSearchesStartWithTheTypingAndLeaveThePages() {
+        val visits = listOf(
+            visit("https://duckduckgo.com/?q=gitu", "gitu at DuckDuckGo", count = 1),
+            visit("https://duckduckgo.com/?q=Gitea+docker", "gitea docker at DuckDuckGo", daysAgo = 1, count = 3),
+            visit("https://duckduckgo.com/?q=git", "git at DuckDuckGo"),
+            visit("https://duckduckgo.com/?q=legit", "legit at DuckDuckGo"),
+            visit("https://github.com/", "GitHub", count = 2),
+        )
+        assertEquals(listOf("Gitea docker", "gitu"), Suggestions.pastSearches("git", visits, templates = engines).map { it.text })
+        assertEquals(listOf("gitu"), Suggestions.pastSearches("git", visits, hidden = setOf("gitea docker"), templates = engines).map { it.text })
+        // Results pages aren't pages to suggest; the completion still sees them as a site.
+        assertEquals(listOf("https://github.com/"), Suggestions.pages("git", visits, emptyList(), now, templates = engines).map { it.url })
+        val all = Suggestions.pages("duck", visits, emptyList(), now, limit = 50, withSearches = true, templates = engines)
+        assertEquals("duckduckgo.com", Suggestions.completion("duck", all)?.text)
+    }
+
+    @Test
+    fun aRemovedSiteIsNotCompleted() {
+        val pages = Suggestions.pages("git", listOf(visit("https://github.com/x", count = 3)), emptyList(), now)
+        val c = Suggestions.completion("git", pages)!!
+        assertEquals("github.com", Suggestions.siteOf(c))
+        assertNull(Suggestions.completion("git", pages, hiddenSites = setOf("github.com")))
+        assertTrue(Suggestions.isFrontPageOf("https://www.github.com/", "github.com"))
+        assertTrue(!Suggestions.isFrontPageOf("https://github.com/x", "github.com"))
+    }
 }

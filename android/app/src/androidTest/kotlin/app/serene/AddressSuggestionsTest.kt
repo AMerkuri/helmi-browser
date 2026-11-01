@@ -17,7 +17,7 @@ import kotlin.concurrent.thread
 /**
  * The address bar's suggestions, typed with key events: the start of a site visited twice completes
  * in the field and Go opens it (an http site stays http), and a word of a page's title lists the
- * page under the bar, where a tap opens it.
+ * page under the bar, where a tap opens it and a long press removes it from the history.
  */
 @RunWith(AndroidJUnit4::class)
 class AddressSuggestionsTest {
@@ -66,17 +66,35 @@ class AddressSuggestionsTest {
                 SystemClock.sleep(2000)
                 type("harbour")
                 waitFor("the page is suggested") { find("Harbour page") != null }
-                val row = find("Harbour page")!!
-                // The row is the clickable node; its text is merged into it.
-                var node: AccessibilityNodeInfo? = row
-                while (node != null && !node.isClickable) node = node.parent
-                assertTrue("no clickable suggestion", node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+                assertTrue("no clickable suggestion", act(find("Harbour page")!!, AccessibilityNodeInfo.ACTION_CLICK))
                 waitFor("the tap opens the page") { url(scenario) == page }
+
+                // A long press offers to remove it from the history, as in Chrome; OK does.
+                scenario.onActivity { it.tabs.open() }
+                SystemClock.sleep(2000)
+                type("harbour")
+                waitFor("the page is suggested again") { find("Harbour page") != null }
+                assertTrue("no long press on the suggestion", act(find("Harbour page")!!, AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                waitFor("the remove dialog") { find("Remove suggestion from history?") != null }
+                assertTrue("no OK button", act(find("OK")!!, AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("the page leaves the history") {
+                    var left = false
+                    inst.runOnMainSync { left = app.history.entries.none { it.url == page } }
+                    left
+                }
+                waitFor("the suggestion goes") { find("Harbour page") == null }
             }
         } finally {
             app.settings.searchSuggestions = true
             server.close()
         }
+    }
+
+    /** [action] on the clickable node that holds [n] (a row's text is a child of the row). */
+    private fun act(n: AccessibilityNodeInfo, action: Int): Boolean {
+        var node: AccessibilityNodeInfo? = n
+        while (node != null && !node.isClickable && !node.isLongClickable) node = node.parent
+        return node?.performAction(action) == true
     }
 
     private fun url(scenario: ActivityScenario<MainActivity>): String {

@@ -329,8 +329,9 @@ private fun UrlBar(app: SereneApp, tab: Tab, address: AddressEdit, covered: Bool
     var original by address::original
     // Chrome's inline completion: a site from the history or bookmarks the typing is the start of.
     address.complete = { typed ->
-        val pages = Suggestions.pages(typed, app.history.entries, app.bookmarks.items, System.currentTimeMillis(), limit = 50)
-        Suggestions.completion(typed, pages)
+        val pages = Suggestions.pages(typed, app.history.entries, app.bookmarks.items, System.currentTimeMillis(), limit = 50, withSearches = true)
+        val hiddenSites = app.settings.hiddenSuggestions.filter { it.startsWith("site:") }.mapTo(HashSet()) { it.removePrefix("site:") }
+        Suggestions.completion(typed, pages, hiddenSites)
     }
     val focusManager = LocalFocusManager.current
     val focus = remember { FocusRequester() }

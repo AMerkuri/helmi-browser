@@ -53,6 +53,16 @@ class Settings(context: Context) {
     /** The address bar asks the search engine for suggestions as you type (Chrome's "Autocomplete searches and URLs"). */
     var searchSuggestions: Boolean get() = searchSuggestionsPref.state; set(v) = searchSuggestionsPref.set(v)
 
+    private val hiddenSuggestionsPref = stringSet("hidden_suggestions")
+    /**
+     * Suggestions removed with a long press that the history can't forget by itself: a search
+     * engine's suggestion ("q:" and the text, lower case) and a site the address bar completes
+     * to ("site:" and the host). Clear browsing data clears it with the history.
+     */
+    val hiddenSuggestions: Set<String> get() = hiddenSuggestionsPref.state
+    fun hideSuggestion(key: String) = hiddenSuggestionsPref.set(hiddenSuggestionsPref.state + key)
+    fun clearHiddenSuggestions() = hiddenSuggestionsPref.set(emptySet())
+
     private val themePref = string("theme", ThemeMode.SYSTEM.name)
     var theme: ThemeMode
         get() = runCatching { ThemeMode.valueOf(themePref.state) }.getOrDefault(ThemeMode.SYSTEM)

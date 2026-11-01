@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.dp
 import app.serene.R
 import app.serene.SereneApp
 import app.serene.browser.Completion
-import app.serene.browser.PageSuggestion
+import app.serene.bookmarks.Bookmarks
 import app.serene.browser.Suggestions
 import app.serene.browser.resolveInput
 import kotlinx.coroutines.Dispatchers
@@ -127,8 +127,10 @@ class AddressEdit(initial: String) {
 /**
  * Chrome's suggestions under the address bar while you type: first what Go does (the completed
  * site, the address typed, or a search for it), then pages from the history and bookmarks, then
- * the search engine's suggestions. A tap opens one; its arrow puts it in the field to edit; a long
- * press on a page from the history offers to remove it from the history.
+ * searches made before and the search engine's suggestions. A tap opens one; its arrow puts it in
+ * the field to edit; a long press offers to remove it, as Chrome's "Remove suggestion from
+ * history?": a page or a past search leaves the history, a completed site stops completing (and
+ * its front page leaves the history), a search engine's suggestion isn't shown again.
  */
 @Composable
 fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -140,6 +142,9 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
     val now = remember(query) { System.currentTimeMillis() }
     val pages = remember(query, history, bookmarks) { Suggestions.pages(query, history, bookmarks, now) }
     val completion = edit.completion
+    val hidden = app.settings.hiddenSuggestions
+    val hiddenSearches = remember(hidden) { hidden.filter { it.startsWith("q:") }.map { it.removePrefix("q:") }.toSet() }
+    val past = remember(query, history, hiddenSearches) { Suggestions.pastSearches(query, history, hiddenSearches) }
 
     // The search engine's suggestions, a moment after the typing stops. The last answer stays up
     // until the next one comes, so the list doesn't flicker.
@@ -151,13 +156,14 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
         searches = withContext(Dispatchers.IO) { Suggestions.fetchSearchSuggestions(engine.suggest, query) }
     }
 
-    var forget by remember { mutableStateOf<PageSuggestion?>(null) }
+    var removal by remember { mutableStateOf<Removal?>(null) }
 
     val goesTo = completion?.url ?: resolveInput(query, engine.template)
     val first = completion?.text ?: query
     val firstIsPage = completion != null || !goesTo.startsWith(engine.template.substringBefore("%s"))
     val shownPages = pages.filter { p -> !firstIsPage || Suggestions.bare(p.url).trimEnd('/') != Suggestions.bare(goesTo).trimEnd('/') }
-    val shownSearches = searches.filter { !it.equals(query, ignoreCase = true) }
+    val pastKeys = past.mapTo(HashSet()) { it.text.lowercase() }
+    val shownSearches = searches.filter { s -> s.lowercase().let { it != query.lowercase() && it !in pastKeys && it !in hiddenSearches } }
 
     LazyColumn(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         item(key = "typed") {
@@ -165,6 +171,17 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
                 SuggestionRow(
                     icon = painterResource(R.drawable.ic_globe), title = AnnotatedString(first), subtitle = null,
                     onClick = { onOpen(completion?.url ?: first) }, onRefine = { edit.refine(first) },
+                    // A completed site: stop completing it, and forget its front page.
+                    onLongClick = completion?.let { c ->
+                        {
+                            removal = Removal(c.text, FROM_HISTORY) {
+                                val site = Suggestions.siteOf(c)
+                                app.history.deleteWhere { Suggestions.isFrontPageOf(it.url, site) }
+                                app.settings.hideSuggestion("site:$site")
+                                edit.refine(typed)
+                            }
+                        }
+                    },
                 )
             } else {
                 SuggestionRow(
@@ -178,27 +195,53 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
                 icon = if (p.bookmarked) rememberVectorPainter(Icons.Filled.Star) else painterResource(R.drawable.ic_history),
                 title = AnnotatedString(p.label), subtitle = shortUrl(p.url),
                 onClick = { onOpen(p.url) }, onRefine = { edit.refine(p.url) },
-                onLongClick = if (!p.bookmarked && p.visits > 0) ({ forget = p }) else null,
+                // A bookmark stays a bookmark: only its visits can go.
+                onLongClick = if (p.visits > 0) ({
+                    removal = Removal(p.label, FROM_HISTORY) {
+                        val k = Bookmarks.key(p.url)
+                        app.history.deleteWhere { Bookmarks.key(it.url) == k }
+                    }
+                }) else null,
+            )
+        }
+        items(past, key = { "past " + it.text.lowercase() }) { s ->
+            SuggestionRow(
+                icon = painterResource(R.drawable.ic_history), title = boldAfter(s.text, query), subtitle = null,
+                onClick = { onOpen(searchUrl(engine.template, s.text)) }, onRefine = { edit.refine("${s.text} ") },
+                onLongClick = {
+                    removal = Removal(s.text, FROM_HISTORY) {
+                        val k = s.text.lowercase()
+                        app.history.deleteWhere { v -> Suggestions.searchOf(v.url)?.lowercase() == k }
+                    }
+                },
             )
         }
         items(shownSearches, key = { "search $it" }) { s ->
             SuggestionRow(
                 icon = rememberVectorPainter(Icons.Filled.Search), title = boldAfter(s, query), subtitle = null,
                 onClick = { onOpen(searchUrl(engine.template, s)) }, onRefine = { edit.refine("$s ") },
+                // Not in the history: Helmi just doesn't show it again.
+                onLongClick = { removal = Removal(s, "Remove suggestion?") { app.settings.hideSuggestion("q:" + s.lowercase()) } },
             )
         }
     }
 
-    forget?.let { p ->
+    // Chrome's dialog: the suggestion, the question, Cancel and OK.
+    removal?.let { r ->
         AlertDialog(
-            onDismissRequest = { forget = null },
-            title = { Text(p.label, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-            text = { Text("Remove this page from your history?") },
-            confirmButton = { TextButton(onClick = { app.history.deleteUrl(p.url); forget = null }) { Text("Remove") } },
-            dismissButton = { TextButton(onClick = { forget = null }) { Text("Cancel") } },
+            onDismissRequest = { removal = null },
+            title = { Text(r.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            text = { Text(r.question) },
+            confirmButton = { TextButton(onClick = { removal = null; r.remove() }) { Text("OK") } },
+            dismissButton = { TextButton(onClick = { removal = null }) { Text("Cancel") } },
         )
     }
 }
+
+private const val FROM_HISTORY = "Remove suggestion from history?"
+
+/** A long-pressed suggestion: its [title] and [question] in the dialog, and what OK does. */
+private class Removal(val title: String, val question: String, val remove: () -> Unit)
 
 /**
  * The search for suggestion [s], as an address: a search even when it looks like an address
