@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
 import app.serene.SereneApp
 import app.serene.browser.SiteData
@@ -200,6 +201,11 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                         appendLine("${tab.url}")
                         appendLine("Helmi ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA}) · ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
                         appendLine("${s.blockedRequests.get()} requests blocked · cookies rejected: ${s.consentRejected().joinToString().ifEmpty { "no" }}")
+                        // Which tab kind, the WebView it runs on, and the names (never the values) of the cookies the site has.
+                        val webView = WebViewCompat.getCurrentWebViewPackage(ctx)?.versionName ?: "?"
+                        val names = runCatching { tab.cookies.getCookie(tab.url) }.getOrNull().orEmpty()
+                            .split(';').map { it.substringBefore('=').trim() }.filter { it.isNotEmpty() }
+                        appendLine("${if (tab.isPrivate) "private" else "normal"} tab · WebView $webView · cookies: ${names.joinToString().ifEmpty { "none" }}")
                         s.log().forEach { appendLine(it) }
                     }
                     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Helmi page log", text))

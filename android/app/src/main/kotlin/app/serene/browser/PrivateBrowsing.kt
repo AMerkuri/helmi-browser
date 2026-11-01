@@ -45,7 +45,8 @@ class PrivateBrowsing(private val app: SereneApp) {
 
     /** The profile name for a private tab's WebView, created with the first. Main thread. */
     fun profile(): String = name ?: "$PREFIX${System.currentTimeMillis()}".also {
-        ProfileStore.getInstance().getOrCreateProfile(it)
+        // Cookies on, as in normal tabs (the default; said so a new profile can't differ).
+        ProfileStore.getInstance().getOrCreateProfile(it).cookieManager.setAcceptCookie(true)
         name = it
         Log.i(TAG, "private profile $it")
     }
