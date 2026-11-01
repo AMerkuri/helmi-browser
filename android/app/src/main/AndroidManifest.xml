@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Find in page's no-match buzz, Chrome's 50 ms vibration (a normal permission, no prompt). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- The camera permission would otherwise make a camera required to install. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
