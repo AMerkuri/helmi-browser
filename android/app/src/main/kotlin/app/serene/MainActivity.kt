@@ -51,6 +51,7 @@ import app.serene.ui.AndroidBlockedDialog
 import app.serene.ui.ClosedTabBar
 import app.serene.ui.CoverFlowTabs
 import app.serene.ui.DownloadsScreen
+import app.serene.ui.HistoryScreen
 import app.serene.ui.SereneTheme
 import app.serene.ui.SettingsScreen
 import app.serene.ui.LocalSystemBars
@@ -62,7 +63,7 @@ import app.serene.ui.nightUiMode
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
-enum class Screen { Browser, Tabs, Settings, Downloads }
+enum class Screen { Browser, Tabs, Settings, Downloads, History }
 
 class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     @VisibleForTesting lateinit var tabs: TabManager
@@ -231,6 +232,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
                             }
                             Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
                             Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
+                            Screen.History -> HistoryScreen(app, onBack = { screen = Screen.Browser }, onOpen = ::openPage)
                         }
                         // Over every screen, so its timer runs out (and the tab is let go) wherever you are.
                         // Just above the bottom bar (with the bar's own 12 dp), and the tab switcher's buttons.
@@ -267,6 +269,13 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
             openingTabs = false
             if (screen == Screen.Browser) screen = Screen.Tabs
         }
+    }
+
+    /** A page from the history: in the tab in front (a new one for [newTab]), as Chrome does. */
+    private fun openPage(url: String, newTab: Boolean) {
+        val tab = tabs.current
+        if (newTab || tab == null) tabs.open(url) else tab.load(url)
+        screen = Screen.Browser
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -325,6 +334,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         tabs.save()
         TabPreviews.save(this, tabs.tabs)
         (application as SereneApp).stats.save()
+        (application as SereneApp).history.save()
     }
 
     override fun onDestroy() {

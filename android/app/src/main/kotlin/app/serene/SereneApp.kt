@@ -12,6 +12,7 @@ import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.serene.browser.History
 import app.serene.browser.SitePermissions
 import app.serene.download.Downloads
 import app.serene.engine.AutoconsentRules
@@ -117,6 +118,7 @@ class SereneApp : Application() {
     lateinit var downloads: Downloads private set
     lateinit var readerPrefs: ReaderPrefs private set
     lateinit var stats: Stats private set
+    lateinit var history: History private set
     /** Camera, microphone and location: what the user allowed or blocked per site. */
     lateinit var sitePermissions: SitePermissions private set
 
@@ -152,6 +154,7 @@ class SereneApp : Application() {
         )
         stats = Stats(File(filesDir, "stats.json"), scope)
         engine.events = stats
+        history = History(File(filesDir, "history.json"), scope)
         loadRules(force = false)
         scope.launch(Dispatchers.IO) {
             // DuckDuckGo autoconsent's rule snapshot (engine/dist): a real "reject" for the consent
