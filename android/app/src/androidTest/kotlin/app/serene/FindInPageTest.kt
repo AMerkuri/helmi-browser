@@ -16,7 +16,8 @@ import kotlin.concurrent.thread
 
 /**
  * ⋮ › Find in page on the system WebView: the match count as the text is typed, next and
- * previous going round, no matches, and an emptied field clearing it.
+ * previous going round, no matches (a buzz when typing, not when deleting), and an emptied field
+ * clearing it.
  */
 @RunWith(AndroidJUnit4::class)
 class FindInPageTest {
@@ -56,7 +57,9 @@ class FindInPageTest {
                 waitFor("the page loads", 20_000) { var done = false; inst.runOnMainSync { done = tab?.title == "ferry" && tab?.progress == 100 }; done }
 
                 lateinit var find: FindInPage
-                inst.runOnMainSync { find = FindInPage(tab!!.webView) }
+                var buzzes = 0
+                inst.runOnMainSync { find = FindInPage(tab!!.webView, onNoMatch = { buzzes++ }) }
+                fun buzzed(): Int { var n = 0; inst.runOnMainSync { n = buzzes }; return n }
                 fun count(): String { var c = ""; inst.runOnMainSync { c = find.count }; return c }
 
                 // Case-insensitive, as in Chrome.
@@ -71,8 +74,21 @@ class FindInPageTest {
                 inst.runOnMainSync { find.next(false) }
                 waitFor("back round to the last") { count() == "3/3" }
 
-                inst.runOnMainSync { find.search("ferryboat") }
+                assertEquals("matches found: no buzz", 0, buzzed())
+
+                // Typing on into nothing found buzzes, as in Chrome; deleting back does not.
+                inst.runOnMainSync { find.search("ferryb") }
                 waitFor("no match") { count() == "0/0" }
+                waitFor("a buzz for no match") { buzzed() == 1 }
+                // Each letter typed into nothing found buzzes again.
+                inst.runOnMainSync { find.search("ferryboat") }
+                waitFor("a buzz for the next letter") { buzzed() == 2 }
+                inst.runOnMainSync { find.search("ferryboa") }
+                SystemClock.sleep(1500)
+                assertEquals("deleting is not a miss", 2, buzzed())
+                inst.runOnMainSync { find.search("ferry") }
+                waitFor("matches again") { count() == "1/3" }
+                assertEquals("more than one buzz per search", 2, buzzed())
 
                 inst.runOnMainSync { find.search("") }
                 assertEquals("", count())

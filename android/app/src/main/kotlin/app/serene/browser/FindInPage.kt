@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.serene.Haptics
 
 /**
  * ⋮ › Find in page, on one page's WebView: every match of the text highlighted as it is typed
@@ -12,7 +13,7 @@ import androidx.compose.runtime.setValue
  * goes away on a new page, another tab, or a new WebView after a crash; [close] clears the
  * highlights.
  */
-class FindInPage(val webView: WebView) {
+class FindInPage(val webView: WebView, private val onNoMatch: () -> Unit = { Haptics.reject(webView) }) {
     /** The text looked for. */
     var query by mutableStateOf("")
         private set
@@ -23,18 +24,27 @@ class FindInPage(val webView: WebView) {
     var total by mutableIntStateOf(0)
         private set
 
+    // The text grew since the last search (typed, not deleted): only then does nothing found buzz,
+    // as in Chrome. Once per search.
+    private var grew = false
+
     init {
         // One listener per WebView, and nothing else sets it.
-        webView.setFindListener { activeMatch, matches, _ ->
+        webView.setFindListener { activeMatch, matches, done ->
             // A late answer to a search the field has since been emptied of.
             if (query.isEmpty()) return@setFindListener
             active = activeMatch.coerceAtLeast(0)
             total = matches
+            if (done && matches == 0 && grew) {
+                grew = false
+                onNoMatch()
+            }
         }
     }
 
     fun search(text: String) {
         if (text == query) return
+        grew = text.length > query.length
         query = text
         if (text.isEmpty()) {
             webView.clearMatches()
