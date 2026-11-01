@@ -206,7 +206,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
                     if (documentStartSupported) {
                         dimScript?.remove()
-                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
+                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(js), setOf("*"))
                     }
                     webView.evaluateJavascript(js, null)
                 }
@@ -245,9 +245,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(this, backForwardCache)
         }
         // The flags below follow changes; a new WebView starts from what they are now.
-        if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, dimPicturesScript(app.settings), setOf("*"))
+        // First: a bot check's frame is left as WebView has it (BotChecks.kt); every script below skips it.
+        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, LEAVE_BOT_CHECKS, setOf("*"))
+        if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(dimPicturesScript(app.settings)), setOf("*"))
         applyDarkening()
-        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, KEEP_PICTURES, setOf("*"))
+        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(KEEP_PICTURES), setOf("*"))
         installEngine()
         webView.webViewClient = Client()
         webView.webChromeClient = object : WebChromeClient() {
@@ -392,11 +394,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             current?.onMessage(data, frame)
         }
         if (documentStartSupported) {
-            WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(contentScript(webView.context)), setOf("*"))
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, FULLSCREEN_JS, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, WEB_SHARE_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(FULLSCREEN_JS), setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(WEB_SHARE_JS), setOf("*"))
         }
     }
 

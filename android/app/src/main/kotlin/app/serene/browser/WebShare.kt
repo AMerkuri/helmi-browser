@@ -108,8 +108,12 @@ internal fun onWebShare(tab: Tab, json: String, isMainFrame: Boolean, origin: Ur
 }
 
 /**
- * navigator.share and navigator.canShare for pages, in every frame, before page scripts. Only in
- * a secure context (https), as the API is, and only where WebView has none of its own.
+ * navigator.share and navigator.canShare for pages, before page scripts. Only in a secure context
+ * (https), as the API is, and only where WebView has none of its own.
+ * Only where a page may share, too: the top window and frames of its origin, and not on an error
+ * or challenge page (a 4xx or 5xx answer, such as Cloudflare's 403 "Verify you are human").
+ * Everywhere else navigator stays WebView's own: bot checks look at it for functions a script
+ * added (see BotChecks.kt).
  * share() resolves once the share sheet is asked for: Android does not say whether the user
  * went on to share, so it never rejects with AbortError as Chrome's can.
  */
@@ -121,6 +125,10 @@ internal const val WEB_SHARE_JS = """(() => {
     const stringify = JSON.stringify;
     let allowed;
     try { allowed = window === window.top || window.top.location.origin === location.origin; } catch (e) { allowed = false; }
+    if (!allowed) return;
+    let status = 0;
+    try { status = performance.getEntriesByType('navigation')[0].responseStatus || 0; } catch (e) {}
+    if (status >= 400) return;
     const link = u => {
         try {
             const r = new URL(String(u), location.href);
@@ -136,10 +144,9 @@ internal const val WEB_SHARE_JS = """(() => {
     };
     let busy = false;
     const methods = {
-        canShare(data) { return allowed && valid(data); },
+        canShare(data) { return valid(data); },
         async share(data) {
             if (busy) throw new DOMException('A share is already in progress.', 'InvalidStateError');
-            if (!allowed) throw new DOMException('Sharing is not allowed in this frame.', 'NotAllowedError');
             const ua = navigator.userActivation;
             if (ua && !ua.isActive) throw new DOMException('Sharing needs a tap or a key press first.', 'NotAllowedError');
             if (!valid(data)) throw new TypeError('Nothing to share, or files, which this browser cannot share.');
