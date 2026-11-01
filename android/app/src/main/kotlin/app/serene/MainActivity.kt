@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.content.pm.PackageManager
 import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
@@ -151,6 +152,30 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         settings.askedAndroidPermissions += perms
         permissionAsking = next
         androidPermissions.launch(perms.toTypedArray())
+    }
+
+    // Settings › Make Helmi the default browser has its own; this one is the question asked once.
+    private val defaultBrowserRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+    /** When a link from another app last opened here (elapsedRealtime), so the question waits for a calmer launch. */
+    private var linkOpenedAt = Long.MIN_VALUE / 2
+
+    /**
+     * Asks once to make Helmi the default browser (DefaultBrowser), a moment into a launch: only
+     * on the browser itself, with no video in fullscreen, no other dialog up, and not right after
+     * a link from another app. Otherwise it waits for the next launch.
+     */
+    private val askDefaultBrowser = Runnable {
+        val s = (application as SereneApp).settings
+        if (s.askedDefaultBrowser) return@Runnable
+        val isDefault = DefaultBrowser.isDefault(this)
+        if (isDefault) { s.askedDefaultBrowser = true; return@Runnable } // they chose already
+        val intent = DefaultBrowser.requestIntent(this)
+        if (!DefaultBrowser.shouldAsk(s.launches, s.askedDefaultBrowser, isDefault, canAsk = intent != null)) return@Runnable
+        val busy = screen != Screen.Browser || tabs.tabs.any { it.fullscreen != null } || blockedByAndroid != null ||
+            permissionAsking != null || pickDone != null || SystemClock.elapsedRealtime() - linkOpenedAt < LINK_CALM_MS
+        if (busy) return@Runnable
+        s.askedDefaultBrowser = true
+        try { defaultBrowserRequest.launch(intent!!) } catch (e: ActivityNotFoundException) { /* no dialog after all */ }
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -299,6 +324,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
             else -> null
         } ?: return
         tabs.tabs.forEach { it.exitFullscreen() }
+        if (intent?.action == Intent.ACTION_VIEW) linkOpenedAt = SystemClock.elapsedRealtime()
         tabs.open(url)
         screen = Screen.Browser
     }
@@ -322,6 +348,11 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     override fun onStart() {
         super.onStart()
         batterySaver.start(this)
+        val s = (application as SereneApp).settings
+        if (!s.askedDefaultBrowser && DefaultBrowser.isNewLaunch(System.currentTimeMillis(), s.lastSeenAt)) {
+            s.launches += 1
+            window.decorView.postDelayed(askDefaultBrowser, ASK_DELAY_MS)
+        }
     }
 
     override fun onPause() {
@@ -333,6 +364,8 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     override fun onStop() {
         super.onStop()
         batterySaver.stop(this)
+        window.decorView.removeCallbacks(askDefaultBrowser)
+        (application as SereneApp).settings.lastSeenAt = System.currentTimeMillis()
         tabs.save()
         TabPreviews.save(this, tabs.tabs)
         (application as SereneApp).stats.save()
@@ -343,5 +376,12 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         tabs.forget()
         tabs.tabs.forEach { it.destroy() }
         super.onDestroy()
+    }
+
+    private companion object {
+        /** The page shows first: the question comes this long into a launch. */
+        const val ASK_DELAY_MS = 2_000L
+        /** No question this soon after a link from another app opened here: the user came to read it. */
+        const val LINK_CALM_MS = 15_000L
     }
 }
