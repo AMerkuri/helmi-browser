@@ -1,13 +1,18 @@
 package app.serene
 
 import android.content.ActivityNotFoundException
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.content.pm.PackageManager
+import android.view.WindowManager
 import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -41,6 +46,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.serene.browser.FilePickerHost
+import app.serene.browser.TabDiscard
 import app.serene.browser.PermissionHost
 import app.serene.browser.SitePermission
 import app.serene.browser.TabManager
@@ -153,6 +159,30 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         androidPermissions.launch(perms.toTypedArray())
     }
 
+    // Settings › Make Helmi the default browser has its own; this one is the question asked once.
+    private val defaultBrowserRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+    /** When a link from another app last opened here (elapsedRealtime), so the question waits for a calmer launch. */
+    private var linkOpenedAt = Long.MIN_VALUE / 2
+
+    /**
+     * Asks once to make Helmi the default browser (DefaultBrowser), a moment into a launch: only
+     * on the browser itself, with no video in fullscreen, no other dialog up, and not right after
+     * a link from another app. Otherwise it waits for the next launch.
+     */
+    private val askDefaultBrowser = Runnable {
+        val s = (application as SereneApp).settings
+        if (s.askedDefaultBrowser) return@Runnable
+        val isDefault = DefaultBrowser.isDefault(this)
+        if (isDefault) { s.askedDefaultBrowser = true; return@Runnable } // they chose already
+        val intent = DefaultBrowser.requestIntent(this)
+        if (!DefaultBrowser.shouldAsk(s.launches, s.askedDefaultBrowser, isDefault, canAsk = intent != null)) return@Runnable
+        val busy = screen != Screen.Browser || tabs.tabs.any { it.fullscreen != null } || blockedByAndroid != null ||
+            permissionAsking != null || pickDone != null || SystemClock.elapsedRealtime() - linkOpenedAt < LINK_CALM_MS
+        if (busy) return@Runnable
+        s.askedDefaultBrowser = true
+        try { defaultBrowserRequest.launch(intent!!) } catch (e: ActivityNotFoundException) { /* no dialog after all */ }
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(newBase)
         startTheme = (newBase.applicationContext as SereneApp).settings.theme
@@ -172,6 +202,8 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         batterySaver = BatterySaverNotice(app)
         tabs.restore()
         TabPreviews.restore(this, tabs.tabs)
+        // Private tabs open when the app was last killed: their profile goes now.
+        app.privacy.cleanUp()
         handleIntent(intent)
 
         setContent {
@@ -220,6 +252,16 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
             }
             val video = fullTab?.fullscreenVideo
             LaunchedEffect(full, video) { fullscreen.orient(video) }
+            // A private tab on screen, or private cards in the tab switcher: no screenshots or
+            // screen recording, and a blank picture in the recent apps, as Chrome's Incognito.
+            val secure = when (screen) {
+                Screen.Browser -> tabs.current?.isPrivate == true
+                Screen.Tabs -> tabs.tabs.any { it.isPrivate }
+                else -> false
+            }
+            LaunchedEffect(secure) {
+                if (secure) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
             SereneTheme {
                 CompositionLocalProvider(LocalSystemBars provides systemBars) {
                     BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
@@ -299,6 +341,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
             else -> null
         } ?: return
         tabs.tabs.forEach { it.exitFullscreen() }
+        if (intent?.action == Intent.ACTION_VIEW) linkOpenedAt = SystemClock.elapsedRealtime()
         tabs.open(url)
         screen = Screen.Browser
     }
@@ -322,6 +365,35 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     override fun onStart() {
         super.onStart()
         batterySaver.start(this)
+        idleTabs.run()
+        val s = (application as SereneApp).settings
+        if (!s.askedDefaultBrowser && DefaultBrowser.isNewLaunch(System.currentTimeMillis(), s.lastSeenAt)) {
+            s.launches += 1
+            window.decorView.postDelayed(askDefaultBrowser, ASK_DELAY_MS)
+        }
+    }
+
+    // While on screen: background tabs that have been idle long enough let their page go.
+    private val main = Handler(Looper.getMainLooper())
+    private val idleTabs = object : Runnable {
+        override fun run() {
+            main.removeCallbacks(this)
+            tabs.discardIdle()
+            main.postDelayed(this, 60_000)
+        }
+    }
+
+    // Out of sight and next in line to be killed (BACKGROUND, every Android version), or low on
+    // memory while in use (the RUNNING_ levels, before Android 14): tabs let their pages go before
+    // Android takes the renderer, and every page with it, or the whole app.
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        when {
+            level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE -> tabs.discardIdle(TabDiscard.Pressure.LOW)
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> tabs.discardIdle(TabDiscard.Pressure.BACKGROUND)
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW && level < ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> tabs.discardIdle(TabDiscard.Pressure.LOW)
+        }
     }
 
     override fun onPause() {
@@ -333,6 +405,9 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     override fun onStop() {
         super.onStop()
         batterySaver.stop(this)
+        main.removeCallbacks(idleTabs)
+        window.decorView.removeCallbacks(askDefaultBrowser)
+        (application as SereneApp).settings.lastSeenAt = System.currentTimeMillis()
         tabs.save()
         TabPreviews.save(this, tabs.tabs)
         (application as SereneApp).stats.save()
@@ -340,8 +415,15 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     }
 
     override fun onDestroy() {
-        tabs.forget()
-        tabs.tabs.forEach { it.destroy() }
+        // Private tabs don't outlive the activity: their profile is deleted with them.
+        tabs.destroyAll()
         super.onDestroy()
+    }
+
+    private companion object {
+        /** The page shows first: the question comes this long into a launch. */
+        const val ASK_DELAY_MS = 2_000L
+        /** No question this soon after a link from another app opened here: the user came to read it. */
+        const val LINK_CALM_MS = 15_000L
     }
 }

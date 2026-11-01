@@ -14,11 +14,14 @@ import java.net.URI
  * are expired one by one for the page's host and its registrable domain.
  */
 object SiteData {
-    /** Cookies, local storage, IndexedDB and caches for [url]'s site (eTLD+1). Calls [done] on the main thread. */
-    fun clear(url: String, done: () -> Unit) {
+    /**
+     * Cookies, local storage, IndexedDB and caches for [url]'s site (eTLD+1). Calls [done] on the
+     * main thread. [cookies] and [storage]: a private tab's (its profile's), or normal tabs'.
+     */
+    fun clear(url: String, cookies: CookieManager? = null, storage: WebStorage? = null, done: () -> Unit) {
         val host = runCatching { URI(url).host }.getOrNull()?.lowercase() ?: return done()
         val site = siteOf(url)
-        val cm = CookieManager.getInstance()
+        val cm = cookies ?: CookieManager.getInstance()
         val hosts = buildSet {
             add(host)
             add(site)
@@ -41,13 +44,13 @@ object SiteData {
             }
         }
         cm.flush()
-        val storage = WebStorage.getInstance()
-        storage.getOrigins { origins ->
+        val store = storage ?: WebStorage.getInstance()
+        store.getOrigins { origins ->
             // A map of origin string to WebStorage.Origin.
             for (o in (origins as? Map<*, *>)?.values.orEmpty()) {
                 val origin = (o as? WebStorage.Origin)?.origin ?: continue
                 val oh = runCatching { URI(origin).host }.getOrNull()?.lowercase() ?: continue
-                if (oh == site || oh.endsWith(".$site")) storage.deleteOrigin(origin)
+                if (oh == site || oh.endsWith(".$site")) store.deleteOrigin(origin)
             }
             done()
         }

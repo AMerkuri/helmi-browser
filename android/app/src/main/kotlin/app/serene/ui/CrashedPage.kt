@@ -24,7 +24,7 @@ import app.serene.browser.Tab
  * brings it back with its history; so do back, forward and a new address.
  */
 @Composable
-fun CrashedPage(crashed: Tab.Crashed, onReload: () -> Unit) {
+fun CrashedPage(crashed: Tab.Unloaded, onReload: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
             Spacer(Modifier.weight(1f))

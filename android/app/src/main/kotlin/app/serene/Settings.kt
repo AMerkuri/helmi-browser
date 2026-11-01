@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import app.serene.browser.TextScale
 import app.serene.engine.FilterLists
 
 /** App settings in SharedPreferences, exposed as Compose state so screens update on change. */
@@ -13,6 +14,7 @@ class Settings(context: Context) {
 
     private fun bool(key: String, default: Boolean) = Pref(key, prefs.getBoolean(key, default)) { putBoolean(key, it) }
     private fun string(key: String, default: String) = Pref(key, prefs.getString(key, default) ?: default) { putString(key, it) }
+    private fun int(key: String, default: Int) = Pref(key, prefs.getInt(key, default)) { putInt(key, it) }
     private fun stringSet(key: String) = Pref(key, prefs.getStringSet(key, emptySet())!!.toSet()) { putStringSet(key, it) }
 
     private inner class Pref<T>(val key: String, initial: T, val write: android.content.SharedPreferences.Editor.(T) -> Unit) {
@@ -39,6 +41,10 @@ class Settings(context: Context) {
     private val backForwardCachePref = bool("flag_back_forward_cache", true)
     /** Flag: WebView's back/forward cache, and swipe previews with it (off: a title card, and back reloads). */
     var backForwardCache: Boolean get() = backForwardCachePref.state; set(v) = backForwardCachePref.set(v)
+
+    private val discardTabsPref = bool("flag_discard_tabs", true)
+    /** Flag: background tabs let their page go to save memory, and load it again when shown (TabDiscard). */
+    var discardTabs: Boolean get() = discardTabsPref.state; set(v) = discardTabsPref.set(v)
 
     private val modelNotesPref = bool("flag_model_notes", false)
     /** Flag: a note at the bottom each time the model decides about an overlay, with Undo or Hide. */
@@ -105,6 +111,23 @@ class Settings(context: Context) {
         get() = runCatching { DimStrength.valueOf(dimStrengthPref.state) }.getOrDefault(DimStrength.LIGHT)
         set(v) = dimStrengthPref.set(v.name)
 
+    private val textScalePref = int("text_scale", TextScale.DEFAULT)
+    /** Settings › Accessibility › Text size, in percent (Chrome's text scaling), on top of the phone's font size. */
+    var textScale: Int get() = textScalePref.state; set(v) = textScalePref.set(v.coerceIn(TextScale.MIN, TextScale.MAX))
+
+    private val forceZoomPref = bool("force_zoom", false)
+    /** Settings › Accessibility › "Override sites' zoom block": pinch zoom also where a page blocks it. */
+    var forceZoom: Boolean get() = forceZoomPref.state; set(v) = forceZoomPref.set(v)
+
+    private val desktopSitesPref = stringSet("desktop_sites")
+    /** Sites (eTLD+1) switched to ⋮ › Desktop site. */
+    val desktopSites: Set<String> get() = desktopSitesPref.state
+
+    fun isDesktopSite(site: String) = site in desktopSites
+
+    fun setDesktopSite(site: String, on: Boolean) =
+        desktopSitesPref.set(if (on) desktopSites + site else desktopSites - site)
+
     // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
     // lists added to the defaults later reach them too).
     private val listsEnabledPref = Pref("lists_enabled", prefs.getStringSet("lists_enabled", null)?.toSet() ?: FilterLists.DEFAULT_ENABLED) { putStringSet("lists_enabled", it) }
@@ -144,6 +167,21 @@ class Settings(context: Context) {
     var askedNotifications: Boolean
         get() = prefs.getBoolean("asked_notifications", false)
         set(v) = prefs.edit { putBoolean("asked_notifications", v) }
+
+    /** Launches counted for the default browser question (DefaultBrowser.isNewLaunch), until it is asked. */
+    var launches: Int
+        get() = prefs.getInt("launches", 0)
+        set(v) = prefs.edit { putInt("launches", v) }
+
+    /** When Helmi last went off screen (onStop), in ms since the epoch; 0 before the first time. */
+    var lastSeenAt: Long
+        get() = prefs.getLong("last_seen_at", 0L)
+        set(v) = prefs.edit { putLong("last_seen_at", v) }
+
+    /** Asked once to make Helmi the default browser (or it already was): never asked again. */
+    var askedDefaultBrowser: Boolean
+        get() = prefs.getBoolean("asked_default_browser", false)
+        set(v) = prefs.edit { putBoolean("asked_default_browser", v) }
 
     /**
      * Android permissions Helmi has asked for for a site (camera, microphone, location). Once asked,

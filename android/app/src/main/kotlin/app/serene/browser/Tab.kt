@@ -12,12 +12,15 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
@@ -35,6 +38,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.unit.IntSize
 import app.serene.browser.HistorySwipe.Companion.BACK
 import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.UserAgentMetadata
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebSettingsCompat
@@ -45,6 +49,7 @@ import app.serene.download.Download
 import app.serene.engine.EngineJson
 import app.serene.engine.FrameRef
 import app.serene.engine.PageSession
+import app.serene.engine.VerdictCache
 import app.serene.engine.siteOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,9 +72,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * (engine/harness/browser.mjs is the Playwright stand-in for the same three hooks.)
  * [openedByPage]: a page opened it (window.open, a target=_blank link) and WebView loads its page:
  * no start page or keyboard while that starts, and an about:blank popup is the page's own.
+ * [isPrivate]: a private tab (PrivateBrowsing): its pages are in the private profile, and nothing
+ * about them is kept once the last private tab closes.
  */
 @SuppressLint("SetJavaScriptEnabled")
-class Tab(context: Context, private val app: SereneApp, val id: Long, val openedByPage: Boolean = false) {
+class Tab(context: Context, private val app: SereneApp, val id: Long, val openedByPage: Boolean = false, val isPrivate: Boolean = false) {
     var url by mutableStateOf("")
         private set
     var title by mutableStateOf("")
@@ -106,8 +113,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * page's window.opener: sign-in popups (Google, Apple) answer it and close themselves.
      */
     var opener by mutableStateOf<Tab?>(null)
+    /** The camera, microphone and location answers this tab's pages go by: a private tab's are kept in memory only. */
+    val sitePermissions: SitePermissions = if (isPrivate) app.privacy.permissions else app.sitePermissions
     /** Camera, microphone and location requests from this tab's pages; the prompt shows the first. */
-    val permissions = PermissionRequests(app.sitePermissions, pageUrl = { webView.url }) { webView.context as? PermissionHost }
+    val permissions = PermissionRequests(sitePermissions, pageUrl = { webView.url }) { webView.context as? PermissionHost }
     /** The page's element in fullscreen (a video, usually): the activity shows it over everything. */
     var fullscreen by mutableStateOf<Fullscreen?>(null)
         private set
@@ -132,7 +141,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     /**
      * The tab's page. A new one when the page's renderer went away (a crash, or Android killed it
-     * for memory, see [Crashed]): a WebView is dead for good once its renderer is.
+     * for memory, see [Unloaded]): a WebView is dead for good once its renderer is. A new one too
+     * when Helmi [discard]s the page to save memory.
      */
     var webView: SereneWebView by mutableStateOf(newWebView(context))
         private set
@@ -140,31 +150,65 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     // MATCH_PARENT, not the default WRAP_CONTENT: with a wrap_content height the page's
     // viewport is 0 px tall, so every vh-sized element (bottom sheets, consent boxes) collapses.
     private fun newWebView(context: Context) = SereneWebView(context, swipe, pull).apply {
+        // First of all: a WebView's profile can't change once it has been used.
+        if (isPrivate) app.privacy.use(this)
         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         onScrolled = ::snapshotSoon
         // A tab whose page went while it was not on screen gets it back once it is (Chrome too
         // reloads such a tab when it is shown, not before).
-        onVisible = { main.post { if (crashed?.onScreen == false && webView.isAttachedToWindow) recover() } }
+        onVisible = { main.post { if (unloaded?.onScreen == false && webView.isAttachedToWindow) recover() } }
     }
 
     /**
-     * The page's renderer went away and took the page with it: [crash] if it crashed, else Android
-     * killed it (low memory: the model holds over 2 GB). One renderer serves every tab, so every
-     * tab loses its page at once. The tab keeps [url] and its back/forward list ([state], as
-     * [history] gives it) and gets them back with [recover]. [onScreen]: it was on screen, so it
-     * shows that the page crashed until Reload (a page that crashes as it loads would otherwise
-     * crash over and over); one that was not gets its page back when it is shown.
+     * The tab has no page now, only [url] and its back/forward list ([state], as [history] gives
+     * it), and gets them back with [recover]. [why]: the page's renderer crashed, or Android killed
+     * it (low memory: the model holds over 2 GB; one renderer serves every tab, so every tab loses
+     * its page at once), or Helmi let the page go to save memory ([discard], or a tab restored after
+     * a restart that has not been shown yet). [onScreen]: it was on screen, so it shows that the
+     * page crashed until Reload (a page that crashes as it loads would otherwise crash over and
+     * over); one that was not gets its page back when it is shown.
      */
-    class Crashed(val url: String, val state: Map<String, ByteArray>, val crash: Boolean, val onScreen: Boolean)
+    class Unloaded(val url: String, val state: Map<String, ByteArray>, val why: Why, val onScreen: Boolean) {
+        val crash get() = why == Why.CRASH
+    }
 
-    var crashed by mutableStateOf<Crashed?>(null)
+    enum class Why { CRASH, KILL, DISCARD }
+
+    var unloaded by mutableStateOf<Unloaded?>(null)
         private set
+
+    /**
+     * A page that was [unloaded] while not on screen is loading again: the WebView stays hidden
+     * until it draws, so the empty WebView doesn't flash white (or black) first.
+     */
+    var waking by mutableStateOf(false)
+        private set
+
+    /** When the tab was last on screen (SystemClock.elapsedRealtime), for [TabDiscard]; set by the tab manager. */
+    internal var lastShown = SystemClock.elapsedRealtime()
 
     // Follows the Settings flags while the tab is open.
     private val flags: Job
 
     // Settings › Theme › "Dim pictures", for the documents to come.
     private var dimScript: ScriptHandler? = null
+    // ⋮ › Desktop site's width and "Override sites' zoom block", for the documents to come.
+    private var viewportHandler: ScriptHandler? = null
+
+    // ⋮ › Desktop site: the WebView's own user agent and client hints, and whether it asks for
+    // desktop pages now (see userAgentFor).
+    private var mobileUa = ""
+    private var mobileUaMetadata: UserAgentMetadata? = null
+    /** Whether the tab asks for desktop pages now: what its page came with, once it has started. */
+    var desktopUa by mutableStateOf(false)
+        private set
+    // Desktop or phone, as each page of this tab's history came (by address): back and forward
+    // get a page as it was, as in Chrome, also after the site's choice changed. The newest 200.
+    private val pageModes = object : LinkedHashMap<String, Boolean>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>) = size > 200
+    }
+    // The page a history step (or a restore) is on its way to: it keeps its own mode (onPageStarted).
+    private var historyTarget: String? = null
 
     init {
         setUp()
@@ -180,11 +224,22 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
                     if (documentStartSupported) {
                         dimScript?.remove()
-                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
+                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(js), setOf("*"))
                     }
                     webView.evaluateJavascript(js, null)
                 }
             }
+            // Desktop width and pinch zoom.
+            launch {
+                snapshotFlow { viewportScript(app.settings) }.collect { js ->
+                    if (documentStartSupported) {
+                        viewportHandler?.remove()
+                        viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(js), setOf("*"))
+                    }
+                    webView.evaluateJavascript(js, null)
+                }
+            }
+            launch { snapshotFlow { app.settings.textScale }.collect { applyTextZoom() } }
             // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
             snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
         }
@@ -218,20 +273,35 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // The page's engine session goes with it, see onDocMessage. A flag in Settings.
             if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(this, backForwardCache)
         }
+        // Before any user agent of Helmi's own: the WebView's.
+        mobileUa = webView.settings.userAgentString
+        mobileUaMetadata = if (uaMetadataSupported) runCatching { WebSettingsCompat.getUserAgentMetadata(webView.settings) }.getOrNull() else null
+        desktopUa = false
+        userAgentFor(url)
         // The flags below follow changes; a new WebView starts from what they are now.
-        if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, dimPicturesScript(app.settings), setOf("*"))
+        applyTextZoom()
+        // First: a bot check's frame is left as WebView has it (BotChecks.kt); every script below skips it.
+        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, LEAVE_BOT_CHECKS, setOf("*"))
+        if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(dimPicturesScript(app.settings)), setOf("*"))
+        if (documentStartSupported) viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(viewportScript(app.settings)), setOf("*"))
         applyDarkening()
-        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, KEEP_PICTURES, setOf("*"))
+        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(KEEP_PICTURES), setOf("*"))
         installEngine()
         webView.webViewClient = Client()
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
-            override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: ""; app.history.titled(view.url, t) }
+            override fun onReceivedTitle(view: WebView, t: String?) {
+                title = t ?: ""
+                if (!isPrivate) app.history.titled(view.url, t)
+            }
             // A new tab beside this one, on screen; WebView loads the window's page into it.
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 val m = manager ?: return false
                 if (!isUserGesture || destroyed) return false
                 val tab = m.openWindow(this@Tab)
+                // The window's page loads with the new tab's user agent before it says where it
+                // went: this one's, as it is usually this site's.
+                tab.userAgentLike(this@Tab)
                 (resultMsg.obj as WebView.WebViewTransport).webView = tab.webView
                 resultMsg.sendToTarget()
                 return true
@@ -363,11 +433,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             current?.onMessage(data, frame)
         }
         if (documentStartSupported) {
-            WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(contentScript(webView.context)), setOf("*"))
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, FULLSCREEN_JS, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, WEB_SHARE_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(FULLSCREEN_JS), setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(WEB_SHARE_JS), setOf("*"))
         }
     }
 
@@ -424,12 +494,28 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }.getOrDefault(false)
 
     private fun newSession() {
-        val s = pending ?: app.engine.newPage(::onSessionChange)
+        val s = pending ?: newPage()
         pending = null
         current = s
         session = s
         version++
     }
+
+    /**
+     * A page's engine session. A private tab's learns into the private layer of the verdict cache
+     * (gone when the private tabs close) and is left out of the start page totals.
+     */
+    private fun newPage(): PageSession =
+        if (isPrivate) app.engine.newPage(::onSessionChange, app.privacy.cache, counted = false) else app.engine.newPage(::onSessionChange)
+
+    /** What Helmi learned about sites, as this tab's pages use it (the site sheet's Forget and Clear). */
+    val cache: VerdictCache get() = if (isPrivate) app.privacy.cache else app.engine.cache
+
+    /** The cookies of this tab's pages: the private profile's for a private tab. Main thread. */
+    val cookies: CookieManager get() = if (isPrivate) app.privacy.cookies else CookieManager.getInstance()
+
+    /** The local storage, IndexedDB and caches of this tab's pages. Main thread. */
+    val storage: WebStorage get() = if (isPrivate) app.privacy.storage else WebStorage.getInstance()
 
     // Called from engine threads; coalesce into one main-thread bump per frame.
     private fun onSessionChange() {
@@ -447,7 +533,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     fun applyDarkening() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
-        val on = app.settings.darkSite(siteOf(url))
+        val on = !printing && app.settings.darkSite(siteOf(url))
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, !on)
         WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
     }
@@ -458,22 +544,36 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     private fun darkenFor(pageUrl: String) = setDarkening(app.settings.darkSite(siteOf(pageUrl)))
 
-    private fun setDarkening(on: Boolean) {
+    private fun setDarkening(want: Boolean) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) return
+        val on = want && !printing
         if (WebSettingsCompat.isAlgorithmicDarkeningAllowed(webView.settings) != on) WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, on)
     }
+
+    /**
+     * While the print dialog has this tab's page (⋮ › Print…): the page isn't darkened, because
+     * WebView prints what auto dark mode made of it, a black sheet of paper. The dialog covers the
+     * tab meanwhile; the page darkens again when the dialog is done with it.
+     */
+    var printing = false
+        set(value) {
+            if (field == value || destroyed) return
+            field = value
+            applyDarkening()
+        }
 
     fun load(input: String) {
         val target = app.settings.searchEngine.let { resolveInput(input, it.template) }
         // After a crash: the history first, so the new page goes after the lost one and back still goes there.
         recover()
         snapshot()
+        userAgentFor(target)
         webView.loadUrl(target)
         url = target
     }
 
     /** This tab's back/forward list as WebView saves it (the Bundle's byte arrays), for [restore] after a restart. */
-    fun history(): Map<String, ByteArray> = crashed?.state ?: if (destroyed) emptyMap() else stateOf(webView)
+    fun history(): Map<String, ByteArray> = unloaded?.state ?: if (destroyed) emptyMap() else stateOf(webView)
 
     private fun stateOf(view: WebView): Map<String, ByteArray> {
         val b = Bundle()
@@ -487,6 +587,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * the page alone.
      */
     fun restore(pageUrl: String, history: Map<String, ByteArray>?) {
+        // After a crash, the page as it was; after a restart, its site's choice.
+        if (isHttp(pageUrl)) {
+            setDesktopUa(pageModes[pageUrl] ?: app.settings.isDesktopSite(siteOf(pageUrl)))
+            historyTarget = pageUrl
+        }
         val list = if (history.isNullOrEmpty()) null
         else runCatching { webView.restoreState(Bundle().apply { history.forEach { (k, v) -> putByteArray(k, v) } }) }.getOrNull()
         val page = list?.currentItem?.url
@@ -497,7 +602,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     /** Reload; after a crash, the page comes back (with its history). */
-    fun reload() { if (crashed != null) recover() else webView.reload() }
+    fun reload() { if (unloaded != null) recover() else webView.reload() }
     fun stop() = webView.stopLoading()
     fun goBack() = step(BACK)
     fun goForward() = step(HistorySwipe.FORWARD)
@@ -510,7 +615,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     private fun step(dir: Int) {
         // After a crash: the history comes back, and the step is taken in it.
-        if (crashed != null) {
+        if (unloaded != null) {
             recover()
             return go(dir)
         }
@@ -520,29 +625,152 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
-    fun go(dir: Int) { if (webView.canGoBackOrForward(dir)) webView.goBackOrForward(dir) }
+    fun go(dir: Int) {
+        if (!webView.canGoBackOrForward(dir)) return
+        // The page as it came the last time, desktop or phone (when it loads again, not from the
+        // back/forward cache); one this tab hasn't seen load, as its site's choice says.
+        val list = webView.copyBackForwardList()
+        list.getItemAtIndex(list.currentIndex + dir)?.url?.takeIf(::isHttp)?.let { to ->
+            setDesktopUa(pageModes[to] ?: app.settings.isDesktopSite(siteOf(to)))
+            historyTarget = to
+        }
+        webView.goBackOrForward(dir)
+    }
 
-    /** Gets the page lost in a [crashed] renderer back, with its back/forward list; WebView loads it. */
+    /**
+     * ⋮ › Desktop site, Chrome's "Request desktop site": this site asks for desktop pages, or for
+     * phone pages again, and the page loads again with it. Remembered per site (Chrome does too);
+     * pages in the history keep what they came with (go).
+     * A site that sent the phone to its phone pages (en.wikipedia.org to en.m.wikipedia.org) is
+     * asked at the address first asked for, as Chrome does, or it would keep its phone pages.
+     */
+    fun setDesktopSite(on: Boolean) {
+        val page = unloaded?.url?.takeIf { it.isNotEmpty() } ?: url
+        app.settings.setDesktopSite(siteOf(page), on)
+        if (unloaded != null) return recover() // its page comes back with the new user agent
+        userAgentFor(page)
+        // Only for a phone host (m.): a load adds a history entry, a reload doesn't, and a site
+        // that only moved the page (techspot.com to www.techspot.com) gets the same page again.
+        val first = webView.copyBackForwardList().currentItem?.originalUrl
+        if (first != null && on && isHttp(first) && sentToPhonePages(first, page)) webView.loadUrl(first) else webView.reload()
+    }
+
+    /**
+     * The user agent and client hints of [pageUrl]'s site: desktop ones (desktopUserAgent) if it
+     * is switched to ⋮ › Desktop site, else the WebView's own. Set before a page is asked for: the
+     * request goes out with what is set then. True if they changed. Web pages only: an
+     * about:blank or a data: page keeps what the tab has.
+     */
+    private fun userAgentFor(pageUrl: String): Boolean {
+        if (!isHttp(pageUrl)) return false
+        return setDesktopUa(app.settings.isDesktopSite(siteOf(pageUrl)))
+    }
+
+    /** A new window's tab starts with the user agent of [opener], the tab whose page opened it. */
+    internal fun userAgentLike(opener: Tab) { setDesktopUa(opener.desktopUa) }
+
+    private fun setDesktopUa(desktop: Boolean): Boolean {
+        if (desktop == desktopUa || destroyed) return false
+        desktopUa = desktop
+        with(webView.settings) {
+            userAgentString = if (desktop) desktopUserAgent(mobileUa) else null // null: the WebView's own
+            mobileUaMetadata?.let { m ->
+                runCatching { WebSettingsCompat.setUserAgentMetadata(this, if (desktop) desktopUserAgentMetadata(m) else m) }
+                    .onFailure { Log.w(TAG, "user agent metadata", it) }
+            }
+        }
+        return true
+    }
+
+    /**
+     * Settings › Accessibility › Text size, on top of the phone's font size (read each time: it
+     * can change while Helmi runs, and a new page picks it up).
+     */
+    private fun applyTextZoom() {
+        val zoom = TextScale.textZoom(app.settings.textScale, webView.resources.configuration.fontScale)
+        if (webView.settings.textZoom != zoom) webView.settings.textZoom = zoom
+    }
+
+    /** Gets the page back that went with its renderer or was [discard]ed, with its back/forward list; WebView loads it. */
     fun recover() {
-        val c = crashed ?: return
-        crashed = null
+        val c = unloaded ?: return
+        unloaded = null
         if (destroyed) return
+        // The crashed page said so on screen; a page that went out of sight comes back quietly.
+        waking = !c.onScreen
         restore(c.url, c.state)
+    }
+
+    /**
+     * After a restart: the tab gets [pageUrl], its [title] and its [history] back, but loads its
+     * page only once it is shown, so a restart doesn't load every open tab at once.
+     */
+    fun restoreLater(pageUrl: String, title: String, history: Map<String, ByteArray>?) {
+        url = pageUrl
+        this.title = title
+        unloaded = Unloaded(pageUrl, history.orEmpty(), Why.DISCARD, onScreen = false)
+    }
+
+    /** When the tab opened (SystemClock.elapsedRealtime). */
+    internal val createdAt = SystemClock.elapsedRealtime()
+
+    /**
+     * Could go now to save memory: has a web page, isn't on screen and isn't in fullscreen, and
+     * isn't private (its page would come back only as far as the private profile still has it,
+     * and Chrome doesn't discard Incognito tabs either). The
+     * tab manager also checks the opener links ([TabManager.discardIdle]), and [discard] that
+     * nothing is playing or typed in.
+     */
+    val discardable: Boolean
+        get() = !isPrivate && !destroyed && unloaded == null && !waking && fullscreen == null && hasPage && !downloadPage &&
+            url.startsWith("http") && !(webView.isAttachedToWindow && webView.isShown)
+
+    /**
+     * Lets the page go to save memory (Chrome's tab discarding), unless it is busy: media playing,
+     * or a form someone typed in (it would be lost). The tab keeps its address, title, card
+     * picture and back/forward list, and loads the page again when it is shown. [done] says
+     * whether it went.
+     */
+    fun discard(done: (Boolean) -> Unit = {}) {
+        if (!discardable) return done(false)
+        webView.evaluateJavascript(BUSY_JS) { busy ->
+            if (busy == "true" || !discardable) return@evaluateJavascript done(false)
+            val state = stateOf(webView)
+            Log.i(TAG, "discarding tab $id (${state.size} history keys)")
+            // The swipe pictures are of pages that will load again: they would not match.
+            Snapshots.clear(id)
+            webView.stopLoading()
+            replaceWebView(webView)
+            unloaded = Unloaded(url, state, Why.DISCARD, onScreen = false)
+            done(true)
+        }
     }
 
     /**
      * WebView's onRenderProcessGone: the renderer of [dead] crashed ([crash]) or was killed. Not
      * handling it kills the app. [dead] can't be used again, so it goes, and a new WebView takes
-     * its place; what it showed waits in [crashed].
+     * its place; what it showed waits in [unloaded].
      */
     private fun renderGone(dead: WebView, crash: Boolean) {
         if (dead !== webView || destroyed) return
         val onScreen = dead.isAttachedToWindow && dead.isShown && dead.windowVisibility == View.VISIBLE
-        val before = crashed
+        val before = unloaded
         // The back/forward list lives on in the app's process, so the dead WebView still saves it.
         val state = before?.state ?: stateOf(dead)
         Log.w(TAG, "renderer ${if (crash) "crashed" else "was killed"}, tab $id (${if (onScreen) "on screen" else "not on screen"}, ${state.size} history keys)")
-        // Everything about the page that was.
+        replaceWebView(dead)
+        // A start page or a download page had nothing to lose.
+        val page = url.takeIf { it.isNotEmpty() && it != "about:blank" && !downloadPage }
+        unloaded = when {
+            page == null && state.isEmpty() -> null
+            // A tab already without its page (discarded, say) keeps waiting to be shown.
+            before != null && !onScreen -> before
+            else -> Unloaded(page ?: "", state, if (crash) Why.CRASH else Why.KILL, onScreen = onScreen || before?.onScreen == true)
+        }
+    }
+
+    /** [dead] goes, with everything about the page it showed, and a new WebView (with nothing in it) takes its place. */
+    private fun replaceWebView(dead: WebView) {
         swipe.reset()
         pull.reset()
         main.removeCallbacks(snapshotLater)
@@ -561,13 +789,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         version++
         (dead.parent as? ViewGroup)?.removeView(dead)
         dimScript = null
+        viewportHandler = null
         webView = newWebView(dead.context)
         setUp()
+        waking = false
         dead.destroy()
-        // A start page or a download page had nothing to lose.
-        val page = url.takeIf { it.isNotEmpty() && it != "about:blank" && !downloadPage }
-        crashed = if (page == null && state.isEmpty()) null
-        else Crashed(page ?: "", state, crash, onScreen = onScreen || before?.onScreen == true)
     }
 
     @Volatile private var destroyed = false
@@ -689,7 +915,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val reqUrl = request.url.toString()
             if (request.isForMainFrame) {
-                pending = app.engine.newPage(::onSessionChange).also { it.topUrl = reqUrl }
+                pending = newPage().also { it.topUrl = reqUrl }
                 return null
             }
             if (!reqUrl.startsWith("http")) return null
@@ -703,6 +929,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) {
                 // Leaving this page (a link, a script): its picture for swiping back to it.
                 if (request.isForMainFrame && !request.isRedirect) snapshot()
+                // A link to a site with the other user agent (⋮ › Desktop site): the request would
+                // go out with this one, so it is asked for again with the site's. GETs only: this
+                // isn't called for POSTs. A redirect goes on as it is, onPageStarted catches it.
+                if (request.isForMainFrame && !request.isRedirect && userAgentFor(request.url.toString())) {
+                    val to = request.url.toString()
+                    main.post { if (!destroyed && webView === view) view.loadUrl(to) }
+                    return true
+                }
                 return false
             }
             // intent:, mailto:, tel:, market: and app links go to other apps.
@@ -725,6 +959,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             url = pageUrl
             pageStarts++
             darkenFor(pageUrl)
+            applyTextZoom()
+            // A page that came with the other user agent than its site's (a redirect to another
+            // site, a window a page opened): once more, with the site's. Then it matches. Not a
+            // page from the history: that one keeps what it had (go).
+            val fromHistory = pageUrl == historyTarget
+            historyTarget = null
+            if (!fromHistory && userAgentFor(pageUrl)) main.post { if (!destroyed && webView === view && view.url == pageUrl) view.reload() }
+            if (isHttp(pageUrl)) pageModes[pageUrl] = desktopUa
             // As in Chrome, a prompt goes with the page that asked (not the one starting now).
             permissions.pageStarted(pageUrl)
             docLoading = true
@@ -737,16 +979,21 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             if (!documentStartSupported) {
                 view.evaluateJavascript(KEEP_PICTURES, null)
                 view.evaluateJavascript(dimPicturesScript(app.settings), null)
+                view.evaluateJavascript(viewportScript(app.settings), null)
                 view.evaluateJavascript(contentScript(view.context), null)
             }
         }
 
-        override fun onPageCommitVisible(view: WebView, pageUrl: String) { painting = false }
+        override fun onPageCommitVisible(view: WebView, pageUrl: String) {
+            painting = false
+            waking = false
+        }
 
         override fun onPageFinished(view: WebView, pageUrl: String) {
             updateNav(pageUrl)
             docLoading = false
             painting = false
+            waking = false
             whenSettled()
             pull.done()
             snapshotSoon()
@@ -754,7 +1001,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
         override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) {
             updateNav(pageUrl)
-            if (!isReload) app.history.visit(pageUrl, view.title.orEmpty())
+            // A private tab's pages are not history.
+            if (!isReload && !isPrivate) app.history.visit(pageUrl, view.title.orEmpty())
             // A same-document step (#hash, history.pushState; single-page sites) has no load to
             // wait for, only the page's own redraw. A new document's load is waited for.
             main.postDelayed({ if (!docLoading) whenSettled() }, 50)
@@ -777,15 +1025,18 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         // belongs to the page with the link, as in Chrome.
         val from = manager?.takeIf { blank && !dlUrl.startsWith("blob:") }?.openerOf(this)
         if (from != null) {
-            from.downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, from.referrer, from.id)
+            from.downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, from.referrer, from.id, from.isPrivate, from.cookiesForDownload())
             main.post { manager?.closeWindow(this) }
             return
         }
         if (blank) downloadPage = true
         progress = 100
         if (dlUrl.startsWith("blob:")) return fetchBlob(dlUrl, userAgent)
-        downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, if (blank) null else referrer, id)
+        downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, if (blank) null else referrer, id, isPrivate, cookiesForDownload())
     }
+
+    // A private tab's downloads carry the private profile's cookies; normal ones look up WebView's own.
+    private fun cookiesForDownload(): CookieManager? = if (isPrivate) cookies else null
 
     /** What requests from this page send as Referer: its origin, as Chrome does across sites. */
     val referrer: String? get() = Uri.parse(url).let { u -> if (u.scheme?.startsWith("http") == true) "${u.scheme}://${u.authority}/" else null }
@@ -794,7 +1045,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     /** Saves a picture from the page (the context menu's Download image), as a download from this tab. */
     fun downloadImage(src: String) {
-        downloadBar = app.downloads.start(src, userAgent, null, null, referrer, id)
+        downloadBar = app.downloads.start(src, userAgent, null, null, referrer, id, isPrivate, cookiesForDownload())
     }
 
     /** A blob: URL only exists inside the page, so the page reads it and sends it back as data:. */
@@ -824,7 +1075,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             Toast.makeText(webView.context, "Helmi couldn't save this file", Toast.LENGTH_SHORT).show()
             return
         }
-        downloadBar = app.downloads.start(dataUrl, ua, null, null, null, id)
+        downloadBar = app.downloads.start(dataUrl, ua, null, null, null, id, isPrivate)
     }
 
     companion object {
@@ -836,6 +1087,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)
         val backForwardCacheSupported: Boolean
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE)
+        val uaMetadataSupported: Boolean
+            get() = WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)
+
+        private fun isHttp(u: String) = u.startsWith("http://", ignoreCase = true) || u.startsWith("https://", ignoreCase = true)
 
         /**
          * engine/dist/autoconsent.js, then engine/src/content/serene.js, both packaged as assets.
@@ -870,6 +1125,25 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         }"""
 
         private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
+
+        /**
+         * True when letting the page go would lose something: sound or video playing (a video
+         * call too), picture-in-picture, or a form field changed from what the page set (typed
+         * text, a ticked box, a picked option). The top document only.
+         */
+        private const val BUSY_JS = """(() => {
+            try {
+                if (document.pictureInPictureElement) return true;
+                const playing = [...document.querySelectorAll('video, audio')].some(m => !m.paused && !m.ended && !m.muted && m.readyState > 2);
+                if (playing) return true;
+                return [...document.querySelectorAll('input, textarea, select')].some(e => {
+                    if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);
+                    if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
+                    if (e.type === 'hidden' || e.type === 'submit' || e.type === 'button' || e.type === 'file') return false;
+                    return e.value !== e.defaultValue;
+                });
+            } catch (e) { return false; }
+        })()"""
 
         /**
          * Darkening a page leaves its pictures as they are. WebView would invert the ones it takes

@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +66,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
+import app.serene.R
+import app.serene.browser.PagePrint
+import app.serene.browser.PrivateBrowsing
 import app.serene.reader.ReaderHtml
 import app.serene.reader.ReaderPage
 import app.serene.reader.ReaderPrefs
@@ -79,7 +83,7 @@ import kotlin.math.roundToInt
  */
 @SuppressLint("ClickableViewAccessibility")
 @Composable
-fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpenLink: (String) -> Unit) {
+fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpenLink: (String) -> Unit, privateProfile: PrivateBrowsing? = null) {
     val context = LocalContext.current
     // Auto follows the app's theme (light, dark or the system's).
     val style = prefs.style(appDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f)
@@ -98,6 +102,8 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
     var renderer by remember { mutableIntStateOf(0) }
     val webView = remember(page, renderer) {
         WebView(context).apply {
+            // A private tab's reader is in the private profile, before the WebView is used.
+            privateProfile?.use(this)
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             with(settings) {
                 javaScriptEnabled = false
@@ -210,6 +216,8 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
                     style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // The article as the reader shows it, on paper colours whatever the theme.
+                IconButton(onClick = { PagePrint.print(context, webView, page.title, page.url) }) { Icon(painterResource(R.drawable.ic_print), "Print") }
                 TextButton(onClick = { showStyle = true }) { Text("Aa", color = Color(theme.accent), fontFamily = FontFamily.Serif, fontSize = 18.sp) }
             }
             key(webView) {

@@ -129,6 +129,7 @@ import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.FindInPage
+import app.serene.browser.PagePrint
 import app.serene.browser.SharedText
 import app.serene.browser.Suggestions
 import app.serene.browser.Tab
@@ -199,119 +200,127 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
         }
     }
 
-    // The content colour a Surface would set: without it icons default to black and vanish on the
-    // dark theme's bars. Not a Surface itself: wrapping the WebView in one turned the address bar
-    // and the bars around the page solid black.
-    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-        Box(Modifier.fillMaxSize()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .imePadding(),
-            ) {
-                if (finding != null) FindBar(finding, covered, onClose = { find = null })
-                else UrlBar(app, tab, address, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
-                if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
-                else Spacer(Modifier.height(2.dp))
-                val density = LocalDensity.current
-                Box(
-                    Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged {
-                        tab.swipe.width = it.width.toFloat()
-                        tab.swipe.flingVelocity = with(density) { 800.dp.toPx() }
-                        tab.pull.trigger = with(density) { 72.dp.toPx() }
-                        cube.width = it.width.toFloat()
-                        cube.flingVelocity = with(density) { 500.dp.toPx() }
-                    }.onGloballyPositioned { onPageBounds(it.boundsInRoot()); cube.bounds = it.boundsInWindow() },
+    // A private tab's bars, start page, menus and sheets are in the private tabs' colours, dark in
+    // either theme, with light status and navigation bar icons.
+    SystemBarIcons(dark = if (tab.isPrivate) true else null)
+    PrivateTheme(tab.isPrivate) {
+        // The content colour a Surface would set: without it icons default to black and vanish on the
+        // dark theme's bars. Not a Surface itself: wrapping the WebView in one turned the address bar
+        // and the bars around the page solid black.
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+            Box(Modifier.fillMaxSize()) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .imePadding(),
                 ) {
-                    val startPage = !tab.openedByPage && (tab.url.isEmpty() || tab.url == "about:blank")
-                    val downloadPage = tab.downloadPage
-                    val crashed = tab.crashed?.takeIf { it.onScreen }
-                    val swipe = tab.swipe
-                    // Swiping back, the previous page is underneath; the WebView moves itself.
-                    if (swipe.active && !swipe.targetOnTop) SwipeTarget(swipe)
-                    // A new WebView after a crash is a new view here.
-                    val webView = tab.webView
-                    key(tab.id, webView) {
-                        AndroidView(
-                            factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView },
-                            modifier = Modifier.fillMaxSize(),
-                            // A WebView that has loaded nothing drew the address bar and the bars around
-                            // it solid black; the start page covers it anyway.
-                            // The same goes for a tab whose first page hasn't started yet (a link from
-                            // another app) or whose only navigation was a download.
-                            update = { it.visibility = if (startPage || downloadPage || !tab.hasPage || crashed != null) View.INVISIBLE else View.VISIBLE },
-                        )
-                    }
-                    // What covers the WebView moves with it.
-                    Box(Modifier.fillMaxSize().offset { IntOffset(swipe.pageOffset.roundToInt(), 0) }) {
-                        if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab, undo = false) })
-                        else if (startPage) StartPage(app)
-                        else if (crashed != null) CrashedPage(crashed, onReload = tab::reload)
-                        else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
-                            DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
+                    if (finding != null) FindBar(finding, covered, onClose = { find = null })
+                    else UrlBar(app, tab, address, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
+                    if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
+                    else Spacer(Modifier.height(2.dp))
+                    val density = LocalDensity.current
+                    Box(
+                        Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged {
+                            tab.swipe.width = it.width.toFloat()
+                            tab.swipe.flingVelocity = with(density) { 800.dp.toPx() }
+                            tab.pull.trigger = with(density) { 72.dp.toPx() }
+                            cube.width = it.width.toFloat()
+                            cube.flingVelocity = with(density) { 500.dp.toPx() }
+                        }.onGloballyPositioned { onPageBounds(it.boundsInRoot()); cube.bounds = it.boundsInWindow() },
+                    ) {
+                        val startPage = !tab.openedByPage && (tab.url.isEmpty() || tab.url == "about:blank")
+                        val downloadPage = tab.downloadPage
+                        val crashed = tab.unloaded?.takeIf { it.onScreen }
+                        val swipe = tab.swipe
+                        // Swiping back, the previous page is underneath; the WebView moves itself.
+                        if (swipe.active && !swipe.targetOnTop) SwipeTarget(swipe)
+                        // A new WebView after a crash is a new view here.
+                        val webView = tab.webView
+                        key(tab.id, webView) {
+                            AndroidView(
+                                factory = { (webView.parent as? ViewGroup)?.removeView(webView); webView },
+                                modifier = Modifier.fillMaxSize(),
+                                // A WebView that has loaded nothing drew the address bar and the bars around
+                                // it solid black; the start page covers it anyway.
+                                // The same goes for a tab whose first page hasn't started yet (a link from
+                                // another app) or whose only navigation was a download, and a tab whose
+                                // page went to save memory until it has drawn again.
+                                update = { it.visibility = if (startPage || downloadPage || !tab.hasPage || crashed != null || tab.waking) View.INVISIBLE else View.VISIBLE },
+                            )
+                        }
+                        // What covers the WebView moves with it.
+                        Box(Modifier.fillMaxSize().offset { IntOffset(swipe.pageOffset.roundToInt(), 0) }) {
+                            if (downloadPage) DownloadPage(tab.id, app.downloads, onCloseTab = { tabs.close(tab, undo = false) })
+                            else if (startPage) { if (tab.isPrivate) PrivateStartPage() else StartPage(app) }
+                            else if (crashed != null) CrashedPage(crashed, onReload = tab::reload)
+                            else tab.downloadBar?.takeIf { it in app.downloads.items }?.let { d ->
+                                DownloadBar(d, app.downloads, onDismiss = { tab.downloadBar = null }, Modifier.align(Alignment.BottomCenter))
+                            }
+                        }
+                        // Going forward, the next page slides in over this one; after the step, the
+                        // target covers the WebView until the new page has drawn.
+                        if (swipe.active && swipe.targetOnTop) SwipeTarget(swipe)
+                        PullIndicator(tab)
+                        TabCubeFaces(cube, app)
+                        // Over the page while something new is typed in the address bar, as in Chrome.
+                        if (finding == null && !covered && address.editing && address.typed.isNotBlank()) {
+                            AddressSuggestions(app, address, onOpen = { target ->
+                                focusManager.clearFocus()
+                                tab.load(target)
+                            })
                         }
                     }
-                    // Going forward, the next page slides in over this one; after the step, the
-                    // target covers the WebView until the new page has drawn.
-                    if (swipe.active && swipe.targetOnTop) SwipeTarget(swipe)
-                    PullIndicator(tab)
-                    TabCubeFaces(cube, app)
-                    // Over the page while something new is typed in the address bar, as in Chrome.
-                    if (finding == null && !covered && address.editing && address.typed.isNotBlank()) {
-                        AddressSuggestions(app, address, onOpen = { target ->
-                            focusManager.clearFocus()
-                            tab.load(target)
-                        })
+                    // The buttons still take taps: a drag starts only once the finger has moved.
+                    Column(
+                        Modifier.draggable(
+                            rememberDraggableState { cube.drag(it) },
+                            Orientation.Horizontal,
+                            onDragStarted = { focusManager.clearFocus(); cube.start(window) },
+                            onDragStopped = { cube.release(it) },
+                        ),
+                    ) {
+                        BottomBar(
+                            app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
+                            onReader = openReader, onFind = {
+                                // One per WebView: a second would lose the listener when the first closes.
+                                if (find?.webView !== tab.webView) find = FindInPage(tab.webView)
+                            },
+                        )
                     }
                 }
-                // The buttons still take taps: a drag starts only once the finger has moved.
-                Column(
-                    Modifier.draggable(
-                        rememberDraggableState { cube.drag(it) },
-                        Orientation.Horizontal,
-                        onDragStarted = { focusManager.clearFocus(); cube.start(window) },
-                        onDragStopped = { cube.release(it) },
-                    ),
-                ) {
-                    BottomBar(
-                        app, tabs, tab, onOpen, onReport = startReport, onSite = { showSite = true },
-                        onReader = openReader, onFind = {
-                            // One per WebView: a second would lose the listener when the first closes.
-                            if (find?.webView !== tab.webView) find = FindInPage(tab.webView)
-                        },
+                reader?.let { page ->
+                    ReaderView(
+                        page, app.readerPrefs,
+                        onClose = { reader = null },
+                        onOpenLink = { url -> reader = null; tab.load(url) },
+                        // A private page's pictures load with the private tabs' cookies, and set none in normal tabs.
+                        privateProfile = if (tab.isPrivate) app.privacy else null,
                     )
                 }
             }
-            reader?.let { page ->
-                ReaderView(
-                    page, app.readerPrefs,
-                    onClose = { reader = null },
-                    onOpenLink = { url -> reader = null; tab.load(url) },
-                )
-            }
         }
-    }
 
-    // A new tab from a link or picture opens behind this one, as in Chrome: the tab count goes up.
-    tab.contextMenu?.let { p -> ContextMenu(app, tab, p, onDismiss = { tab.contextMenu = null }, onNewTab = { tabs.open(it, select = false) }) }
+        // A new tab from a link or picture opens behind this one, as in Chrome: the tab count goes up.
+        tab.contextMenu?.let { p -> ContextMenu(app, tab, p, onDismiss = { tab.contextMenu = null }, onNewTab = { url, private -> tabs.open(url, select = false, isPrivate = private) }) }
 
-    // A site asking for the camera, microphone or location. Not under the tab switcher: it waits
-    // until its tab is in front, as in Chrome.
-    if (!covered) tab.permissions.current?.let { ask ->
-        key(ask) { PermissionDialog(ask, onAnswer = { tab.permissions.answer(ask, it) }, onDismiss = { tab.permissions.dismiss(ask) }) }
-    }
+        // A site asking for the camera, microphone or location. Not under the tab switcher: it waits
+        // until its tab is in front, as in Chrome.
+        if (!covered) tab.permissions.current?.let { ask ->
+            key(ask) { PermissionDialog(ask, remembers = tab.sitePermissions.remembers, onAnswer = { tab.permissions.answer(ask, it) }, onDismiss = { tab.permissions.dismiss(ask) }) }
+        }
 
-    if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
+        if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
 
-    reportDir?.let { dir ->
-        ReportDialog(
-            onDismiss = { reportDir = null },
-            onIssue = { note -> reportDir = null; Reporter.openIssue(context, dir, note) { tabs.open(it) } },
-            onShare = { note -> reportDir = null; Reporter.share(context, dir, note, tab.url) },
-        )
+        reportDir?.let { dir ->
+            ReportDialog(
+                onDismiss = { reportDir = null },
+                onIssue = { note -> reportDir = null; Reporter.openIssue(context, dir, note) { tabs.open(it) } },
+                onShare = { note -> reportDir = null; Reporter.share(context, dir, note, tab.url) },
+            )
+        }
     }
 }
 
@@ -395,8 +404,12 @@ private fun UrlBar(app: SereneApp, tab: Tab, address: AddressEdit, covered: Bool
                         Modifier.fillMaxSize().padding(start = 16.dp, end = if (showClear) 2.dp else 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // A private tab says so at the start of its address, in the brass.
+                        if (tab.isPrivate) {
+                            Icon(painterResource(R.drawable.ic_private), "Private tab", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp).size(20.dp))
+                        }
                         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                            if (state.text.isEmpty()) Text("Search or type a URL", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (state.text.isEmpty()) Text("Search or type a URL", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                             inner()
                         }
                         if (showCopy) {
@@ -514,7 +527,8 @@ private fun BottomBar(
     Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { if (tab.canGoBack) tab.goBack() else tabs.closeWindow(tab) }, enabled = tab.canGoBack || tabs.openerOf(tab) != null, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         IconButton(onClick = tab::goForward, enabled = tab.canGoForward, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Forward") }
-        IconButton(onClick = { tabs.open() }, modifier = Modifier.weight(1f)) { Icon(Icons.Filled.Add, "New tab") }
+        // In a private tab, a new private tab, as in Chrome's Incognito.
+        IconButton(onClick = { tabs.open(isPrivate = tab.isPrivate) }, modifier = Modifier.weight(1f)) { Icon(Icons.Filled.Add, if (tab.isPrivate) "New private tab" else "New tab") }
         IconButton(onClick = { onOpen(Screen.Tabs) }, modifier = Modifier.weight(1f)) {
             Surface(shape = RoundedCornerShape(6.dp), border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onSurface), color = MaterialTheme.colorScheme.surface, modifier = Modifier.size(24.dp)) {
                 Box(contentAlignment = Alignment.Center) { Text("${tabs.tabs.size}", style = MaterialTheme.typography.labelMedium) }
@@ -528,6 +542,9 @@ private fun BottomBar(
             IconButton(onClick = { menu.targetState = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
             BarMenu(menu, barTop) {
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
+                // The + button opens a tab of the kind on screen; the other kind is here, first, as in Chrome.
+                if (tab.isPrivate) DropdownMenuItem(text = { Text("New tab") }, onClick = { close(); tabs.open() })
+                else if (app.privacy.supported) DropdownMenuItem(text = { Text("New private tab") }, onClick = { close(); tabs.open(isPrivate = true) })
                 BookmarkItem(app, tab, enabled = onPage, onDone = ::close)
                 DropdownMenuItem(text = { Text("History") }, onClick = { close(); onOpen(Screen.History) })
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
@@ -535,8 +552,20 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
                 val context = LocalContext.current
                 DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
+                // Chrome has it in its share sheet; the system dialog has "Save as PDF".
+                DropdownMenuItem(text = { Text("Print…") }, enabled = onPage && tab.unloaded == null, onClick = { close(); PagePrint.print(context, tab.webView, tab.title, tab.url) { tab.printing = it } })
                 // After Share, as in Chrome.
-                DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.crashed == null, onClick = { close(); onFind() })
+                DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.unloaded == null, onClick = { close(); onFind() })
+                // Chrome's ⋮ › Desktop site: this site's desktop pages, remembered for the site. The
+                // switch shows this page (one from the history keeps what it came with).
+                val web = onPage && (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
+                val desktop = web && tab.desktopUa
+                DropdownMenuItem(
+                    text = { Text("Desktop site") },
+                    trailingIcon = { Switch(checked = desktop, onCheckedChange = null, enabled = web) },
+                    enabled = web,
+                    onClick = { close(); tab.setDesktopSite(!desktop) },
+                )
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {

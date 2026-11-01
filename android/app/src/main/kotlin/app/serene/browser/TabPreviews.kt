@@ -63,12 +63,12 @@ object TabPreviews {
      * has no picture: its card shows its title instead.
      */
     fun capture(tab: Tab, done: () -> Unit = {}) {
+        // The page went with its renderer, or to save memory, and hasn't drawn again: the card keeps the picture of it.
+        if (tab.unloaded != null || tab.waking) return done()
         if (tab.url.isEmpty() || tab.url == "about:blank" || tab.downloadPage || !tab.hasPage) {
             remove(tab)
             return done()
         }
-        // The page went with its renderer: the card keeps the picture of it.
-        if (tab.crashed != null) return done()
         val v = tab.webView
         val window = activityOf(v.context)?.window
         if (covered || window == null || !v.isShown || v.width == 0 || v.height == 0) return done()
@@ -92,10 +92,13 @@ object TabPreviews {
         main.postDelayed(once, 300)
     }
 
-    /** Writes the pictures of [tabs] that changed, and deletes those of tabs gone. Off the main thread. */
+    /**
+     * Writes the pictures of [tabs] that changed, and deletes those of tabs gone. Off the main
+     * thread. Not private tabs': their pictures are kept in memory only.
+     */
     fun save(context: Context, tabs: List<Tab>) {
         val dir = File(context.cacheDir, DIR)
-        val keep = tabs.mapNotNull { t -> cache.get(t.id)?.let { fileName(t.url) to (t to it) } }.toMap()
+        val keep = tabs.filterNot { it.isPrivate }.mapNotNull { t -> cache.get(t.id)?.let { fileName(t.url) to (t to it) } }.toMap()
         val write = keep.filter { (name, v) -> v.first.id in unsaved || !File(dir, name).exists() }
         unsaved.clear()
         thread(name = "tab-previews") {

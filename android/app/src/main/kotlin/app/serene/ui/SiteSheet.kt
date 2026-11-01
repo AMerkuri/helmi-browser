@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
 import app.serene.SereneApp
 import app.serene.browser.SiteData
@@ -170,8 +171,8 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                     HorizontalDivider()
                 }
                 // Camera, microphone and location, as the user answered this site's prompts.
-                if (app.sitePermissions.forSite(site).isNotEmpty()) {
-                    SitePermissionRows(app.sitePermissions, site, permissionOrigin(tab.url))
+                if (tab.sitePermissions.forSite(site).isNotEmpty()) {
+                    SitePermissionRows(tab.sitePermissions, site, permissionOrigin(tab.url))
                     HorizontalDivider()
                 }
             }
@@ -180,7 +181,7 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 Button(onClick = onReport) { Text("Report missed popup") }
                 // Both close the sheet: the page starts again, and the model's notes (Settings › Flags)
                 // show above the bottom bar, which the sheet would cover.
-                if (site != null) OutlinedButton(onClick = { app.engine.cache.clear(site); tab.reload(); onDismiss() }) { Text("Forget this site") }
+                if (site != null) OutlinedButton(onClick = { tab.cache.clear(site); tab.reload(); onDismiss() }) { Text("Forget this site") }
             }
             if (site != null) {
                 Spacer(Modifier.height(8.dp))
@@ -188,9 +189,10 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                 // Serene's rules for it, except what the user put back with Undo (so a cookie banner they undid
                 // comes back for them).
                 TextButton(onClick = {
-                    app.engine.cache.clear(site, keepUndone = true)
-                    app.sitePermissions.resetSite(site)
-                    SiteData.clear(tab.url) { tab.reload() }
+                    // A private tab's: its own layer, answers and profile, never the normal tabs'.
+                    tab.cache.clear(site, keepUndone = true)
+                    tab.sitePermissions.resetSite(site)
+                    SiteData.clear(tab.url, tab.cookies, tab.storage) { tab.reload() }
                     onDismiss()
                 }) { Text("Clear site data and reload") }
                 // The engine's ms-stamped log for this page, to paste into a bug report or a chat.
@@ -199,6 +201,11 @@ fun SiteSheet(app: SereneApp, tab: Tab, onDismiss: () -> Unit, onReport: () -> U
                         appendLine("${tab.url}")
                         appendLine("Helmi ${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE} (${BuildConfig.GIT_SHA}) · ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
                         appendLine("${s.blockedRequests.get()} requests blocked · cookies rejected: ${s.consentRejected().joinToString().ifEmpty { "no" }}")
+                        // Which tab kind, the WebView it runs on, and the names (never the values) of the cookies the site has.
+                        val webView = WebViewCompat.getCurrentWebViewPackage(ctx)?.versionName ?: "?"
+                        val names = runCatching { tab.cookies.getCookie(tab.url) }.getOrNull().orEmpty()
+                            .split(';').map { it.substringBefore('=').trim() }.filter { it.isNotEmpty() }
+                        appendLine("${if (tab.isPrivate) "private" else "normal"} tab · WebView $webView · cookies: ${names.joinToString().ifEmpty { "none" }}")
                         s.log().forEach { appendLine(it) }
                     }
                     ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Helmi page log", text))

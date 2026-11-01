@@ -3,7 +3,9 @@ package app.serene.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.app.Activity
 import android.net.Uri
+import android.os.SystemClock
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -55,8 +58,17 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import app.serene.browser.TextScale
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
+import app.serene.DefaultBrowser
 import app.serene.DimStrength
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
@@ -90,6 +102,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())) {
+            DefaultBrowserRow(app)
             Section("Blocking")
             SwitchRow("Block annoyances", "Filter lists, the overlay detector and the model. Off: every site loads as sent.", s.engineEnabled) { s.engineEnabled = it }
             // status() reads the list files, so off the main thread; .value, not by, so st smart-casts.
@@ -180,6 +193,8 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 )
             }
 
+            AccessibilitySection(app)
+
             Section("Search")
             SearchEngine.entries.forEach { e ->
                 Row(Modifier.fillMaxWidth().clickable { s.searchEngine = e }.padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -207,6 +222,11 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 enabled = Tab.backForwardCacheSupported,
             ) { s.backForwardCache = it }
             SwitchRow(
+                "Unload idle tabs",
+                "Tabs in the background let their page go to save memory, and load it again when you open them: a tab not opened for 30 minutes, the oldest beyond the 4 opened last, and most of them when the phone is low on memory or Helmi is in the background. Not a tab playing sound or video, or one with a form you typed in.",
+                s.discardTabs,
+            ) { s.discardTabs = it }
+            SwitchRow(
                 "Show model decisions",
                 "A short message above the bottom bar, like the one after closing a tab, each time the on-device model decides about an overlay on this page: what it hid, with Undo, or what it left alone, with Hide.",
                 s.showModelDecisions,
@@ -222,6 +242,44 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
         }
     }
 }
+
+// Asks with Android's dialog where there is one; once Helmi is the default, or where Android
+// shows no dialog, its default apps screen.
+@Composable
+private fun DefaultBrowserRow(app: SereneApp) {
+    val ctx = LocalContext.current
+    var isDefault by remember { mutableStateOf(DefaultBrowser.isDefault(ctx)) }
+    // Back from Android's settings, or another browser took over meanwhile.
+    LifecycleResumeEffect(Unit) {
+        isDefault = DefaultBrowser.isDefault(ctx)
+        onPauseOrDispose {}
+    }
+    var askedAt by remember { mutableLongStateOf(0L) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        isDefault = DefaultBrowser.isDefault(ctx)
+        // Once the user picked "Don't ask again", Android answers at once without a dialog: its
+        // default apps screen instead, so the tap still leads somewhere.
+        if (!isDefault && r.resultCode != Activity.RESULT_OK && SystemClock.elapsedRealtime() - askedAt < NO_DIALOG_MS) DefaultBrowser.openSystemSettings(ctx)
+    }
+    ListItem(
+        headlineContent = { Text(if (isDefault) "Helmi is the default browser" else "Make Helmi the default browser") },
+        supportingContent = { Text(if (isDefault) "Links from other apps open in Helmi. Change it in Android's default apps." else "Links from other apps open in Helmi.") },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+        modifier = Modifier.clickable {
+            val intent = if (isDefault) null else DefaultBrowser.requestIntent(ctx)
+            if (intent == null) {
+                DefaultBrowser.openSystemSettings(ctx)
+            } else {
+                app.settings.askedDefaultBrowser = true // asked now: no question on a later launch
+                askedAt = SystemClock.elapsedRealtime()
+                ask.launch(intent)
+            }
+        },
+    )
+}
+
+/** A "no" faster than this came without a dialog (see DefaultBrowserRow). */
+private const val NO_DIALOG_MS = 500L
 
 @Composable
 private fun ModelSection(app: SereneApp) {
@@ -352,6 +410,66 @@ private fun NpuBenchmarkRow(app: SereneApp) {
         Button(onClick = {
             ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Helmi NPU benchmark", report))
         }) { Text("Copy NPU results") }
+    }
+}
+
+/**
+ * Chrome's Settings › Accessibility: text size on pages (WebView's textZoom, on top of the phone's
+ * font size) with a preview at that size, and pinch zoom on pages that block it. Then the sites
+ * switched to ⋮ › Desktop site (as Chrome's Site settings › Desktop site lists them); X takes one
+ * back to its phone pages from its next page on.
+ */
+@Composable
+private fun AccessibilitySection(app: SereneApp) {
+    val s = app.settings
+    Section("Accessibility")
+    // The page text changes once the slider is let go; the preview follows it while it moves.
+    var scale by remember { mutableIntStateOf(s.textScale) }
+    LaunchedEffect(s.textScale) { scale = s.textScale }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Text size", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text("$scale%", style = MaterialTheme.typography.bodyLarge)
+        }
+        Slider(
+            value = scale.toFloat(),
+            onValueChange = { scale = TextScale.snap(it) },
+            onValueChangeFinished = { s.textScale = scale },
+            valueRange = TextScale.MIN.toFloat()..TextScale.MAX.toFloat(),
+            steps = (TextScale.MAX - TextScale.MIN) / TextScale.STEP - 1,
+            modifier = Modifier.semantics { contentDescription = "Text size" },
+        )
+        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                // A page's 16 px body text at this size; sp follows the phone's font size, as pages do.
+                Text(
+                    "Move the slider until this reads comfortably. Page text is shown at this size, and the phone's font size counts too.",
+                    fontSize = (16 * scale / 100f).sp,
+                    lineHeight = (16 * scale / 100f * 1.4f).sp,
+                )
+            }
+        }
+        if (scale != TextScale.DEFAULT) {
+            TextButton(onClick = { scale = TextScale.DEFAULT; s.textScale = TextScale.DEFAULT }, modifier = Modifier.align(Alignment.End)) { Text("Reset to 100%") }
+        }
+    }
+    SwitchRow(
+        "Override sites' zoom block",
+        "Pinch to zoom on every page, also where the site asks not to be zoomed.",
+        s.forceZoom,
+    ) { s.forceZoom = it }
+    if (s.desktopSites.isEmpty()) return
+    Section("Desktop site")
+    s.desktopSites.sorted().forEach { site ->
+        ListItem(
+            headlineContent = { Text(site) },
+            supportingContent = { Text("Desktop pages") },
+            trailingContent = {
+                IconButton(onClick = { s.setDesktopSite(site, false) }) { Icon(Icons.Filled.Close, "Show phone pages of $site") }
+            },
+        )
     }
 }
 

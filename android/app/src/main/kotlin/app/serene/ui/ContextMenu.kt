@@ -62,7 +62,7 @@ import kotlinx.coroutines.withContext
  * for the whole address), then what to do with it. A picture link gets both sets of items.
  */
 @Composable
-fun ContextMenu(app: SereneApp, tab: Tab, pressed: Pressed, onDismiss: () -> Unit, onNewTab: (String) -> Unit) {
+fun ContextMenu(app: SereneApp, tab: Tab, pressed: Pressed, onDismiss: () -> Unit, onNewTab: (url: String, private: Boolean) -> Unit) {
     val activity = LocalContext.current
     val context = activity.applicationContext
     val link = pressed.link
@@ -75,7 +75,9 @@ fun ContextMenu(app: SereneApp, tab: Tab, pressed: Pressed, onDismiss: () -> Uni
         src?.let {
             val ua = tab.userAgent
             val referrer = tab.referrer
-            app.scope.async(Dispatchers.IO) { PageImages.fetch(context, it, ua, referrer) }
+            // A private tab's picture comes with the private tabs' cookies.
+            val cookies = if (tab.isPrivate) tab.cookies else null
+            app.scope.async(Dispatchers.IO) { PageImages.fetch(context, it, ua, referrer, cookies) }
         }
     }
     val thumbPx = with(LocalDensity.current) { 56.dp.roundToPx() }
@@ -133,7 +135,12 @@ fun ContextMenu(app: SereneApp, tab: Tab, pressed: Pressed, onDismiss: () -> Uni
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
                 if (link != null) {
-                    Item("Open in new tab") { onDismiss(); onNewTab(link) }
+                    // As in Chrome: from a private tab, a private tab; from a normal one, either.
+                    if (tab.isPrivate) Item("Open in new private tab") { onDismiss(); onNewTab(link, true) }
+                    else {
+                        Item("Open in new tab") { onDismiss(); onNewTab(link, false) }
+                        if (app.privacy.supported) Item("Open in private tab") { onDismiss(); onNewTab(link, true) }
+                    }
                     Item("Copy link address") { onDismiss(); copyText(context, "Link", link, "Link copied") }
                     if (pressed.text.isNotEmpty()) Item("Copy link text") { onDismiss(); copyText(context, "Link text", pressed.text, "Text copied") }
                     Item("Share link") { onDismiss(); shareText(activity, link, pressed.text) }
@@ -141,7 +148,7 @@ fun ContextMenu(app: SereneApp, tab: Tab, pressed: Pressed, onDismiss: () -> Uni
                 if (src != null) {
                     if (link != null) HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     // Not a data: picture: the address bar can't take one.
-                    if (isWebLink(src)) Item("Open image in new tab") { onDismiss(); onNewTab(src) }
+                    if (isWebLink(src)) Item(if (tab.isPrivate) "Open image in new private tab" else "Open image in new tab") { onDismiss(); onNewTab(src, tab.isPrivate) }
                     Item("Copy image") { withImage { copyImage(context, it) } }
                     Item("Download image") { onDismiss(); tab.downloadImage(src) }
                     Item("Share image") { withImage { shareImage(activity, it, title) } }

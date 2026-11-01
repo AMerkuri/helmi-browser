@@ -57,12 +57,7 @@ class BottomBarTest {
                 waitFor("the page loads") { tab?.title == "red" && tab?.progress == 100 }
                 // The blank tab the test started on focused the address bar: put the keyboard away,
                 // so the bar is back at the bottom.
-                scenario.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
-                waitFor("the keyboard closes") {
-                    var ime = true
-                    scenario.onActivity { a -> ime = ViewCompat.getRootWindowInsets(a.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: true }
-                    !ime
-                }
+                keyboardAway(scenario)
                 SystemClock.sleep(1500) // drawn
 
                 val bar = bar(scenario)
@@ -72,7 +67,7 @@ class BottomBarTest {
                 val above = bar.top - bar.dp * 3
                 assertTrue("page should show above the bar", near(shot("menu closed").at(underMenu, above), red))
 
-                tap(underMenu, bar.top + bar.dp * 26)
+                tap(scenario, underMenu, bar.top + bar.dp * 26)
                 // The emulator draws slowly: wait for the menu rather than guess how long it takes.
                 // Should it float with a gap, the page stays there and this times out.
                 val open = shotWhen("menu open") { !near(it.at(underMenu, above), red) }
@@ -85,7 +80,7 @@ class BottomBarTest {
                 scenario.onActivity { a -> assertEquals("back should only close the menu", 1, a.tabs.tabs.size) }
 
                 // New tab is the middle of five.
-                tap(bar.width * 0.5f, bar.top + bar.dp * 26)
+                tap(scenario, bar.width * 0.5f, bar.top + bar.dp * 26)
                 waitFor("a new tab opens") { var n = 0; scenario.onActivity { n = it.tabs.tabs.size }; n == 2 }
                 scenario.onActivity { a -> assertEquals(1, a.tabs.currentIndex) }
             }
@@ -138,11 +133,45 @@ class BottomBarTest {
         Base64.encodeToString(png, Base64.NO_WRAP).chunked(3000).forEachIndexed { i, chunk -> Log.i("BottomBarShot", "$label #$i $chunk") }
     }
 
-    private fun tap(x: Float, y: Float) {
-        val t = SystemClock.uptimeMillis()
+    /**
+     * Puts the keyboard away and waits until it has stayed away for a second: on a cold emulator
+     * the keyboard can come up late, after a first hide, and then takes the bar's taps.
+     */
+    private fun keyboardAway(scenario: ActivityScenario<MainActivity>) {
+        scenario.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
+        var awaySince = SystemClock.uptimeMillis()
+        waitFor("the keyboard closes") {
+            var ime = true
+            scenario.onActivity { a -> ime = ViewCompat.getRootWindowInsets(a.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) ?: true }
+            if (ime) {
+                scenario.onActivity { a -> WindowCompat.getInsetsController(a.window, a.window.decorView).hide(WindowInsetsCompat.Type.ime()) }
+                awaySince = SystemClock.uptimeMillis()
+            }
+            !ime && SystemClock.uptimeMillis() - awaySince >= 1000
+        }
+    }
+
+    /**
+     * A tap on Helmi's window. Android drops one that would land on another window (the keyboard
+     * coming up late, say) and throws: the tap never reached Helmi, so the keyboard is put away
+     * and the tap tried again.
+     */
+    private fun tap(scenario: ActivityScenario<MainActivity>, x: Float, y: Float) {
         val inst = InstrumentationRegistry.getInstrumentation()
-        inst.sendPointerSync(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0))
-        inst.sendPointerSync(MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, x, y, 0))
+        for (attempt in 1..5) {
+            val t = SystemClock.uptimeMillis()
+            try {
+                inst.sendPointerSync(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0))
+            } catch (e: IllegalArgumentException) {
+                if (attempt == 5) throw e
+                Log.w("BottomBarTest", "tap went to another window, again: ${e.message}")
+                keyboardAway(scenario)
+                SystemClock.sleep(500)
+                continue
+            }
+            inst.sendPointerSync(MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, x, y, 0))
+            return
+        }
     }
 
     private fun near(pixel: Int, colour: String): Boolean {
