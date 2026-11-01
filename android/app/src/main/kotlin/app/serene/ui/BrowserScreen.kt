@@ -433,6 +433,7 @@ private fun BottomBar(
             BarMenu(menu, barTop) {
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
                 BookmarkItem(app, tab, enabled = onPage, onDone = ::close)
+                DropdownMenuItem(text = { Text("History") }, onClick = { close(); onOpen(Screen.History) })
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
                 DropdownMenuItem(text = { Text("Bookmarks") }, onClick = { close(); onOpen(Screen.Bookmarks) })
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })

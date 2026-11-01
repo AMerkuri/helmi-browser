@@ -3,6 +3,7 @@ package app.serene.ui
 import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ViewGroup
@@ -146,8 +147,13 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
     // Edge taps turn pages. Links keep working: the WebView handles those.
     val tapToTurn = prefs.tapToTurn
     DisposableEffect(webView, tapToTurn) {
+        // The detector confirms a single tap 300 ms after it, from a message of its own. A tap on
+        // a link has closed the reader and destroyed its WebView by then, and hitTestResult on a
+        // destroyed WebView throws (a NullPointerException inside WebView): the app closed.
+        var live = true
         val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (!live) return false
                 val hit = webView.hitTestResult.type
                 if (hit == WebView.HitTestResult.SRC_ANCHOR_TYPE || hit == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) return false
                 val w = webView.width
@@ -159,7 +165,13 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
             }
         })
         webView.setOnTouchListener { _, ev -> detector.onTouchEvent(ev); false }
-        onDispose { webView.setOnTouchListener(null) }
+        onDispose {
+            live = false
+            webView.setOnTouchListener(null)
+            // A cancel drops the detector's pending tap message.
+            val now = SystemClock.uptimeMillis()
+            MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0).also { detector.onTouchEvent(it); it.recycle() }
+        }
     }
 
     LaunchedEffect(webView, style) {
@@ -167,7 +179,14 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
         webView.loadDataWithBaseURL(page.url, ReaderHtml.build(page, style), "text/html", "utf-8", null)
     }
 
-    DisposableEffect(webView) { onDispose { webView.stopLoading(); webView.destroy() } }
+    // Out of the window before destroy(), as WebView asks; the link's tap has finished by now.
+    DisposableEffect(webView) {
+        onDispose {
+            webView.stopLoading()
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webView.destroy()
+        }
+    }
 
     // Status bar icons that show on the reader's page colour.
     val view = LocalView.current
