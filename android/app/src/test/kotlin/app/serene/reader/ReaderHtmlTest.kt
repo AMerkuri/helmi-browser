@@ -59,4 +59,12 @@ class ReaderHtmlTest {
         assertNull(ReaderPage.parse("""{"error":"boom"}"""))
         assertNull(ReaderPage.parse("""{"html":"  "}"""))
     }
+
+    @Test
+    fun printsBlackOnWhiteInEveryTheme() {
+        val night = ReaderHtml.build(page, ReaderStyle(theme = ReaderTheme.NIGHT))
+        val print = night.substringAfter("@media print {").substringBefore("</style>")
+        assertTrue(print.contains("html, body { background: #fff; color: #000; }"))
+        assertTrue(print.contains("img, video { filter: none; }"))
+    }
 }

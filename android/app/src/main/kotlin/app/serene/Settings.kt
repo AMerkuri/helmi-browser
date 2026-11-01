@@ -154,6 +154,21 @@ class Settings(context: Context) {
         get() = prefs.getBoolean("asked_notifications", false)
         set(v) = prefs.edit { putBoolean("asked_notifications", v) }
 
+    /** Launches counted for the default browser question (DefaultBrowser.isNewLaunch), until it is asked. */
+    var launches: Int
+        get() = prefs.getInt("launches", 0)
+        set(v) = prefs.edit { putInt("launches", v) }
+
+    /** When Helmi last went off screen (onStop), in ms since the epoch; 0 before the first time. */
+    var lastSeenAt: Long
+        get() = prefs.getLong("last_seen_at", 0L)
+        set(v) = prefs.edit { putLong("last_seen_at", v) }
+
+    /** Asked once to make Helmi the default browser (or it already was): never asked again. */
+    var askedDefaultBrowser: Boolean
+        get() = prefs.getBoolean("asked_default_browser", false)
+        set(v) = prefs.edit { putBoolean("asked_default_browser", v) }
+
     /**
      * Android permissions Helmi has asked for for a site (camera, microphone, location). Once asked,
      * no rationale means Android blocks it for good and shows no dialog (MainActivity).

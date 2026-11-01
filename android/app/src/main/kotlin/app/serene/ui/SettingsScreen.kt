@@ -3,7 +3,9 @@ package app.serene.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.app.Activity
 import android.net.Uri
+import android.os.SystemClock
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -44,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -62,8 +65,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
+import app.serene.DefaultBrowser
 import app.serene.DimStrength
 import app.serene.ModelCatalog
 import app.serene.SearchEngine
@@ -97,6 +102,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState())) {
+            DefaultBrowserRow(app)
             Section("Blocking")
             SwitchRow("Block annoyances", "Filter lists, the overlay detector and the model. Off: every site loads as sent.", s.engineEnabled) { s.engineEnabled = it }
             // status() reads the list files, so off the main thread; .value, not by, so st smart-casts.
@@ -231,6 +237,44 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
         }
     }
 }
+
+// Asks with Android's dialog where there is one; once Helmi is the default, or where Android
+// shows no dialog, its default apps screen.
+@Composable
+private fun DefaultBrowserRow(app: SereneApp) {
+    val ctx = LocalContext.current
+    var isDefault by remember { mutableStateOf(DefaultBrowser.isDefault(ctx)) }
+    // Back from Android's settings, or another browser took over meanwhile.
+    LifecycleResumeEffect(Unit) {
+        isDefault = DefaultBrowser.isDefault(ctx)
+        onPauseOrDispose {}
+    }
+    var askedAt by remember { mutableLongStateOf(0L) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        isDefault = DefaultBrowser.isDefault(ctx)
+        // Once the user picked "Don't ask again", Android answers at once without a dialog: its
+        // default apps screen instead, so the tap still leads somewhere.
+        if (!isDefault && r.resultCode != Activity.RESULT_OK && SystemClock.elapsedRealtime() - askedAt < NO_DIALOG_MS) DefaultBrowser.openSystemSettings(ctx)
+    }
+    ListItem(
+        headlineContent = { Text(if (isDefault) "Helmi is the default browser" else "Make Helmi the default browser") },
+        supportingContent = { Text(if (isDefault) "Links from other apps open in Helmi. Change it in Android's default apps." else "Links from other apps open in Helmi.") },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+        modifier = Modifier.clickable {
+            val intent = if (isDefault) null else DefaultBrowser.requestIntent(ctx)
+            if (intent == null) {
+                DefaultBrowser.openSystemSettings(ctx)
+            } else {
+                app.settings.askedDefaultBrowser = true // asked now: no question on a later launch
+                askedAt = SystemClock.elapsedRealtime()
+                ask.launch(intent)
+            }
+        },
+    )
+}
+
+/** A "no" faster than this came without a dialog (see DefaultBrowserRow). */
+private const val NO_DIALOG_MS = 500L
 
 @Composable
 private fun ModelSection(app: SereneApp) {
