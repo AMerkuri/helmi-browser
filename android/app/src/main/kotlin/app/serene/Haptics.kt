@@ -25,6 +25,14 @@ object Haptics {
         )
     }
 
+    /**
+     * What was typed found nothing (find in page, as in Chrome): one click, a step firmer than the
+     * cube's tick (VIRTUAL_KEY plays the click effect, the gesture constants the lighter tick).
+     */
+    fun miss(view: View) {
+        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+    }
+
     /** One item of a row went past, as on a picker wheel. */
     fun tick(view: View) {
         view.performHapticFeedback(if (Build.VERSION.SDK_INT >= 34) HapticFeedbackConstants.SEGMENT_TICK else HapticFeedbackConstants.CLOCK_TICK)
