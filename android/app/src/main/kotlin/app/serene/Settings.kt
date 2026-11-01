@@ -42,6 +42,10 @@ class Settings(context: Context) {
     /** Flag: WebView's back/forward cache, and swipe previews with it (off: a title card, and back reloads). */
     var backForwardCache: Boolean get() = backForwardCachePref.state; set(v) = backForwardCachePref.set(v)
 
+    private val discardTabsPref = bool("flag_discard_tabs", true)
+    /** Flag: background tabs let their page go to save memory, and load it again when shown (TabDiscard). */
+    var discardTabs: Boolean get() = discardTabsPref.state; set(v) = discardTabsPref.set(v)
+
     private val modelNotesPref = bool("flag_model_notes", false)
     /** Flag: a note at the bottom each time the model decides about an overlay, with Undo or Hide. */
     var showModelDecisions: Boolean get() = modelNotesPref.state; set(v) = modelNotesPref.set(v)

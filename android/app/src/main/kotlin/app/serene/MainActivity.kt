@@ -1,12 +1,15 @@
 package app.serene
 
 import android.content.ActivityNotFoundException
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.content.pm.PackageManager
 import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
@@ -41,6 +44,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.serene.browser.FilePickerHost
+import app.serene.browser.TabDiscard
 import app.serene.browser.PermissionHost
 import app.serene.browser.SitePermission
 import app.serene.browser.TabManager
@@ -322,6 +326,30 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     override fun onStart() {
         super.onStart()
         batterySaver.start(this)
+        idleTabs.run()
+    }
+
+    // While on screen: background tabs that have been idle long enough let their page go.
+    private val main = Handler(Looper.getMainLooper())
+    private val idleTabs = object : Runnable {
+        override fun run() {
+            main.removeCallbacks(this)
+            tabs.discardIdle()
+            main.postDelayed(this, 60_000)
+        }
+    }
+
+    // Out of sight and next in line to be killed (BACKGROUND, every Android version), or low on
+    // memory while in use (the RUNNING_ levels, before Android 14): tabs let their pages go before
+    // Android takes the renderer, and every page with it, or the whole app.
+    @Suppress("DEPRECATION")
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        when {
+            level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE -> tabs.discardIdle(TabDiscard.Pressure.LOW)
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> tabs.discardIdle(TabDiscard.Pressure.BACKGROUND)
+            level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW && level < ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> tabs.discardIdle(TabDiscard.Pressure.LOW)
+        }
     }
 
     override fun onPause() {
@@ -333,6 +361,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     override fun onStop() {
         super.onStop()
         batterySaver.stop(this)
+        main.removeCallbacks(idleTabs)
         tabs.save()
         TabPreviews.save(this, tabs.tabs)
         (application as SereneApp).stats.save()
