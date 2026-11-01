@@ -1,6 +1,7 @@
 package app.serene.browser
 
 import app.serene.Settings
+import app.serene.engine.siteOf
 import androidx.webkit.UserAgentMetadata
 import org.json.JSONObject
 
@@ -17,6 +18,25 @@ fun desktopUserAgent(mobile: String): String {
     val major = Regex("""Chrome/(\d+)""").find(mobile)?.groupValues?.get(1) ?: "141"
     return "Mozilla/5.0 ($DESKTOP_PLATFORM) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
 }
+
+/**
+ * Whether the page at [first] (the address first asked for) sent the phone on to [page], its
+ * phone pages on another host of the same site: en.wikipedia.org to en.m.wikipedia.org,
+ * facebook.com to m.facebook.com. Not a site that only moved the page (to www., to https).
+ */
+fun sentToPhonePages(first: String, page: String): Boolean {
+    val from = hostOf(first) ?: return false
+    val to = hostOf(page) ?: return false
+    val site = siteOf(page)
+    if (from == to || siteOf(first) != site) return false
+    // A phone label anywhere before the site: m.facebook.com, en.m.wikipedia.org.
+    fun phone(host: String) = host.removeSuffix(site).split('.').any { it in PHONE_LABELS }
+    return phone(to) && !phone(from)
+}
+
+private val PHONE_LABELS = setOf("m", "mobile", "mobi", "touch", "mbasic")
+
+private fun hostOf(u: String) = runCatching { java.net.URI(u).host?.lowercase() }.getOrNull()
 
 /**
  * The client hints (Sec-CH-UA-Mobile, Sec-CH-UA-Platform, navigator.userAgentData) that go with

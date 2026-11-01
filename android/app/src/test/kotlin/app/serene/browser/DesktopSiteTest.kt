@@ -2,6 +2,7 @@ package app.serene.browser
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DesktopSiteTest {
@@ -67,5 +68,19 @@ class DesktopSiteTest {
         assertEquals(105, TextScale.snap(103f))
         assertEquals(50, TextScale.snap(40f))
         assertEquals(300, TextScale.snap(301f))
+    }
+
+    @Test
+    fun phonePagesAreAskedAgainAtTheFirstAddress() {
+        assertTrue(sentToPhonePages("https://en.wikipedia.org/wiki/Tallinn", "https://en.m.wikipedia.org/wiki/Tallinn"))
+        assertTrue(sentToPhonePages("https://www.facebook.com/", "https://m.facebook.com/"))
+        // Only moved (www., https): the same page again, with a reload.
+        assertFalse(sentToPhonePages("https://techspot.com/", "https://www.techspot.com/"))
+        assertFalse(sentToPhonePages("http://www.techspot.com/", "https://www.techspot.com/"))
+        // Another site, or no redirect at all.
+        assertFalse(sentToPhonePages("https://example.com/", "https://m.example.org/"))
+        assertFalse(sentToPhonePages("https://m.example.com/", "https://m.example.com/"))
+        // m.com is a site of its own.
+        assertFalse(sentToPhonePages("https://m.com/", "https://www.m.com/"))
     }
 }

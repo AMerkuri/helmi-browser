@@ -598,17 +598,18 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * ⋮ › Desktop site, Chrome's "Request desktop site": this site asks for desktop pages, or for
      * phone pages again, and the page loads again with it. Remembered per site (Chrome does too);
      * pages in the history keep what they came with (go).
-     * A site that sent the phone to other pages (en.wikipedia.org to en.m.wikipedia.org) is asked
-     * at the address first asked for, as Chrome does, or it would keep its phone pages.
+     * A site that sent the phone to its phone pages (en.wikipedia.org to en.m.wikipedia.org) is
+     * asked at the address first asked for, as Chrome does, or it would keep its phone pages.
      */
     fun setDesktopSite(on: Boolean) {
         val page = unloaded?.url?.takeIf { it.isNotEmpty() } ?: url
         app.settings.setDesktopSite(siteOf(page), on)
         if (unloaded != null) return recover() // its page comes back with the new user agent
         userAgentFor(page)
+        // Only for a phone host (m.): a load adds a history entry, a reload doesn't, and a site
+        // that only moved the page (techspot.com to www.techspot.com) gets the same page again.
         val first = webView.copyBackForwardList().currentItem?.originalUrl
-        val redirected = first != null && isHttp(first) && runCatching { Uri.parse(first).host != Uri.parse(page).host }.getOrDefault(false)
-        if (redirected && siteOf(first!!) == siteOf(page)) webView.loadUrl(first) else webView.reload()
+        if (first != null && on && isHttp(first) && sentToPhonePages(first, page)) webView.loadUrl(first) else webView.reload()
     }
 
     /**
