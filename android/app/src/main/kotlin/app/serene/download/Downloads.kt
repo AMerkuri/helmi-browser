@@ -60,7 +60,15 @@ class Download internal constructor(
     internal val referer: String?,
     name: String,
     mimeType: String,
+    /**
+     * From a private tab: the private tabs' [cookies] go with its requests, and it is never saved
+     * in the list. When the private tabs close it leaves the list ([orphan] until it stops); the
+     * file stays in Downloads, as in Chrome.
+     */
+    val isPrivate: Boolean = false,
+    internal val cookies: CookieManager? = null,
 ) {
+    internal var orphan = false
     var name by mutableStateOf(name)
         internal set
     var mimeType by mutableStateOf(mimeType)
@@ -109,11 +117,14 @@ class Downloads(private val context: Context) {
 
     init { load() }
 
-    fun start(url: String, userAgent: String, contentDisposition: String?, mimeType: String?, referer: String?, tabId: Long?): Download {
+    fun start(
+        url: String, userAgent: String, contentDisposition: String?, mimeType: String?, referer: String?, tabId: Long?,
+        isPrivate: Boolean = false, cookies: CookieManager? = null,
+    ): Download {
         val mime = mimeType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
             .ifEmpty { if (url.startsWith("data:")) url.removePrefix("data:").substringBefore(',').substringBefore(';') else "" }
         val name = DownloadText.fileName(url, contentDisposition, mime, ::extensionFor)
-        val d = Download(nextId++, url, tabId, userAgent, referer, name, mime)
+        val d = Download(nextId++, url, tabId, userAgent, referer, name, mime, isPrivate, cookies.takeIf { isPrivate })
         items.add(0, d)
         run(d)
         return d
@@ -152,6 +163,14 @@ class Downloads(private val context: Context) {
         else if (d.state == DownloadState.Failed) scope.launch { deleteFile(d) }
         items.remove(d)
         save()
+    }
+
+    /**
+     * The private tabs have all closed: their downloads leave the list, a running one once it has
+     * finished. Finished files stay in Downloads; a paused or failed one's partial file goes.
+     */
+    fun forgetPrivate() {
+        items.filter { it.isPrivate }.forEach { d -> if (d.state == DownloadState.Running) d.orphan = true else remove(d) }
     }
 
     /** Opens a finished file in the app the system picks for its type. */
@@ -202,6 +221,8 @@ class Downloads(private val context: Context) {
                 }
             } finally {
                 if (d.job === me) d.connection = null
+                if (d.orphan && d.state == DownloadState.Done) items.remove(d)
+                else if (d.orphan && d.state == DownloadState.Failed) remove(d)
                 save()
             }
         }
@@ -266,7 +287,8 @@ class Downloads(private val context: Context) {
 
     /** Follows redirects itself, so each hop gets only its own cookies. */
     private fun connect(d: Download, start: Long): HttpURLConnection {
-        val cookies = CookieManager.getInstance()
+        // A private tab's own: its profile goes when the private tabs close, and its cookie store with it.
+        val cookies = if (d.isPrivate) d.cookies else CookieManager.getInstance()
         var url = URL(d.url)
         repeat(MAX_REDIRECTS) {
             val c = (url.openConnection() as HttpURLConnection).apply {
@@ -277,7 +299,7 @@ class Downloads(private val context: Context) {
                 // Identity, so Content-Length is the file's size and Range offsets are file offsets.
                 setRequestProperty("Accept-Encoding", "identity")
                 d.referer?.let { setRequestProperty("Referer", it) }
-                cookies.getCookie(url.toString())?.let { setRequestProperty("Cookie", it) }
+                cookies?.let { runCatching { it.getCookie(url.toString()) }.getOrNull() }?.let { setRequestProperty("Cookie", it) }
                 if (start > 0) {
                     setRequestProperty("Range", "bytes=$start-")
                     d.validator?.let { setRequestProperty("If-Range", it) }
@@ -286,7 +308,7 @@ class Downloads(private val context: Context) {
             d.connection = c
             val code = c.responseCode
             c.headerFields.filterKeys { it != null && it.equals("Set-Cookie", ignoreCase = true) }.values.flatten()
-                .forEach { cookies.setCookie(url.toString(), it) }
+                .forEach { runCatching { cookies?.setCookie(url.toString(), it) } }
             val location = c.getHeaderField("Location")
             if (code !in 300..399 || code == HttpURLConnection.HTTP_NOT_MODIFIED || location == null) return c
             c.disconnect()
@@ -428,7 +450,7 @@ class Downloads(private val context: Context) {
     )
 
     private fun save() {
-        val list = items.filter { it.state != DownloadState.Cancelled }.take(MAX_SAVED).map { d ->
+        val list = items.filter { it.state != DownloadState.Cancelled && !it.isPrivate }.take(MAX_SAVED).map { d ->
             Saved(
                 id = d.id,
                 // A data: link can be megabytes; once written, the file is all that matters.

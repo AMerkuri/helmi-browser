@@ -19,6 +19,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
@@ -47,6 +49,7 @@ import app.serene.download.Download
 import app.serene.engine.EngineJson
 import app.serene.engine.FrameRef
 import app.serene.engine.PageSession
+import app.serene.engine.VerdictCache
 import app.serene.engine.siteOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -69,9 +72,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * (engine/harness/browser.mjs is the Playwright stand-in for the same three hooks.)
  * [openedByPage]: a page opened it (window.open, a target=_blank link) and WebView loads its page:
  * no start page or keyboard while that starts, and an about:blank popup is the page's own.
+ * [isPrivate]: a private tab (PrivateBrowsing): its pages are in the private profile, and nothing
+ * about them is kept once the last private tab closes.
  */
 @SuppressLint("SetJavaScriptEnabled")
-class Tab(context: Context, private val app: SereneApp, val id: Long, val openedByPage: Boolean = false) {
+class Tab(context: Context, private val app: SereneApp, val id: Long, val openedByPage: Boolean = false, val isPrivate: Boolean = false) {
     var url by mutableStateOf("")
         private set
     var title by mutableStateOf("")
@@ -108,8 +113,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * page's window.opener: sign-in popups (Google, Apple) answer it and close themselves.
      */
     var opener by mutableStateOf<Tab?>(null)
+    /** The camera, microphone and location answers this tab's pages go by: a private tab's are kept in memory only. */
+    val sitePermissions: SitePermissions = if (isPrivate) app.privacy.permissions else app.sitePermissions
     /** Camera, microphone and location requests from this tab's pages; the prompt shows the first. */
-    val permissions = PermissionRequests(app.sitePermissions, pageUrl = { webView.url }) { webView.context as? PermissionHost }
+    val permissions = PermissionRequests(sitePermissions, pageUrl = { webView.url }) { webView.context as? PermissionHost }
     /** The page's element in fullscreen (a video, usually): the activity shows it over everything. */
     var fullscreen by mutableStateOf<Fullscreen?>(null)
         private set
@@ -143,6 +150,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     // MATCH_PARENT, not the default WRAP_CONTENT: with a wrap_content height the page's
     // viewport is 0 px tall, so every vh-sized element (bottom sheets, consent boxes) collapses.
     private fun newWebView(context: Context) = SereneWebView(context, swipe, pull).apply {
+        // First of all: a WebView's profile can't change once it has been used.
+        if (isPrivate) app.privacy.use(this)
         layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         onScrolled = ::snapshotSoon
         // A tab whose page went while it was not on screen gets it back once it is (Chrome too
@@ -215,7 +224,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 snapshotFlow { dimPicturesScript(app.settings) }.collect { js ->
                     if (documentStartSupported) {
                         dimScript?.remove()
-                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
+                        dimScript = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(js), setOf("*"))
                     }
                     webView.evaluateJavascript(js, null)
                 }
@@ -225,7 +234,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 snapshotFlow { viewportScript(app.settings) }.collect { js ->
                     if (documentStartSupported) {
                         viewportHandler?.remove()
-                        viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, js, setOf("*"))
+                        viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(js), setOf("*"))
                     }
                     webView.evaluateJavascript(js, null)
                 }
@@ -271,15 +280,20 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         userAgentFor(url)
         // The flags below follow changes; a new WebView starts from what they are now.
         applyTextZoom()
-        if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, dimPicturesScript(app.settings), setOf("*"))
-        if (documentStartSupported) viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, viewportScript(app.settings), setOf("*"))
+        // First: a bot check's frame is left as WebView has it (BotChecks.kt); every script below skips it.
+        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, LEAVE_BOT_CHECKS, setOf("*"))
+        if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(dimPicturesScript(app.settings)), setOf("*"))
+        if (documentStartSupported) viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(viewportScript(app.settings)), setOf("*"))
         applyDarkening()
-        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, KEEP_PICTURES, setOf("*"))
+        if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(KEEP_PICTURES), setOf("*"))
         installEngine()
         webView.webViewClient = Client()
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
-            override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: ""; app.history.titled(view.url, t) }
+            override fun onReceivedTitle(view: WebView, t: String?) {
+                title = t ?: ""
+                if (!isPrivate) app.history.titled(view.url, t)
+            }
             // A new tab beside this one, on screen; WebView loads the window's page into it.
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 val m = manager ?: return false
@@ -419,11 +433,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             current?.onMessage(data, frame)
         }
         if (documentStartSupported) {
-            WebViewCompat.addDocumentStartJavaScript(webView, contentScript(webView.context), setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(contentScript(webView.context)), setOf("*"))
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, FULLSCREEN_JS, setOf("*"))
-            WebViewCompat.addDocumentStartJavaScript(webView, WEB_SHARE_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(FULLSCREEN_JS), setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(WEB_SHARE_JS), setOf("*"))
         }
     }
 
@@ -480,12 +494,28 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }.getOrDefault(false)
 
     private fun newSession() {
-        val s = pending ?: app.engine.newPage(::onSessionChange)
+        val s = pending ?: newPage()
         pending = null
         current = s
         session = s
         version++
     }
+
+    /**
+     * A page's engine session. A private tab's learns into the private layer of the verdict cache
+     * (gone when the private tabs close) and is left out of the start page totals.
+     */
+    private fun newPage(): PageSession =
+        if (isPrivate) app.engine.newPage(::onSessionChange, app.privacy.cache, counted = false) else app.engine.newPage(::onSessionChange)
+
+    /** What Helmi learned about sites, as this tab's pages use it (the site sheet's Forget and Clear). */
+    val cache: VerdictCache get() = if (isPrivate) app.privacy.cache else app.engine.cache
+
+    /** The cookies of this tab's pages: the private profile's for a private tab. Main thread. */
+    val cookies: CookieManager get() = if (isPrivate) app.privacy.cookies else CookieManager.getInstance()
+
+    /** The local storage, IndexedDB and caches of this tab's pages. Main thread. */
+    val storage: WebStorage get() = if (isPrivate) app.privacy.storage else WebStorage.getInstance()
 
     // Called from engine threads; coalesce into one main-thread bump per frame.
     private fun onSessionChange() {
@@ -685,12 +715,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     internal val createdAt = SystemClock.elapsedRealtime()
 
     /**
-     * Could go now to save memory: has a web page, isn't on screen and isn't in fullscreen. The
+     * Could go now to save memory: has a web page, isn't on screen and isn't in fullscreen, and
+     * isn't private (its page would come back only as far as the private profile still has it,
+     * and Chrome doesn't discard Incognito tabs either). The
      * tab manager also checks the opener links ([TabManager.discardIdle]), and [discard] that
      * nothing is playing or typed in.
      */
     val discardable: Boolean
-        get() = !destroyed && unloaded == null && !waking && fullscreen == null && hasPage && !downloadPage &&
+        get() = !isPrivate && !destroyed && unloaded == null && !waking && fullscreen == null && hasPage && !downloadPage &&
             url.startsWith("http") && !(webView.isAttachedToWindow && webView.isShown)
 
     /**
@@ -883,7 +915,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val reqUrl = request.url.toString()
             if (request.isForMainFrame) {
-                pending = app.engine.newPage(::onSessionChange).also { it.topUrl = reqUrl }
+                pending = newPage().also { it.topUrl = reqUrl }
                 return null
             }
             if (!reqUrl.startsWith("http")) return null
@@ -969,7 +1001,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
         override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) {
             updateNav(pageUrl)
-            if (!isReload) app.history.visit(pageUrl, view.title.orEmpty())
+            // A private tab's pages are not history.
+            if (!isReload && !isPrivate) app.history.visit(pageUrl, view.title.orEmpty())
             // A same-document step (#hash, history.pushState; single-page sites) has no load to
             // wait for, only the page's own redraw. A new document's load is waited for.
             main.postDelayed({ if (!docLoading) whenSettled() }, 50)
@@ -992,15 +1025,18 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         // belongs to the page with the link, as in Chrome.
         val from = manager?.takeIf { blank && !dlUrl.startsWith("blob:") }?.openerOf(this)
         if (from != null) {
-            from.downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, from.referrer, from.id)
+            from.downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, from.referrer, from.id, from.isPrivate, from.cookiesForDownload())
             main.post { manager?.closeWindow(this) }
             return
         }
         if (blank) downloadPage = true
         progress = 100
         if (dlUrl.startsWith("blob:")) return fetchBlob(dlUrl, userAgent)
-        downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, if (blank) null else referrer, id)
+        downloadBar = app.downloads.start(dlUrl, userAgent, contentDisposition, mimeType, if (blank) null else referrer, id, isPrivate, cookiesForDownload())
     }
+
+    // A private tab's downloads carry the private profile's cookies; normal ones look up WebView's own.
+    private fun cookiesForDownload(): CookieManager? = if (isPrivate) cookies else null
 
     /** What requests from this page send as Referer: its origin, as Chrome does across sites. */
     val referrer: String? get() = Uri.parse(url).let { u -> if (u.scheme?.startsWith("http") == true) "${u.scheme}://${u.authority}/" else null }
@@ -1009,7 +1045,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     /** Saves a picture from the page (the context menu's Download image), as a download from this tab. */
     fun downloadImage(src: String) {
-        downloadBar = app.downloads.start(src, userAgent, null, null, referrer, id)
+        downloadBar = app.downloads.start(src, userAgent, null, null, referrer, id, isPrivate, cookiesForDownload())
     }
 
     /** A blob: URL only exists inside the page, so the page reads it and sends it back as data:. */
@@ -1039,7 +1075,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             Toast.makeText(webView.context, "Helmi couldn't save this file", Toast.LENGTH_SHORT).show()
             return
         }
-        downloadBar = app.downloads.start(dataUrl, ua, null, null, null, id)
+        downloadBar = app.downloads.start(dataUrl, ua, null, null, null, id, isPrivate)
     }
 
     companion object {

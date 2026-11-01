@@ -66,9 +66,47 @@ private val Dark = darkColorScheme(
     outlineVariant = Color(0xFF3A3833),
 )
 
+// Private tabs, in the light theme and the dark: night at sea, deep blue-grey with the brass, so a
+// private tab never looks like a normal one (Chrome's Incognito is dark grey the same way).
+private val Private = darkColorScheme(
+    primary = Color(0xFFD9A441),
+    onPrimary = Color(0xFF2C1E00),
+    primaryContainer = Color(0xFF4A3712),
+    onPrimaryContainer = Color(0xFFF3DEB0),
+    secondary = Color(0xFF9FB4D8),
+    onSecondary = Color(0xFF13233D),
+    secondaryContainer = Color(0xFF2E3B55),
+    onSecondaryContainer = Color(0xFFD8E2F5),
+    tertiary = Color(0xFF6FB5A6),
+    onTertiary = Color(0xFF0E2A25),
+    background = Color(0xFF1A1F2B),
+    onBackground = Color(0xFFE4E7EE),
+    surface = Color(0xFF1A1F2B),
+    onSurface = Color(0xFFE4E7EE),
+    surfaceVariant = Color(0xFF2E3546),
+    onSurfaceVariant = Color(0xFFA7AFC0),
+    surfaceContainerLowest = Color(0xFF141821),
+    surfaceContainerLow = Color(0xFF1E2431),
+    surfaceContainer = Color(0xFF222836),
+    surfaceContainerHigh = Color(0xFF29303F),
+    surfaceContainerHighest = Color(0xFF333A4A),
+    outline = Color(0xFF7D8598),
+    outlineVariant = Color(0xFF3A4152),
+)
+
 @Composable
 fun SereneTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)
+}
+
+/**
+ * [isPrivate]: what is inside is a private tab's, in the private tabs' colours; else the theme as
+ * it is. The same composition either way, so a tab turning private (the bar's cube going from a
+ * normal tab to a private one) keeps what is remembered inside.
+ */
+@Composable
+fun PrivateTheme(isPrivate: Boolean, content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = if (isPrivate) Private else MaterialTheme.colorScheme, typography = MaterialTheme.typography, shapes = MaterialTheme.shapes, content = content)
 }
 
 /**

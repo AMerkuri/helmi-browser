@@ -92,10 +92,13 @@ object TabPreviews {
         main.postDelayed(once, 300)
     }
 
-    /** Writes the pictures of [tabs] that changed, and deletes those of tabs gone. Off the main thread. */
+    /**
+     * Writes the pictures of [tabs] that changed, and deletes those of tabs gone. Off the main
+     * thread. Not private tabs': their pictures are kept in memory only.
+     */
     fun save(context: Context, tabs: List<Tab>) {
         val dir = File(context.cacheDir, DIR)
-        val keep = tabs.mapNotNull { t -> cache.get(t.id)?.let { fileName(t.url) to (t to it) } }.toMap()
+        val keep = tabs.filterNot { it.isPrivate }.mapNotNull { t -> cache.get(t.id)?.let { fileName(t.url) to (t to it) } }.toMap()
         val write = keep.filter { (name, v) -> v.first.id in unsaved || !File(dir, name).exists() }
         unsaved.clear()
         thread(name = "tab-previews") {

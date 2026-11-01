@@ -33,7 +33,7 @@ internal fun permissionNouns(kinds: Collection<SitePermission>) = kinds.sortedBy
  * Back or a tap outside blocks only this request, so the site can ask again.
  */
 @Composable
-fun PermissionDialog(ask: PermissionAsk, onAnswer: (Boolean) -> Unit, onDismiss: () -> Unit) {
+fun PermissionDialog(ask: PermissionAsk, remembers: Boolean = true, onAnswer: (Boolean) -> Unit, onDismiss: () -> Unit) {
     val what = when {
         ask.kinds == setOf(SitePermission.Location) -> "know your location"
         else -> "use your ${permissionNouns(ask.kinds)}"
@@ -41,7 +41,11 @@ fun PermissionDialog(ask: PermissionAsk, onAnswer: (Boolean) -> Unit, onDismiss:
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("${originLabel(ask.origin)} wants to $what") },
-        text = { Text("Helmi remembers your answer for this site. You can change it in the site sheet (the shield) or in Settings › Site permissions.") },
+        text = {
+            // A private tab's answer lasts as long as the private tabs.
+            if (remembers) Text("Helmi remembers your answer for this site. You can change it in the site sheet (the shield) or in Settings › Site permissions.")
+            else Text("Helmi remembers your answer for this site until you close your last private tab. You can change it in the site sheet (the shield).")
+        },
         confirmButton = { TextButton(onClick = { onAnswer(true) }) { Text("Allow") } },
         dismissButton = { TextButton(onClick = { onAnswer(false) }) { Text("Block") } },
     )

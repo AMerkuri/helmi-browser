@@ -68,6 +68,7 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.browser.PagePrint
+import app.serene.browser.PrivateBrowsing
 import app.serene.reader.ReaderHtml
 import app.serene.reader.ReaderPage
 import app.serene.reader.ReaderPrefs
@@ -82,7 +83,7 @@ import kotlin.math.roundToInt
  */
 @SuppressLint("ClickableViewAccessibility")
 @Composable
-fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpenLink: (String) -> Unit) {
+fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpenLink: (String) -> Unit, privateProfile: PrivateBrowsing? = null) {
     val context = LocalContext.current
     // Auto follows the app's theme (light, dark or the system's).
     val style = prefs.style(appDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f)
@@ -101,6 +102,8 @@ fun ReaderView(page: ReaderPage, prefs: ReaderPrefs, onClose: () -> Unit, onOpen
     var renderer by remember { mutableIntStateOf(0) }
     val webView = remember(page, renderer) {
         WebView(context).apply {
+            // A private tab's reader is in the private profile, before the WebView is used.
+            privateProfile?.use(this)
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             with(settings) {
                 javaScriptEnabled = false

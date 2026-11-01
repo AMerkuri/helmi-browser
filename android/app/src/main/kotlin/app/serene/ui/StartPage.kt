@@ -65,6 +65,46 @@ fun StartPage(app: SereneApp, scrolls: Boolean = true) {
     }
 }
 
+/**
+ * A blank private tab: what private tabs keep and what they don't, as Chrome's Incognito page
+ * says. In the private tabs' colours (BrowserScreen's PrivateTheme).
+ */
+@Composable
+fun PrivateStartPage(scrolls: Boolean = true) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Column(
+            Modifier.fillMaxSize().then(if (scrolls) Modifier.verticalScroll(rememberScrollState()) else Modifier).padding(horizontal = 24.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(painterResource(R.drawable.ic_private), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp))
+            Spacer(Modifier.height(12.dp))
+            Text("Private tab", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "When you close your last private tab, Helmi forgets them all: the pages you visited, their cookies and site data, and what you allowed or undid on them.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(24.dp))
+            Column(Modifier.widthIn(max = 520.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                PrivateNote("Still kept", "Bookmarks you add and files you download.")
+                PrivateNote("Still seen by", "The sites you visit, and your network: your employer or school, your internet provider.")
+                PrivateNote("Still cleared", "Cookie banners and other overlays, as in normal tabs. Private tabs don't add to the totals on the new tab page.")
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrivateNote(title: String, text: String) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(title, style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(2.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 @Composable
 private fun StatsPanel(t: Totals) {
     val ctx = LocalContext.current
