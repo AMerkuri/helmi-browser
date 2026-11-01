@@ -24,8 +24,8 @@ class FindInPage(val webView: WebView, private val onNoMatch: () -> Unit = { Hap
     var total by mutableIntStateOf(0)
         private set
 
-    // The text grew since the last search (typed, not deleted): only then does nothing found buzz,
-    // as in Chrome, with one heavy click (Haptics.miss). Once per search.
+    // Nothing found buzzes (Haptics.miss) unless the text was only shortened, as in Chrome: its
+    // previous search text starting with this one means letters were deleted. Once per search.
     private var grew = false
 
     init {
@@ -44,7 +44,7 @@ class FindInPage(val webView: WebView, private val onNoMatch: () -> Unit = { Hap
 
     fun search(text: String) {
         if (text == query) return
-        grew = text.length > query.length
+        grew = !query.startsWith(text)
         query = text
         if (text.isEmpty()) {
             webView.clearMatches()

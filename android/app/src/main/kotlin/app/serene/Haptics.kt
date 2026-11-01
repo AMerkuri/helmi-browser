@@ -1,6 +1,10 @@
 package app.serene
 
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
 
@@ -26,13 +30,21 @@ object Haptics {
     }
 
     /**
-     * What was typed found nothing (find in page, as in Chrome): one heavy click, two steps firmer
-     * than the cube's tick (LONG_PRESS plays the heavy click effect, VIRTUAL_KEY the plain click,
-     * the gesture constants the lighter tick).
+     * What was typed found nothing (find in page): Chrome's own buzz, copied from its FindToolbar:
+     * a 50 ms one-shot vibration at the default strength, only while the system's touch feedback
+     * setting is on. Chrome uses the vibrator here, not performHapticFeedback.
      */
     fun miss(view: View) {
-        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        val context = view.context
+        val on = Settings.System.getInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1) == 1
+        if (!on) return
+        val vibrator = if (Build.VERSION.SDK_INT >= 31) context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        else @Suppress("DEPRECATION") context.getSystemService(Vibrator::class.java)
+        vibrator?.vibrate(VibrationEffect.createOneShot(MISS_MS, VibrationEffect.DEFAULT_AMPLITUDE))
     }
+
+    /** Chrome's noResultsVibrateDurationMs. */
+    const val MISS_MS = 50L
 
     /** One item of a row went past, as on a picker wheel. */
     fun tick(view: View) {
