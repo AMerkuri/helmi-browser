@@ -82,7 +82,11 @@ class AddressSuggestionsTest {
                     inst.runOnMainSync { left = app.history.entries.none { it.url == page } }
                     left
                 }
-                waitFor("the suggestion goes") { find("Harbour page") == null }
+                waitFor("the suggestion goes", detail = {
+                    var visits = emptyList<String>()
+                    inst.runOnMainSync { visits = app.history.entries.map { it.url } }
+                    "history: $visits"
+                }) { find("Harbour page") == null }
             }
         } finally {
             app.settings.searchSuggestions = true
@@ -116,13 +120,13 @@ class AddressSuggestionsTest {
         inst.uiAutomation.windows.mapNotNull { it.root }.ifEmpty { listOfNotNull(inst.uiAutomation.rootInActiveWindow) }
 
     /**
-     * The node showing [text]. A walk of the tree: Compose doesn't answer
-     * findAccessibilityNodeInfosByText.
+     * The node showing [text], on screen. A walk of the tree: Compose doesn't answer
+     * findAccessibilityNodeInfosByText. A list keeps rows it took away for reuse, off screen.
      */
     private fun find(text: String): AccessibilityNodeInfo? {
         fun walk(n: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
             if (n == null || depth > 40) return null
-            if (n.text?.toString() == text) return n
+            if (n.text?.toString() == text && n.isVisibleToUser) return n
             for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)?.let { return it }
             return null
         }
@@ -134,19 +138,19 @@ class AddressSuggestionsTest {
         val out = mutableListOf<String>()
         fun walk(n: AccessibilityNodeInfo?, depth: Int) {
             if (n == null || depth > 40) return
-            n.text?.toString()?.takeIf { it.isNotBlank() }?.let(out::add)
+            n.text?.toString()?.takeIf { it.isNotBlank() }?.let { out += if (n.isVisibleToUser) it else "($it, hidden)" }
             for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
         }
         roots().forEach { walk(it, 0) }
         return out
     }
 
-    private fun waitFor(what: String, timeoutMs: Long = 20_000, check: () -> Boolean) {
+    private fun waitFor(what: String, timeoutMs: Long = 20_000, detail: () -> String = { "" }, check: () -> Boolean) {
         val end = SystemClock.uptimeMillis() + timeoutMs
         while (SystemClock.uptimeMillis() < end) {
             if (check()) return
             SystemClock.sleep(200)
         }
-        assertTrue("timed out: $what; on screen: ${texts()}", check())
+        assertTrue("timed out: $what; on screen: ${texts()} ${detail()}", check())
     }
 }
