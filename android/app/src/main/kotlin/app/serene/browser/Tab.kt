@@ -104,7 +104,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     var opener by mutableStateOf<Tab?>(null)
     /** Camera, microphone and location requests from this tab's pages; the prompt shows the first. */
-    val permissions = PermissionRequests(app.sitePermissions) { webView.context as? PermissionHost }
+    val permissions = PermissionRequests(app.sitePermissions, pageUrl = { webView.url }) { webView.context as? PermissionHost }
     /** The page's element in fullscreen (a video, usually): the activity shows it over everything. */
     var fullscreen by mutableStateOf<Fullscreen?>(null)
         private set
@@ -721,8 +721,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         override fun onPageStarted(view: WebView, pageUrl: String, favicon: Bitmap?) {
             url = pageUrl
             darkenFor(pageUrl)
-            // As in Chrome, a prompt goes with the page that asked.
-            permissions.cancelAll()
+            // As in Chrome, a prompt goes with the page that asked (not the one starting now).
+            permissions.pageStarted(pageUrl)
             docLoading = true
             painting = true
             // A new page: the download goes on in the notification and the downloads screen.

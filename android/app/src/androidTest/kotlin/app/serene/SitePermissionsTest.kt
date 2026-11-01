@@ -90,6 +90,8 @@ class SitePermissionsTest {
             onMain { tab.permissions.dismiss(tab.permissions.current!!) }
             waitFor("the page to be refused") { tab.title.startsWith("mic NotAllowedError") && tab.title != second }
             assertTrue(onMain { app().sitePermissions.choices(origin).isEmpty() })
+            // The tests after this one use the tab in front: leave them the one they had.
+            scenario.onActivity { a -> a.tabs.close(tab, undo = false) }
         }
     }
 
@@ -115,6 +117,7 @@ class SitePermissionsTest {
             waitFor("the page's answer, without a prompt") { tab.title.startsWith("geo ") && tab.title != first }
             assertTrue("refused: ${tab.title}", !tab.title.startsWith("geo 1 "))
             assertNull(onMain { tab.permissions.current })
+            scenario.onActivity { a -> a.tabs.close(tab, undo = false) }
         }
     }
 
