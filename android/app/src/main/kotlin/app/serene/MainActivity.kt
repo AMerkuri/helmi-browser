@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.content.pm.PackageManager
+import android.view.WindowManager
 import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -176,6 +177,8 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         batterySaver = BatterySaverNotice(app)
         tabs.restore()
         TabPreviews.restore(this, tabs.tabs)
+        // Private tabs open when the app was last killed: their profile goes now.
+        app.privacy.cleanUp()
         handleIntent(intent)
 
         setContent {
@@ -224,6 +227,16 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
             }
             val video = fullTab?.fullscreenVideo
             LaunchedEffect(full, video) { fullscreen.orient(video) }
+            // A private tab on screen, or private cards in the tab switcher: no screenshots or
+            // screen recording, and a blank picture in the recent apps, as Chrome's Incognito.
+            val secure = when (screen) {
+                Screen.Browser -> tabs.current?.isPrivate == true
+                Screen.Tabs -> tabs.tabs.any { it.isPrivate }
+                else -> false
+            }
+            LaunchedEffect(secure) {
+                if (secure) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
             SereneTheme {
                 CompositionLocalProvider(LocalSystemBars provides systemBars) {
                     BackHandler(enabled = screen != Screen.Browser) { screen = Screen.Browser }
@@ -369,8 +382,8 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     }
 
     override fun onDestroy() {
-        tabs.forget()
-        tabs.tabs.forEach { it.destroy() }
+        // Private tabs don't outlive the activity: their profile is deleted with them.
+        tabs.destroyAll()
         super.onDestroy()
     }
 }

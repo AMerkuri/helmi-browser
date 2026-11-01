@@ -294,10 +294,10 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
         open(if (i >= 0) origin!! else tabs.tabs[scroll.value.roundToInt().coerceIn(0, tabs.tabs.lastIndex)])
     }
 
-    fun newTab() {
+    fun newTab(isPrivate: Boolean) {
         if (leaving) return
         // A new card at the end, which flies into the middle and opens.
-        val tab = tabs.open()
+        val tab = tabs.open(isPrivate = isPrivate)
         open(tab)
     }
 
@@ -505,6 +505,13 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
                     },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                if (tab.isPrivate) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.ic_private), null, tint = PRIVATE_MARK, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text("Private", color = PRIVATE_MARK, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
                 Text(cardTitle(tab), color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                 host(tab)?.let { Text(it, color = Color.White.copy(alpha = 0.6f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
@@ -526,10 +533,17 @@ fun CoverFlowTabs(app: SereneApp, tabs: TabManager, pageBounds: Rect, onDone: ()
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = ::newTab, enabled = !leaving) {
+            TextButton(onClick = { newTab(false) }, enabled = !leaving) {
                 Icon(Icons.Filled.Add, null, tint = Color.White)
                 Spacer(Modifier.size(6.dp))
                 Text("New tab", color = Color.White)
+            }
+            if (app.privacy.supported) {
+                TextButton(onClick = { newTab(true) }, enabled = !leaving) {
+                    Icon(painterResource(R.drawable.ic_private), null, tint = PRIVATE_MARK)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Private", color = Color.White)
+                }
             }
             TextButton(onClick = ::back, enabled = !leaving) { Text("Done", color = Color.White) }
         }
@@ -649,12 +663,12 @@ private fun TabCard(
     onLiftEnd: suspend (Float) -> Unit,
 ) {
     val image = remember(picture) { picture?.asImageBitmap() }
-    val placeholder = MaterialTheme.colorScheme.surface
+    val placeholder = if (tab.isPrivate) PRIVATE_CARD else MaterialTheme.colorScheme.surface
     val lift = rememberDraggableState(onLift)
     Column(
         modifier
             .zIndex(zIndex)
-            .semantics { contentDescription = "Tab: ${cardTitle(tab)}" }
+            .semantics { contentDescription = "${if (tab.isPrivate) "Private tab" else "Tab"}: ${cardTitle(tab)}" }
             .clickable(interactionSource = null, indication = null, onClick = onTap)
             .draggable(lift, Orientation.Vertical, onDragStopped = { onLiftEnd(it) }),
     ) {
@@ -679,6 +693,20 @@ private fun TabCard(
                             scaleY = cardH / pageH
                         },
                 ) { PageFallback(tab, startPage) }
+            }
+            // A private tab's mark, on every card, so they stand out among the others.
+            if (tab.isPrivate) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                        .size(36.dp)
+                        .graphicsLayer { alpha = 1f - flat() }
+                        .background(PRIVATE_CARD.copy(alpha = 0.85f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(R.drawable.ic_private), "Private tab", tint = PRIVATE_MARK, modifier = Modifier.size(22.dp))
+                }
             }
             Box(
                 Modifier
@@ -722,9 +750,12 @@ private fun TabCard(
  */
 @Composable
 internal fun PageFallback(tab: Tab, startPage: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
-        if (!tab.openedByPage && !tab.downloadPage && (tab.url.isEmpty() || tab.url == "about:blank")) startPage()
-        else TitleCard(tab)
+    PrivateTheme(tab.isPrivate) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+            if (!tab.openedByPage && !tab.downloadPage && (tab.url.isEmpty() || tab.url == "about:blank")) {
+                if (tab.isPrivate) PrivateStartPage(scrolls = false) else startPage()
+            } else TitleCard(tab)
+        }
     }
 }
 
@@ -834,7 +865,11 @@ internal suspend fun awaitDrawn(tab: Tab) {
 }
 
 /** What a tab is called on its card and in the "Closed …" bar: its title, else its site. */
-internal fun cardTitle(tab: Tab) = tab.title.ifBlank { host(tab) ?: "New tab" }
+internal fun cardTitle(tab: Tab) = tab.title.ifBlank { host(tab) ?: if (tab.isPrivate) "New private tab" else "New tab" }
+
+/** A private tab's card behind its page, and its mark: the private tabs' blue and brass (Theme.kt). */
+private val PRIVATE_CARD = Color(0xFF1A1F2B)
+private val PRIVATE_MARK = Color(0xFFD9A441)
 
 private fun host(tab: Tab) = tab.url.takeIf { it.startsWith("http") }?.let { android.net.Uri.parse(it).host }
 

@@ -2,6 +2,7 @@ package app.serene.browser
 
 import android.Manifest
 import android.content.Context
+import android.content.SharedPreferences
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import androidx.compose.runtime.getValue
@@ -75,20 +76,31 @@ internal fun decodeChoices(s: String): Map<SitePermission, Boolean> = s.split(',
 /**
  * The user's Allow and Block per origin, kept until reset (the site sheet, Clear site data, or
  * Settings › Site permissions). Compose state, so the sheets follow changes.
+ *
+ * [inMemory] makes private tabs' own: kept only until the last private tab closes, never written.
  */
-class SitePermissions(context: Context) : PermissionChoices {
-    private val prefs = context.getSharedPreferences("site_permissions", Context.MODE_PRIVATE)
+class SitePermissions private constructor(private val prefs: SharedPreferences?, private val base: SitePermissions?) : PermissionChoices {
+    constructor(context: Context) : this(context.getSharedPreferences("site_permissions", Context.MODE_PRIVATE), null)
+
+    /** False for private tabs' choices, which go when the private tabs do. */
+    val remembers: Boolean get() = prefs != null
 
     var all by mutableStateOf<Map<String, Map<SitePermission, Boolean>>>(
-        prefs.all.mapNotNull { (k, v) -> (v as? String)?.let { k to decodeChoices(it) } }.filter { it.second.isNotEmpty() }.toMap(),
+        prefs?.all.orEmpty().mapNotNull { (k, v) -> (v as? String)?.let { k to decodeChoices(it) } }.filter { it.second.isNotEmpty() }.toMap(),
     )
         private set
 
-    override fun choices(origin: String): Map<SitePermission, Boolean> = all[origin].orEmpty()
+    /**
+     * The origin's choices. Private tabs' also have the sites blocked in normal tabs blocked, as
+     * Chrome's Incognito does; an Allow from normal tabs is asked again, so a private tab never
+     * gets the camera on a choice it didn't make.
+     */
+    override fun choices(origin: String): Map<SitePermission, Boolean> =
+        base?.choices(origin).orEmpty().filterValues { !it } + all[origin].orEmpty()
 
-    override fun set(origin: String, kind: SitePermission, allow: Boolean) = put(origin, choices(origin) + (kind to allow))
+    override fun set(origin: String, kind: SitePermission, allow: Boolean) = put(origin, all[origin].orEmpty() + (kind to allow))
 
-    fun reset(origin: String, kind: SitePermission) = put(origin, choices(origin) - kind)
+    fun reset(origin: String, kind: SitePermission) = put(origin, all[origin].orEmpty() - kind)
 
     /** The origins on [site] (eTLD+1) that have choices, with them. */
     fun forSite(site: String): Map<String, Map<SitePermission, Boolean>> = all.filterKeys { siteOf(it) == site }
@@ -98,15 +110,22 @@ class SitePermissions(context: Context) : PermissionChoices {
 
     fun resetAll() {
         all = emptyMap()
+        if (prefs == null) return
         prefs.edit { clear() }
         GeolocationPermissions.getInstance().clearAll()
     }
 
     private fun put(origin: String, choices: Map<SitePermission, Boolean>) {
         all = if (choices.isEmpty()) all - origin else all + (origin to choices)
+        if (prefs == null) return
         prefs.edit { if (choices.isEmpty()) remove(origin) else putString(origin, encodeChoices(choices)) }
         // Helmi never has WebView keep a location answer, but an old one must not outlive a reset.
         if (SitePermission.Location !in choices) GeolocationPermissions.getInstance().clear("$origin/")
+    }
+
+    companion object {
+        /** Choices that live in memory only, over [base]'s blocks: private tabs'. */
+        fun inMemory(base: SitePermissions) = SitePermissions(null, base)
     }
 }
 

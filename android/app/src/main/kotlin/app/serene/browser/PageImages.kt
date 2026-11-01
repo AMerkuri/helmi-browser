@@ -31,9 +31,12 @@ object PageImages {
     // Not AVIF: few apps take one pasted or shared.
     private const val ACCEPT = "image/webp,image/apng,image/*,*/*;q=0.8"
 
-    /** Off the main thread. Null when the picture can't be had, or isn't one. */
-    fun fetch(context: Context, src: String, userAgent: String, referer: String?): PageImage? = try {
-        val (bytes, type) = if (src.startsWith("data:", ignoreCase = true)) decodeData(src) else download(src, userAgent, referer)
+    /**
+     * Off the main thread. Null when the picture can't be had, or isn't one. [cookies]: the tab's
+     * (a private tab has its own), or null for WebView's normal ones.
+     */
+    fun fetch(context: Context, src: String, userAgent: String, referer: String?, cookies: CookieManager? = null): PageImage? = try {
+        val (bytes, type) = if (src.startsWith("data:", ignoreCase = true)) decodeData(src) else download(src, userAgent, referer, cookies ?: CookieManager.getInstance())
         // A server that doesn't say (or says octet-stream): the bytes, then the address, tell.
         val mime = type.takeIf { it.startsWith("image/") }
             ?: URLConnection.guessContentTypeFromStream(ByteArrayInputStream(bytes))
@@ -81,8 +84,7 @@ object PageImages {
     }
 
     /** Follows redirects itself, so each hop gets only its own cookies (as Downloads does). */
-    private fun download(src: String, userAgent: String, referer: String?): Pair<ByteArray, String> {
-        val cookies = CookieManager.getInstance()
+    private fun download(src: String, userAgent: String, referer: String?, cookies: CookieManager): Pair<ByteArray, String> {
         var url = URL(src)
         repeat(MAX_REDIRECTS) {
             val c = (url.openConnection() as HttpURLConnection).apply {
@@ -92,7 +94,7 @@ object PageImages {
                 setRequestProperty("User-Agent", userAgent)
                 setRequestProperty("Accept", ACCEPT)
                 referer?.let { setRequestProperty("Referer", it) }
-                cookies.getCookie(url.toString())?.let { setRequestProperty("Cookie", it) }
+                runCatching { cookies.getCookie(url.toString()) }.getOrNull()?.let { setRequestProperty("Cookie", it) }
             }
             try {
                 val code = c.responseCode

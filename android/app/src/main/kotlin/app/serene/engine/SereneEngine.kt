@@ -68,7 +68,11 @@ class SereneEngine(
 ) {
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    fun newPage(onChange: () -> Unit = {}) = PageSession(this, onChange)
+    /**
+     * A page's session. A private tab's page ([counted] false) learns into [cache], a layer of its
+     * own over this one, and its work is left out of the lifetime totals ([events]).
+     */
+    fun newPage(onChange: () -> Unit = {}, cache: VerdictCache = this.cache, counted: Boolean = true) = PageSession(this, onChange, cache, counted)
 
     internal fun classifierNow() = classifier()
     internal fun enabledFor(url: String) = siteEnabled(siteOf(url))
@@ -119,7 +123,13 @@ private const val LIST_CMP = "filter list"
 /** The same for Helmi pressing the reject button of a banner the lists know, when no rule answered it. */
 private const val HELMI_CMP = "Helmi"
 
-class PageSession internal constructor(private val e: SereneEngine, private val onChange: () -> Unit) {
+class PageSession internal constructor(
+    private val e: SereneEngine,
+    private val onChange: () -> Unit,
+    private val cache: VerdictCache = e.cache,
+    private val counted: Boolean = true,
+) {
+    private val events: EngineEvents? get() = if (counted) e.events else null
     private val frames = ConcurrentHashMap<String, FrameRef>()               // origin -> frame (consent iframes)
     private val frameSummaries = ConcurrentHashMap<String, Features>()       // origin -> {text, buttons, heuristic}
     private val records = ConcurrentHashMap<Int, CandidateRecord>()
@@ -174,7 +184,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         val m = rules.match(url, sourceUrl, type) ?: return false
         blockedRequests.incrementAndGet()
         if (blocked.size < MAX_BLOCKED) blocked += BlockedRequest(url, type, m.list, m.rule)
-        e.events?.blocked(siteOf(sourceUrl), type)
+        events?.blocked(siteOf(sourceUrl), type)
         log("blocked $type ${url.take(120)} by ${m.rule ?: "?"} (${m.list ?: "untitled list"})")
         onChange()
         return true
@@ -236,7 +246,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         if (frame.isTop) {
             topUrl = url
             enabled = e.enabledFor(url)
-            if (enabled) e.events?.page(siteOf(url))
+            if (enabled) events?.page(siteOf(url))
         }
         val rules = e.rules
         var css = ""
@@ -256,13 +266,13 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
                 if (frame.isTop) log("cosmetic: ${c.hideSelectors.size} hide, ${c.consentSelectors.size} consent, ${c.procedural.size} procedural, scriptlets=${c.script.isNotEmpty()}, ${(System.nanoTime() - t0) / 1_000_000} ms")
             }
             // After an Undo on a cookie banner the user answers it: no autoconsent on the site.
-            val ac = if (enabled && !e.cache.userAnswersCookies(topUrl ?: url)) e.autoconsent else null
+            val ac = if (enabled && !cache.userAnswersCookies(topUrl ?: url)) e.autoconsent else null
             ac?.let { put("autoconsent", it.forFrame(url, frame.isTop)) }
             if (enabled && frame.isTop) {
-                put("siteRules", EngineJson.encodeToJsonElement(ListSerializer(SiteRule.serializer()), e.cache.rulesFor(url)))
-                val cached = e.cache.cssFor(url, parkCookies = ac != null)
+                put("siteRules", EngineJson.encodeToJsonElement(ListSerializer(SiteRule.serializer()), cache.rulesFor(url)))
+                val cached = cache.cssFor(url, parkCookies = ac != null)
                 if (cached.isNotEmpty()) css += "\n" + cached
-                if (ac != null) consentSelectors += e.cache.cookieSelectorsFor(url)
+                if (ac != null) consentSelectors += cache.cookieSelectorsFor(url)
             }
             put("consentSelectors", JsonArray(consentSelectors.map(::JsonPrimitive)))
             put("css", css)
@@ -292,7 +302,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         val t0 = System.nanoTime()
         val cached = msg["cached"]?.jsonPrimitive?.booleanOrNull == true
         if (cached) {
-            val rule = e.cache.rulesFor(topUrl ?: f.url).firstOrNull { it.sig == f.sig }
+            val rule = cache.rulesFor(topUrl ?: f.url).firstOrNull { it.sig == f.sig }
             update(CandidateRecord(id, f, cached = true, label = rule?.label, action = rule?.action, source = "cache", buttonLabel = rule?.buttonLabel, ruleSource = rule?.source))
             if (rule != null && rule.action != "ignore") countCleared(rule.label, f.sig)
             log("candidate #$id ${f.sig}: cached ${rule?.action}")
@@ -331,7 +341,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
                 llmMs = r.ms
                 log("llm #$id: ${r.label}${r.confidence?.let { " p=%.2f".format(it) } ?: ""} ${r.ms} ms ${r.backend}${if (r.invalid) " INVALID: ${r.raw}" else ""}")
                 // The model only names the label; which button to press is the policy's call.
-                Policy.fromModel(r.label, r.confidence, feats, e.policy).also { e.events?.modelCall(r.ms, it.action == "click" || it.action == "hide") }
+                Policy.fromModel(r.label, r.confidence, feats, e.policy).also { events?.modelCall(r.ms, it.action == "click" || it.action == "hide") }
             } catch (t: Throwable) {
                 log("llm #$id error: ${t.message}")
                 Policy.verdict("content", -1, feats, "llm-error")
@@ -356,7 +366,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         }.toString())
         // Cache decisions that hold for the site; a user-gesture "content" is about that moment only.
         if (frame.isTop && v.source !in setOf("user-gesture", "backdrop", "llm-error", "autoconsent")) {
-            e.cache.put(topUrl ?: f.url, SiteRule(sig = f.sig, label = v.label, action = v.action, buttonLabel = v.buttonLabel, source = v.source))
+            cache.put(topUrl ?: f.url, SiteRule(sig = f.sig, label = v.label, action = v.action, buttonLabel = v.buttonLabel, source = v.source))
         }
     }
 
@@ -367,15 +377,15 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         update(rec.copy(applied = msg.str("action") + if (fallback != null) "→$fallback" else ""))
         // The click did not dismiss it: next time, hide straight away.
         if (fallback == "hide" && rec.source != "cache") {
-            topUrl?.let { e.cache.put(it, SiteRule(sig = rec.features.sig, label = rec.label ?: "content", action = "hide", source = rec.source ?: "")) }
+            topUrl?.let { cache.put(it, SiteRule(sig = rec.features.sig, label = rec.label ?: "content", action = "hide", source = rec.source ?: "")) }
         }
     }
 
     /** The user says this was not an annoyance: leave it alone on this site from now on. */
     fun undo(rec: CandidateRecord) {
         val url = topUrl ?: rec.features.url
-        e.cache.undo(url, rec.features.sig, rec.label?.takeIf { it != "content" })
-        if (rec.byModel && rec.acted) e.events?.modelOverruled(wasHidden = true)
+        cache.undo(url, rec.features.sig, rec.label?.takeIf { it != "content" })
+        if (rec.byModel && rec.acted) events?.modelOverruled(wasHidden = true)
         log("undo ${rec.features.sig}")
     }
 
@@ -387,8 +397,8 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
     fun hide(rec: CandidateRecord) {
         val url = topUrl ?: rec.features.url
         val label = rec.features.heuristic.label.takeIf { it != "content" } ?: "other"
-        e.cache.put(url, SiteRule(sig = rec.features.sig, label = label, action = "hide", source = "user-hide"))
-        if (rec.byModel) e.events?.modelOverruled(wasHidden = false)
+        cache.put(url, SiteRule(sig = rec.features.sig, label = label, action = "hide", source = "user-hide"))
+        if (rec.byModel) events?.modelOverruled(wasHidden = false)
         log("hide ${rec.features.sig}")
     }
 
@@ -396,22 +406,22 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
      * Elements the user hid on this site. A remembered hide applies as CSS before the detector sees
      * the element, so it is never a candidate on a later page: this is how the sheet lists it.
      */
-    fun hiddenByUser(): List<SiteRule> = topUrl?.let(e.cache::hiddenByUser) ?: emptyList()
+    fun hiddenByUser(): List<SiteRule> = topUrl?.let(cache::hiddenByUser) ?: emptyList()
 
     /** Reverse a Hide: drop the rule so the element is judged afresh on the next load. */
     fun showAgain(rule: SiteRule) {
         val url = topUrl ?: return
-        e.cache.remove(url, rule.sig)
+        cache.remove(url, rule.sig)
         log("show again ${rule.sig}")
     }
 
     /** Elements the user undid on this site, which Helmi leaves alone until hidden again. */
-    fun undone(): List<SiteRule> = topUrl?.let(e.cache::undone) ?: emptyList()
+    fun undone(): List<SiteRule> = topUrl?.let(cache::undone) ?: emptyList()
 
     /** Reverse an undo: drop the allow rule so the element is judged afresh on the next load. */
     fun hideAgain(rule: SiteRule) {
         val url = topUrl ?: return
-        e.cache.remove(url, rule.sig)
+        cache.remove(url, rule.sig)
         log("hide again ${rule.sig}")
     }
 
@@ -439,7 +449,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
 
     private fun countConsentRejected() {
         if (!consentCounted.compareAndSet(false, true)) return
-        site()?.let { e.events?.consentRejected(it) }
+        site()?.let { events?.consentRejected(it) }
         countCleared("cookie_consent", null)
     }
 
@@ -477,7 +487,7 @@ class PageSession internal constructor(private val e: SereneEngine, private val 
         if (sig != null && !cleared.add(sig)) return
         if (label == "cookie_consent" && !cleared.add(label)) return
         val site = site() ?: return
-        e.events?.cleared(site, label)
+        events?.cleared(site, label)
     }
 
     private fun update(rec: CandidateRecord) {

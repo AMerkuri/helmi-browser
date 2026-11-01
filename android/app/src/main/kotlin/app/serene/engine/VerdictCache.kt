@@ -33,10 +33,19 @@ data class SiteRule(
  * Per-site verdict cache. Key: eTLD+1, then the candidate's stable selector signature.
  * A decision made once (by heuristics or the model) becomes a local rule for later visits.
  * Port of engine/src/host/cache.mjs, persisted as one JSON file.
+ *
+ * With [under], a layer over another cache (private tabs, app.serene.browser.PrivateBrowsing): it
+ * reads [under]'s rules as its own, but what it learns or is told stays in it, in memory, so no
+ * site visited in a private tab ends up in [under]'s file. A rule of [under] taken out here
+ * (Hide again, Show again, Forget this site) is only hidden from this layer.
  */
-class VerdictCache(private val file: File? = null) {
+class VerdictCache(private val file: File? = null, private val under: VerdictCache? = null) {
     private val serializer = MapSerializer(String.serializer(), ListSerializer(SiteRule.serializer()))
     private val sites: MutableMap<String, MutableList<SiteRule>> = mutableMapOf()
+    // For a layer: [under]'s rules taken out here, by site, then signature.
+    private val dropped: MutableMap<String, MutableSet<String>> = mutableMapOf()
+    // For a layer: everything was forgotten, [under]'s rules too.
+    private var droppedAll = false
 
     init {
         val f = file
@@ -46,9 +55,17 @@ class VerdictCache(private val file: File? = null) {
         }
     }
 
-    @Synchronized fun rulesFor(url: String): List<SiteRule> = sites[siteOf(url)]?.toList() ?: emptyList()
+    @Synchronized fun rulesFor(url: String): List<SiteRule> = rulesForSite(siteOf(url))
+
+    @Synchronized private fun rulesForSite(site: String): List<SiteRule> {
+        val own = sites[site]?.toList() ?: emptyList()
+        val below = under?.takeIf { !droppedAll } ?: return own
+        val gone = dropped[site].orEmpty()
+        return below.rulesForSite(site).filter { r -> r.sig !in gone && own.none { it.sig == r.sig } } + own
+    }
 
     @Synchronized fun put(url: String, rule: SiteRule) {
+        dropped[siteOf(url)]?.remove(rule.sig)
         val list = sites.getOrPut(siteOf(url)) { mutableListOf() }
         val i = list.indexOfFirst { it.sig == rule.sig }
         val entry = rule.copy(ts = System.currentTimeMillis())
@@ -74,14 +91,22 @@ class VerdictCache(private val file: File? = null) {
     /** Drop one rule, so the element is judged afresh on the next load (reverses an undo). */
     @Synchronized fun remove(url: String, sig: String) {
         val site = siteOf(url)
+        if (under != null) dropped.getOrPut(site) { mutableSetOf() } += sig
         val list = sites[site] ?: return
         list.removeAll { it.sig == sig }
         if (list.isEmpty()) sites.remove(site)
         save()
     }
 
-    /** Forget everything learned for one site, or for all sites. [keepUndone] keeps the user's Undo rules. */
+    /**
+     * Forget everything learned for one site, or for all sites. [keepUndone] keeps the user's Undo
+     * rules. A layer forgets its own rules and hides [under]'s for the site.
+     */
     @Synchronized fun clear(site: String? = null, keepUndone: Boolean = false) {
+        if (under != null) {
+            if (site == null) { dropped.clear(); droppedAll = true }
+            else under.rulesForSite(site).filter { !keepUndone || it.source != "user" }.forEach { dropped.getOrPut(site) { mutableSetOf() } += it.sig }
+        }
         if (site == null) sites.clear()
         else if (!keepUndone) sites.remove(site)
         else sites[site]?.let { list -> list.removeAll { it.source != "user" }; if (list.isEmpty()) sites.remove(site) }
