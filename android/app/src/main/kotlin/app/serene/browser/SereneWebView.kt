@@ -2,6 +2,8 @@ package app.serene.browser
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.SystemClock
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.ViewConfiguration
@@ -31,6 +33,12 @@ class SereneWebView(context: Context, private val swipe: HistorySwipe, private v
     private var overX = 0
     private var overY = 0
     private var velocity: VelocityTracker? = null
+
+    /**
+     * When the user last tapped the page or pressed a key on it (uptime ms): a page may open the
+     * share sheet only just after (see onWebShare), as Chrome's user activation allows.
+     */
+    var lastInput = 0L
 
     // Raw (screen) coordinates throughout: the view itself moves during a swipe.
     @SuppressLint("ClickableViewAccessibility")
@@ -67,6 +75,7 @@ class SereneWebView(context: Context, private val swipe: HistorySwipe, private v
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val cancel = ev.actionMasked == MotionEvent.ACTION_CANCEL
+                if (!cancel) lastInput = SystemClock.uptimeMillis()
                 val ours = mode
                 mode = Mode.Page
                 when (ours) {
@@ -84,6 +93,11 @@ class SereneWebView(context: Context, private val swipe: HistorySwipe, private v
         }
         if (mode == Mode.Blocked) return true
         return super.dispatchTouchEvent(ev)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_UP) lastInput = SystemClock.uptimeMillis()
+        return super.dispatchKeyEvent(event)
     }
 
     private fun track(ev: MotionEvent) {
