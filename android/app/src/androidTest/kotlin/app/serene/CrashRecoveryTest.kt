@@ -69,9 +69,9 @@ class CrashRecoveryTest {
 
             var dead: WebView? = null
             scenario.onActivity { dead = t.webView; t.webView.loadUrl("chrome://crash") }
-            waitFor("the crash") { t.crashed != null }
+            waitFor("the crash") { t.unloaded != null }
             scenario.onActivity {
-                val c = t.crashed!!
+                val c = t.unloaded!!
                 assertTrue("a crash, not a kill", c.crash)
                 assertTrue("the tab was on screen", c.onScreen)
                 assertTrue("a new WebView", t.webView !== dead)
@@ -80,10 +80,10 @@ class CrashRecoveryTest {
             }
             // Until Reload: a page that crashes as it loads would crash again and again.
             SystemClock.sleep(1500)
-            scenario.onActivity { assertNotNull("still crashed", t.crashed) }
+            scenario.onActivity { assertNotNull("still crashed", t.unloaded) }
 
             scenario.onActivity { t.reload() } // the crashed page's Reload button
-            waitFor("the page back") { t.crashed == null && t.title == "second" && t.progress == 100 && t.canGoBack }
+            waitFor("the page back") { t.unloaded == null && t.title == "second" && t.progress == 100 && t.canGoBack }
             scenario.onActivity { t.goBack() }
             waitFor("back to the page before the crash") { t.url.endsWith("/first") && t.progress == 100 && t.canGoForward }
         }
@@ -105,17 +105,17 @@ class CrashRecoveryTest {
 
             // One renderer serves every tab: killing it takes every page.
             scenario.onActivity { f.webView.loadUrl("chrome://kill") }
-            waitFor("both tabs lose their pages") { b.crashed != null && f.crashed != null }
+            waitFor("both tabs lose their pages") { b.unloaded != null && f.unloaded != null }
             scenario.onActivity {
-                assertFalse("killed, not crashed", f.crashed!!.crash)
-                assertTrue("the tab on screen shows it", f.crashed!!.onScreen)
-                assertFalse("the tab behind it was not on screen", b.crashed!!.onScreen)
+                assertFalse("killed, not crashed", f.unloaded!!.crash)
+                assertTrue("the tab on screen shows it", f.unloaded!!.onScreen)
+                assertFalse("the tab behind it was not on screen", b.unloaded!!.onScreen)
             }
             scenario.onActivity { a -> a.tabs.select(b) }
-            waitFor("the tab behind gets its page back once shown") { b.crashed == null && b.title == "behind" && b.progress == 100 }
-            scenario.onActivity { assertNotNull("the tab left keeps waiting for Reload", f.crashed) }
+            waitFor("the tab behind gets its page back once shown") { b.unloaded == null && b.title == "behind" && b.progress == 100 }
+            scenario.onActivity { assertNotNull("the tab left keeps waiting for Reload", f.unloaded) }
             scenario.onActivity { a -> a.tabs.select(f); f.reload() }
-            waitFor("the other page back") { f.crashed == null && f.title == "front" && f.progress == 100 }
+            waitFor("the other page back") { f.unloaded == null && f.title == "front" && f.progress == 100 }
             scenario.onActivity { a -> assertEquals("both tabs still open", 3, a.tabs.tabs.size) }
         }
     }

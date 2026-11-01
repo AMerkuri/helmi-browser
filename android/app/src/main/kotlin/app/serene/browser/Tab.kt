@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
+import android.os.SystemClock
 import android.util.Log
 import android.view.PixelCopy
 import android.view.View
@@ -132,7 +133,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     /**
      * The tab's page. A new one when the page's renderer went away (a crash, or Android killed it
-     * for memory, see [Crashed]): a WebView is dead for good once its renderer is.
+     * for memory, see [Unloaded]): a WebView is dead for good once its renderer is. A new one too
+     * when Helmi [discard]s the page to save memory.
      */
     var webView: SereneWebView by mutableStateOf(newWebView(context))
         private set
@@ -144,21 +146,36 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         onScrolled = ::snapshotSoon
         // A tab whose page went while it was not on screen gets it back once it is (Chrome too
         // reloads such a tab when it is shown, not before).
-        onVisible = { main.post { if (crashed?.onScreen == false && webView.isAttachedToWindow) recover() } }
+        onVisible = { main.post { if (unloaded?.onScreen == false && webView.isAttachedToWindow) recover() } }
     }
 
     /**
-     * The page's renderer went away and took the page with it: [crash] if it crashed, else Android
-     * killed it (low memory: the model holds over 2 GB). One renderer serves every tab, so every
-     * tab loses its page at once. The tab keeps [url] and its back/forward list ([state], as
-     * [history] gives it) and gets them back with [recover]. [onScreen]: it was on screen, so it
-     * shows that the page crashed until Reload (a page that crashes as it loads would otherwise
-     * crash over and over); one that was not gets its page back when it is shown.
+     * The tab has no page now, only [url] and its back/forward list ([state], as [history] gives
+     * it), and gets them back with [recover]. [why]: the page's renderer crashed, or Android killed
+     * it (low memory: the model holds over 2 GB; one renderer serves every tab, so every tab loses
+     * its page at once), or Helmi let the page go to save memory ([discard], or a tab restored after
+     * a restart that has not been shown yet). [onScreen]: it was on screen, so it shows that the
+     * page crashed until Reload (a page that crashes as it loads would otherwise crash over and
+     * over); one that was not gets its page back when it is shown.
      */
-    class Crashed(val url: String, val state: Map<String, ByteArray>, val crash: Boolean, val onScreen: Boolean)
+    class Unloaded(val url: String, val state: Map<String, ByteArray>, val why: Why, val onScreen: Boolean) {
+        val crash get() = why == Why.CRASH
+    }
 
-    var crashed by mutableStateOf<Crashed?>(null)
+    enum class Why { CRASH, KILL, DISCARD }
+
+    var unloaded by mutableStateOf<Unloaded?>(null)
         private set
+
+    /**
+     * A page that was [unloaded] while not on screen is loading again: the WebView stays hidden
+     * until it draws, so the empty WebView doesn't flash white (or black) first.
+     */
+    var waking by mutableStateOf(false)
+        private set
+
+    /** When the tab was last on screen (SystemClock.elapsedRealtime), for [TabDiscard]; set by the tab manager. */
+    internal var lastShown = SystemClock.elapsedRealtime()
 
     // Follows the Settings flags while the tab is open.
     private val flags: Job
@@ -473,7 +490,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     /** This tab's back/forward list as WebView saves it (the Bundle's byte arrays), for [restore] after a restart. */
-    fun history(): Map<String, ByteArray> = crashed?.state ?: if (destroyed) emptyMap() else stateOf(webView)
+    fun history(): Map<String, ByteArray> = unloaded?.state ?: if (destroyed) emptyMap() else stateOf(webView)
 
     private fun stateOf(view: WebView): Map<String, ByteArray> {
         val b = Bundle()
@@ -497,7 +514,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     /** Reload; after a crash, the page comes back (with its history). */
-    fun reload() { if (crashed != null) recover() else webView.reload() }
+    fun reload() { if (unloaded != null) recover() else webView.reload() }
     fun stop() = webView.stopLoading()
     fun goBack() = step(BACK)
     fun goForward() = step(HistorySwipe.FORWARD)
@@ -510,7 +527,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      */
     private fun step(dir: Int) {
         // After a crash: the history comes back, and the step is taken in it.
-        if (crashed != null) {
+        if (unloaded != null) {
             recover()
             return go(dir)
         }
@@ -522,27 +539,84 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
     fun go(dir: Int) { if (webView.canGoBackOrForward(dir)) webView.goBackOrForward(dir) }
 
-    /** Gets the page lost in a [crashed] renderer back, with its back/forward list; WebView loads it. */
+    /** Gets the page back that went with its renderer or was [discard]ed, with its back/forward list; WebView loads it. */
     fun recover() {
-        val c = crashed ?: return
-        crashed = null
+        val c = unloaded ?: return
+        unloaded = null
         if (destroyed) return
+        // The crashed page said so on screen; a page that went out of sight comes back quietly.
+        waking = !c.onScreen
         restore(c.url, c.state)
+    }
+
+    /**
+     * After a restart: the tab gets [pageUrl], its [title] and its [history] back, but loads its
+     * page only once it is shown, so a restart doesn't load every open tab at once.
+     */
+    fun restoreLater(pageUrl: String, title: String, history: Map<String, ByteArray>?) {
+        url = pageUrl
+        this.title = title
+        unloaded = Unloaded(pageUrl, history.orEmpty(), Why.DISCARD, onScreen = false)
+    }
+
+    /** When the tab opened (SystemClock.elapsedRealtime). */
+    internal val createdAt = SystemClock.elapsedRealtime()
+
+    /**
+     * Could go now to save memory: has a web page, isn't on screen and isn't in fullscreen. The
+     * tab manager also checks the opener links ([TabManager.discardIdle]), and [discard] that
+     * nothing is playing or typed in.
+     */
+    val discardable: Boolean
+        get() = !destroyed && unloaded == null && !waking && fullscreen == null && hasPage && !downloadPage &&
+            url.startsWith("http") && !(webView.isAttachedToWindow && webView.isShown)
+
+    /**
+     * Lets the page go to save memory (Chrome's tab discarding), unless it is busy: media playing,
+     * or a form someone typed in (it would be lost). The tab keeps its address, title, card
+     * picture and back/forward list, and loads the page again when it is shown. [done] says
+     * whether it went.
+     */
+    fun discard(done: (Boolean) -> Unit = {}) {
+        if (!discardable) return done(false)
+        webView.evaluateJavascript(BUSY_JS) { busy ->
+            if (busy == "true" || !discardable) return@evaluateJavascript done(false)
+            val state = stateOf(webView)
+            Log.i(TAG, "discarding tab $id (${state.size} history keys)")
+            // The swipe pictures are of pages that will load again: they would not match.
+            Snapshots.clear(id)
+            webView.stopLoading()
+            replaceWebView(webView)
+            unloaded = Unloaded(url, state, Why.DISCARD, onScreen = false)
+            done(true)
+        }
     }
 
     /**
      * WebView's onRenderProcessGone: the renderer of [dead] crashed ([crash]) or was killed. Not
      * handling it kills the app. [dead] can't be used again, so it goes, and a new WebView takes
-     * its place; what it showed waits in [crashed].
+     * its place; what it showed waits in [unloaded].
      */
     private fun renderGone(dead: WebView, crash: Boolean) {
         if (dead !== webView || destroyed) return
         val onScreen = dead.isAttachedToWindow && dead.isShown && dead.windowVisibility == View.VISIBLE
-        val before = crashed
+        val before = unloaded
         // The back/forward list lives on in the app's process, so the dead WebView still saves it.
         val state = before?.state ?: stateOf(dead)
         Log.w(TAG, "renderer ${if (crash) "crashed" else "was killed"}, tab $id (${if (onScreen) "on screen" else "not on screen"}, ${state.size} history keys)")
-        // Everything about the page that was.
+        replaceWebView(dead)
+        // A start page or a download page had nothing to lose.
+        val page = url.takeIf { it.isNotEmpty() && it != "about:blank" && !downloadPage }
+        unloaded = when {
+            page == null && state.isEmpty() -> null
+            // A tab already without its page (discarded, say) keeps waiting to be shown.
+            before != null && !onScreen -> before
+            else -> Unloaded(page ?: "", state, if (crash) Why.CRASH else Why.KILL, onScreen = onScreen || before?.onScreen == true)
+        }
+    }
+
+    /** [dead] goes, with everything about the page it showed, and a new WebView (with nothing in it) takes its place. */
+    private fun replaceWebView(dead: WebView) {
         swipe.reset()
         pull.reset()
         main.removeCallbacks(snapshotLater)
@@ -563,11 +637,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         dimScript = null
         webView = newWebView(dead.context)
         setUp()
+        waking = false
         dead.destroy()
-        // A start page or a download page had nothing to lose.
-        val page = url.takeIf { it.isNotEmpty() && it != "about:blank" && !downloadPage }
-        crashed = if (page == null && state.isEmpty()) null
-        else Crashed(page ?: "", state, crash, onScreen = onScreen || before?.onScreen == true)
     }
 
     @Volatile private var destroyed = false
@@ -741,12 +812,16 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             }
         }
 
-        override fun onPageCommitVisible(view: WebView, pageUrl: String) { painting = false }
+        override fun onPageCommitVisible(view: WebView, pageUrl: String) {
+            painting = false
+            waking = false
+        }
 
         override fun onPageFinished(view: WebView, pageUrl: String) {
             updateNav(pageUrl)
             docLoading = false
             painting = false
+            waking = false
             whenSettled()
             pull.done()
             snapshotSoon()
@@ -870,6 +945,25 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         }"""
 
         private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
+
+        /**
+         * True when letting the page go would lose something: sound or video playing (a video
+         * call too), picture-in-picture, or a form field changed from what the page set (typed
+         * text, a ticked box, a picked option). The top document only.
+         */
+        private const val BUSY_JS = """(() => {
+            try {
+                if (document.pictureInPictureElement) return true;
+                const playing = [...document.querySelectorAll('video, audio')].some(m => !m.paused && !m.ended && !m.muted && m.readyState > 2);
+                if (playing) return true;
+                return [...document.querySelectorAll('input, textarea, select')].some(e => {
+                    if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);
+                    if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
+                    if (e.type === 'hidden' || e.type === 'submit' || e.type === 'button' || e.type === 'file') return false;
+                    return e.value !== e.defaultValue;
+                });
+            } catch (e) { return false; }
+        })()"""
 
         /**
          * Darkening a page leaves its pictures as they are. WebView would invert the ones it takes

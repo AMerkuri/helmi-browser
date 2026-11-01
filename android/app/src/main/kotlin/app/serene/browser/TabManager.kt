@@ -1,6 +1,9 @@
 package app.serene.browser
 
+import android.app.ActivityManager
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import android.view.View
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -80,7 +83,38 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     }
 
     // The tab being left, as it was last on screen, for its card in the tab switcher.
-    private fun leave() { current?.let { TabPreviews.capture(it) } }
+    private fun leave() {
+        current?.let {
+            it.lastShown = SystemClock.elapsedRealtime()
+            TabPreviews.capture(it)
+        }
+    }
+
+    /**
+     * Lets the pages of background tabs go to save memory, as [TabDiscard] picks them for
+     * [pressure] (with the phone low on memory, as [TabDiscard.Pressure.LOW]). Not the tab on
+     * screen, the closed tab Undo can bring back, or a page opened by another page lately or the
+     * page that opened it (a sign-in popup answers its window.opener). Settings › Flags › Unload
+     * idle tabs turns it off.
+     */
+    fun discardIdle(pressure: TabDiscard.Pressure = TabDiscard.Pressure.NONE) {
+        if (!app.settings.discardTabs) return
+        val p = if (pressure < TabDiscard.Pressure.LOW && lowOnMemory()) TabDiscard.Pressure.LOW else pressure
+        val on = current
+        val now = SystemClock.elapsedRealtime()
+        fun linked(popup: Tab) = openerOf(popup) != null && now - popup.createdAt < TabDiscard.OPENER_MS
+        val candidates = tabs.filter { t -> t !== on && t.discardable && !linked(t) && tabs.none { it.opener === t && linked(it) } }
+        if (candidates.isEmpty()) return
+        val ids = TabDiscard.pick(candidates.map { TabDiscard.Candidate(it.id, it.lastShown) }, now, p).toSet()
+        if (ids.isNotEmpty()) Log.i("SereneTabs", "discarding ${ids.size} of ${tabs.size} tabs ($p)")
+        // Each checks again as it goes: the page may be playing, or the tab on screen by then.
+        candidates.filter { it.id in ids }.forEach { it.discard() }
+    }
+
+    private fun lowOnMemory(): Boolean {
+        val am = context.getSystemService(ActivityManager::class.java) ?: return false
+        return ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }.lowMemory
+    }
 
     /** A closed tab that Undo can still bring back: [index] is where it was, [standIn] the blank tab opened for it if it was the last. */
     class Closed(val tab: Tab, val index: Int, val wasCurrent: Boolean, val standIn: Tab?)
@@ -155,15 +189,23 @@ class TabManager(private val context: Context, private val app: SereneApp) {
         app.settings.savedTabs = saved.map { it.url }
         // Where the tab on screen is among those saved (or the next one, if it isn't saved).
         app.settings.savedTabIndex = saved.count { tabs.indexOf(it) < currentIndex }
-        TabHistory.save(historyFile, saved.map { TabHistory.Saved.of(it.url, it.history()) })
+        TabHistory.save(historyFile, saved.map { TabHistory.Saved.of(it.url, it.history(), it.title) })
     }
 
-    /** The tabs open when the app last went away, each with its history (back still goes back after a restart). */
+    /**
+     * The tabs open when the app last went away, each with its history (back still goes back after
+     * a restart). Only the tab on screen loads its page now; the others load theirs when shown.
+     */
     fun restore() {
         val urls = app.settings.savedTabs
         val history = TabHistory.forTabs(urls, TabHistory.load(historyFile))
-        urls.forEachIndexed { i, u -> open(select = false).restore(u, history[i]?.bytes()) }
+        val at = app.settings.savedTabIndex.coerceIn(0, (urls.size - 1).coerceAtLeast(0))
+        urls.forEachIndexed { i, u ->
+            val tab = open(select = false)
+            val h = history[i]
+            if (i == at) tab.restore(u, h?.bytes()) else tab.restoreLater(u, h?.title.orEmpty(), h?.bytes())
+        }
         if (tabs.isEmpty()) open()
-        currentIndex = app.settings.savedTabIndex.coerceIn(0, tabs.lastIndex)
+        currentIndex = at.coerceIn(0, tabs.lastIndex)
     }
 }
