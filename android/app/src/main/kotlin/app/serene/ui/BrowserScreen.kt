@@ -123,8 +123,10 @@ import androidx.webkit.WebViewFeature
 import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
+import app.serene.browser.SharedText
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
+import app.serene.browser.openShareSheet
 import app.serene.engine.siteOf
 import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
@@ -437,6 +439,8 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
                 DropdownMenuItem(text = { Text("Bookmarks") }, onClick = { close(); onOpen(Screen.Bookmarks) })
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
+                val context = LocalContext.current
+                DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {
