@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenuItem
@@ -127,8 +128,10 @@ import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.FindInPage
+import app.serene.browser.SharedText
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
+import app.serene.browser.openShareSheet
 import app.serene.engine.siteOf
 import app.serene.reader.ReaderPage
 import app.serene.report.Reporter
@@ -283,6 +286,12 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 
     // A new tab from a link or picture opens behind this one, as in Chrome: the tab count goes up.
     tab.contextMenu?.let { p -> ContextMenu(app, tab, p, onDismiss = { tab.contextMenu = null }, onNewTab = { tabs.open(it, select = false) }) }
+
+    // A site asking for the camera, microphone or location. Not under the tab switcher: it waits
+    // until its tab is in front, as in Chrome.
+    if (!covered) tab.permissions.current?.let { ask ->
+        key(ask) { PermissionDialog(ask, onAnswer = { tab.permissions.answer(ask, it) }, onDismiss = { tab.permissions.dismiss(ask) }) }
+    }
 
     if (showSite) SiteSheet(app, tab, onDismiss = { showSite = false }, onReport = { showSite = false; startReport() })
 
@@ -497,10 +506,16 @@ private fun BottomBar(
         ) {
             IconButton(onClick = { menu.targetState = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
             BarMenu(menu, barTop) {
-                DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
                 val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
-                DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.crashed == null, onClick = { close(); onFind() })
+                BookmarkItem(app, tab, enabled = onPage, onDone = ::close)
+                DropdownMenuItem(text = { Text("History") }, onClick = { close(); onOpen(Screen.History) })
+                DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
+                DropdownMenuItem(text = { Text("Bookmarks") }, onClick = { close(); onOpen(Screen.Bookmarks) })
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
+                val context = LocalContext.current
+                DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
+                // After Share, as in Chrome.
+                DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.crashed == null, onClick = { close(); onFind() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {
@@ -528,6 +543,27 @@ private fun BottomBar(
             }
         }
     }
+}
+
+/** Chrome's star: saves the page, or (filled) takes it out of the bookmarks again. */
+@Composable
+private fun BookmarkItem(app: SereneApp, tab: Tab, enabled: Boolean, onDone: () -> Unit) {
+    val context = LocalContext.current
+    val saved = enabled && app.bookmarks.find(tab.url) != null
+    DropdownMenuItem(
+        text = { Text(if (saved) "Bookmarked" else "Bookmark") },
+        trailingIcon = {
+            if (saved) Icon(Icons.Filled.Star, "Saved", tint = MaterialTheme.colorScheme.primary)
+            else Icon(painterResource(R.drawable.ic_star_border), null)
+        },
+        enabled = enabled,
+        onClick = {
+            onDone()
+            val b = app.bookmarks.find(tab.url)
+            if (b != null) app.bookmarks.remove(b.id) else app.bookmarks.add(tab.url, tab.title)
+            Toast.makeText(context, if (b != null) "Bookmark removed" else "Bookmarked", Toast.LENGTH_SHORT).show()
+        },
+    )
 }
 
 /**

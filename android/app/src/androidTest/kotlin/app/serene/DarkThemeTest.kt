@@ -72,6 +72,48 @@ class DarkThemeTest {
         assertTrue(failures.joinToString("\n"), failures.isEmpty())
     }
 
+    /**
+     * The tab switcher's light icons on its black, and the theme's icons once it closes, also when
+     * the theme changed while it was open. It used to put back the icons it found when it opened:
+     * the light theme's dark icons on the dark bar (and the other way round).
+     */
+    @Test
+    fun barIconsFollowTheThemeAfterTheTabSwitcher() {
+        assumeTrue("setApplicationNightMode needs API 31", Build.VERSION.SDK_INT >= 31)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            try {
+                for ((from, to) in listOf(false to true, true to false)) {
+                    uiMode.setApplicationNightMode(if (from) UiModeManager.MODE_NIGHT_YES else UiModeManager.MODE_NIGHT_NO)
+                    waitForIcons(scenario, "$from theme before the switcher", light = !from)
+                    scenario.onActivity { it.open(Screen.Tabs) }
+                    waitForIcons(scenario, "the switcher's black", light = false)
+                    uiMode.setApplicationNightMode(if (to) UiModeManager.MODE_NIGHT_YES else UiModeManager.MODE_NIGHT_NO)
+                    SystemClock.sleep(1000)
+                    waitForIcons(scenario, "the switcher's black after the theme change", light = false)
+                    scenario.onActivity { it.open(Screen.Browser) }
+                    waitForIcons(scenario, "${if (to) "dark" else "light"} theme after the switcher", light = !to)
+                }
+            } finally {
+                uiMode.setApplicationNightMode(UiModeManager.MODE_NIGHT_AUTO)
+            }
+        }
+    }
+
+    private fun waitForIcons(scenario: ActivityScenario<MainActivity>, where: String, light: Boolean) {
+        var lightBars: Boolean? = null
+        val end = SystemClock.uptimeMillis() + 10_000
+        do {
+            scenario.onActivity { a ->
+                val bars = WindowInsetsControllerCompat(a.window, a.window.decorView)
+                lightBars = bars.isAppearanceLightStatusBars.takeIf { it == bars.isAppearanceLightNavigationBars }
+            }
+            if (lightBars == light) return
+            SystemClock.sleep(250)
+        } while (SystemClock.uptimeMillis() < end)
+        logScreenshot(where)
+        assertEquals("light status and navigation bar appearance, $where", light, lightBars)
+    }
+
     /** Light, dark, light again; the failures, if any. */
     private fun checkThemes(scenario: ActivityScenario<MainActivity>, where: String): List<String> = listOf(false, true, false).mapNotNull { dark ->
         uiMode.setApplicationNightMode(if (dark) UiModeManager.MODE_NIGHT_YES else UiModeManager.MODE_NIGHT_NO)

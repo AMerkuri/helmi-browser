@@ -18,6 +18,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import android.webkit.ConsoleMessage
+import android.webkit.GeolocationPermissions
+import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -104,6 +106,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * page's window.opener: sign-in popups (Google, Apple) answer it and close themselves.
      */
     var opener by mutableStateOf<Tab?>(null)
+    /** Camera, microphone and location requests from this tab's pages; the prompt shows the first. */
+    val permissions = PermissionRequests(app.sitePermissions, pageUrl = { webView.url }) { webView.context as? PermissionHost }
     /** The page's element in fullscreen (a video, usually): the activity shows it over everything. */
     var fullscreen by mutableStateOf<Fullscreen?>(null)
         private set
@@ -201,6 +205,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // opener (LinkedIn's "Continue with Google") was left blank with no one to answer.
             // Windows only from a tap: javaScriptCanOpenWindowsAutomatically stays false.
             setSupportMultipleWindows(true)
+            // navigator.geolocation, behind Helmi's own prompt (onGeolocationPermissionsShowPrompt).
+            setGeolocationEnabled(true)
             // Passkeys and security keys: WebView passes navigator.credentials to Credential Manager
             // with the page's origin, as a browser does. Needs CREDENTIAL_MANAGER_SET_ORIGIN in the
             // manifest, and the passkey provider must trust Serene as a browser (docs/passkeys.md).
@@ -220,7 +226,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         webView.webViewClient = Client()
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress }
-            override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: "" }
+            override fun onReceivedTitle(view: WebView, t: String?) { title = t ?: ""; app.history.titled(view.url, t) }
             // A new tab beside this one, on screen; WebView loads the window's page into it.
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 val m = manager ?: return false
@@ -244,6 +250,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // <input type=file>: GitHub's attach button, upload forms. The activity shows the picker.
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
                 (view.context as? FilePickerHost)?.pickFiles(params) { callback.onReceiveValue(it) } ?: false
+            // Camera, microphone and location: asked per site (SitePermissions).
+            override fun onPermissionRequest(request: PermissionRequest) = permissions.onPermissionRequest(request)
+            override fun onPermissionRequestCanceled(request: PermissionRequest) = permissions.onPermissionRequestCanceled(request)
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) = permissions.onGeolocationPrompt(origin, callback)
+            override fun onGeolocationPermissionsHidePrompt() = permissions.onGeolocationHidePrompt()
             // Page errors go in the page log ("What Helmi did here", reports, e2e failures).
             override fun onConsoleMessage(m: ConsoleMessage): Boolean {
                 if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR || m.messageLevel() == ConsoleMessage.MessageLevel.WARNING) {
@@ -311,7 +322,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             Log.w(TAG, "WebView too old for WEB_MESSAGE_LISTENER: Serene runs network rules only")
             return
         }
-        WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, _, isMainFrame, reply: JavaScriptReplyProxy ->
+        WebViewCompat.addWebMessageListener(webView, "SereneBridge", setOf("*")) { _, message: WebMessageCompat, origin, isMainFrame, reply: JavaScriptReplyProxy ->
             val data = message.data ?: return@addWebMessageListener
             if (destroyed) return@addWebMessageListener
             if (isMainFrame && data.startsWith("{\"type\":\"serene-download\"")) {
@@ -324,6 +335,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             }
             if (isMainFrame && data.startsWith("{\"type\":\"serene-doc")) {
                 onDocMessage(data)
+                return@addWebMessageListener
+            }
+            if (data.startsWith("{\"type\":\"helmi-share\"")) {
+                main.post { if (!destroyed) onWebShare(this@Tab, data, isMainFrame, origin) }
                 return@addWebMessageListener
             }
             // From any frame: a video in a YouTube embed goes fullscreen in its own frame.
@@ -352,6 +367,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
             WebViewCompat.addDocumentStartJavaScript(webView, FULLSCREEN_JS, setOf("*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, WEB_SHARE_JS, setOf("*"))
         }
     }
 
@@ -533,6 +549,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         main.removeCallbacks(shownTimeout)
         onShown = null
         contextMenu = null
+        permissions.cancelAll() // its prompts went with the page
         blobUserAgent = null
         pending = null
         current = null
@@ -577,6 +594,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         flags.cancel()
         swipe.reset()
         pull.reset()
+        permissions.cancelAll()
         Snapshots.clear(id)
         webView.stopLoading()
         webView.destroy()
@@ -707,6 +725,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             url = pageUrl
             pageStarts++
             darkenFor(pageUrl)
+            // As in Chrome, a prompt goes with the page that asked (not the one starting now).
+            permissions.pageStarted(pageUrl)
             docLoading = true
             painting = true
             // A new page: the download goes on in the notification and the downloads screen.
@@ -734,6 +754,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
         override fun doUpdateVisitedHistory(view: WebView, pageUrl: String, isReload: Boolean) {
             updateNav(pageUrl)
+            if (!isReload) app.history.visit(pageUrl, view.title.orEmpty())
             // A same-document step (#hash, history.pushState; single-page sites) has no load to
             // wait for, only the page's own redraw. A new document's load is waited for.
             main.postDelayed({ if (!docLoading) whenSettled() }, 50)
