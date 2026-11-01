@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.serene.browser.History
+import app.serene.browser.SitePermissions
 import app.serene.download.Downloads
 import app.serene.engine.AutoconsentRules
 import app.serene.engine.Classifier
@@ -118,6 +119,8 @@ class SereneApp : Application() {
     lateinit var readerPrefs: ReaderPrefs private set
     lateinit var stats: Stats private set
     lateinit var history: History private set
+    /** Camera, microphone and location: what the user allowed or blocked per site. */
+    lateinit var sitePermissions: SitePermissions private set
 
     /** Shown in settings: "loading", "ready", or an error. */
     var rulesStatus by mutableStateOf("loading")
@@ -141,6 +144,7 @@ class SereneApp : Application() {
         models.refresh()
         downloads = Downloads(this)
         readerPrefs = ReaderPrefs(this)
+        sitePermissions = SitePermissions(this)
         lists = FilterLists(File(filesDir, "lists"), { assets.open("scriptlets.json").bufferedReader().use { it.readText() } }, { settings.listSelection })
         engine = SereneEngine(
             rules = null, // heuristics only until the lists are loaded
