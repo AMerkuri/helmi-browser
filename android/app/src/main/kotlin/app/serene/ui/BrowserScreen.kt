@@ -517,7 +517,7 @@ private fun BottomBar(
                 val context = LocalContext.current
                 DropdownMenuItem(text = { Text("Share…") }, enabled = onPage, onClick = { close(); openShareSheet(context, SharedText(tab.title, "", tab.url)) })
                 // Chrome has it in its share sheet; the system dialog has "Save as PDF".
-                DropdownMenuItem(text = { Text("Print…") }, enabled = onPage && tab.crashed == null, onClick = { close(); PagePrint.print(context, tab.webView, tab.title, tab.url) { tab.printing = it } })
+                DropdownMenuItem(text = { Text("Print…") }, enabled = onPage && tab.unloaded == null, onClick = { close(); PagePrint.print(context, tab.webView, tab.title, tab.url) { tab.printing = it } })
                 // After Share, as in Chrome.
                 DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.unloaded == null, onClick = { close(); onFind() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
