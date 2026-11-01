@@ -121,6 +121,12 @@ class History(
 
     fun delete(v: Visit) = change { list -> list.filterNot { it == v } }
 
+    /** Every visit to [url], all days: a suggestion the address bar was told to forget. */
+    fun deleteUrl(url: String) = deleteWhere { it.url == url }
+
+    /** Every visit [which] picks: a past search, or a site's front page, the address bar was told to forget. */
+    fun deleteWhere(which: (Visit) -> Boolean) = change { list -> list.filterNot(which) }
+
     /** Every page visited at or after [from] (ms); 0 is all of it. */
     fun deleteSince(from: Long) = change { list -> if (from <= 0) emptyList() else list.filter { it.at < from } }
 
