@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.edit
+import app.serene.browser.TextScale
 import app.serene.engine.FilterLists
 
 /** App settings in SharedPreferences, exposed as Compose state so screens update on change. */
@@ -13,6 +14,7 @@ class Settings(context: Context) {
 
     private fun bool(key: String, default: Boolean) = Pref(key, prefs.getBoolean(key, default)) { putBoolean(key, it) }
     private fun string(key: String, default: String) = Pref(key, prefs.getString(key, default) ?: default) { putString(key, it) }
+    private fun int(key: String, default: Int) = Pref(key, prefs.getInt(key, default)) { putInt(key, it) }
     private fun stringSet(key: String) = Pref(key, prefs.getStringSet(key, emptySet())!!.toSet()) { putStringSet(key, it) }
 
     private inner class Pref<T>(val key: String, initial: T, val write: android.content.SharedPreferences.Editor.(T) -> Unit) {
@@ -94,6 +96,23 @@ class Settings(context: Context) {
     var dimStrength: DimStrength
         get() = runCatching { DimStrength.valueOf(dimStrengthPref.state) }.getOrDefault(DimStrength.LIGHT)
         set(v) = dimStrengthPref.set(v.name)
+
+    private val textScalePref = int("text_scale", TextScale.DEFAULT)
+    /** Settings › Accessibility › Text size, in percent (Chrome's text scaling), on top of the phone's font size. */
+    var textScale: Int get() = textScalePref.state; set(v) = textScalePref.set(v.coerceIn(TextScale.MIN, TextScale.MAX))
+
+    private val forceZoomPref = bool("force_zoom", false)
+    /** Settings › Accessibility › "Override sites' zoom block": pinch zoom also where a page blocks it. */
+    var forceZoom: Boolean get() = forceZoomPref.state; set(v) = forceZoomPref.set(v)
+
+    private val desktopSitesPref = stringSet("desktop_sites")
+    /** Sites (eTLD+1) switched to ⋮ › Desktop site. */
+    val desktopSites: Set<String> get() = desktopSitesPref.state
+
+    fun isDesktopSite(site: String) = site in desktopSites
+
+    fun setDesktopSite(site: String, on: Boolean) =
+        desktopSitesPref.set(if (on) desktopSites + site else desktopSites - site)
 
     // Settings › Filter lists. Before the user changes anything, the catalog's defaults (so
     // lists added to the defaults later reach them too).

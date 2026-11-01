@@ -535,6 +535,16 @@ private fun BottomBar(
                 DropdownMenuItem(text = { Text("Print…") }, enabled = onPage && tab.unloaded == null, onClick = { close(); PagePrint.print(context, tab.webView, tab.title, tab.url) { tab.printing = it } })
                 // After Share, as in Chrome.
                 DropdownMenuItem(text = { Text("Find in page") }, enabled = onPage && tab.unloaded == null, onClick = { close(); onFind() })
+                // Chrome's ⋮ › Desktop site: this site's desktop pages, remembered for the site. The
+                // switch shows this page (one from the history keeps what it came with).
+                val web = onPage && (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
+                val desktop = web && tab.desktopUa
+                DropdownMenuItem(
+                    text = { Text("Desktop site") },
+                    trailingIcon = { Switch(checked = desktop, onCheckedChange = null, enabled = web) },
+                    enabled = web,
+                    onClick = { close(); tab.setDesktopSite(!desktop) },
+                )
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
                 if (site != null) {

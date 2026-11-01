@@ -38,6 +38,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.unit.IntSize
 import app.serene.browser.HistorySwipe.Companion.BACK
 import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.UserAgentMetadata
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebSettingsCompat
@@ -191,6 +192,23 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     // Settings › Theme › "Dim pictures", for the documents to come.
     private var dimScript: ScriptHandler? = null
+    // ⋮ › Desktop site's width and "Override sites' zoom block", for the documents to come.
+    private var viewportHandler: ScriptHandler? = null
+
+    // ⋮ › Desktop site: the WebView's own user agent and client hints, and whether it asks for
+    // desktop pages now (see userAgentFor).
+    private var mobileUa = ""
+    private var mobileUaMetadata: UserAgentMetadata? = null
+    /** Whether the tab asks for desktop pages now: what its page came with, once it has started. */
+    var desktopUa by mutableStateOf(false)
+        private set
+    // Desktop or phone, as each page of this tab's history came (by address): back and forward
+    // get a page as it was, as in Chrome, also after the site's choice changed. The newest 200.
+    private val pageModes = object : LinkedHashMap<String, Boolean>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>) = size > 200
+    }
+    // The page a history step (or a restore) is on its way to: it keeps its own mode (onPageStarted).
+    private var historyTarget: String? = null
 
     init {
         setUp()
@@ -211,6 +229,17 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                     webView.evaluateJavascript(js, null)
                 }
             }
+            // Desktop width and pinch zoom.
+            launch {
+                snapshotFlow { viewportScript(app.settings) }.collect { js ->
+                    if (documentStartSupported) {
+                        viewportHandler?.remove()
+                        viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(js), setOf("*"))
+                    }
+                    webView.evaluateJavascript(js, null)
+                }
+            }
+            launch { snapshotFlow { app.settings.textScale }.collect { applyTextZoom() } }
             // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
             snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
         }
@@ -244,10 +273,17 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // The page's engine session goes with it, see onDocMessage. A flag in Settings.
             if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(this, backForwardCache)
         }
+        // Before any user agent of Helmi's own: the WebView's.
+        mobileUa = webView.settings.userAgentString
+        mobileUaMetadata = if (uaMetadataSupported) runCatching { WebSettingsCompat.getUserAgentMetadata(webView.settings) }.getOrNull() else null
+        desktopUa = false
+        userAgentFor(url)
         // The flags below follow changes; a new WebView starts from what they are now.
+        applyTextZoom()
         // First: a bot check's frame is left as WebView has it (BotChecks.kt); every script below skips it.
         if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, LEAVE_BOT_CHECKS, setOf("*"))
         if (documentStartSupported) dimScript = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(dimPicturesScript(app.settings)), setOf("*"))
+        if (documentStartSupported) viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(viewportScript(app.settings)), setOf("*"))
         applyDarkening()
         if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(KEEP_PICTURES), setOf("*"))
         installEngine()
@@ -263,6 +299,9 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 val m = manager ?: return false
                 if (!isUserGesture || destroyed) return false
                 val tab = m.openWindow(this@Tab)
+                // The window's page loads with the new tab's user agent before it says where it
+                // went: this one's, as it is usually this site's.
+                tab.userAgentLike(this@Tab)
                 (resultMsg.obj as WebView.WebViewTransport).webView = tab.webView
                 resultMsg.sendToTarget()
                 return true
@@ -528,6 +567,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         // After a crash: the history first, so the new page goes after the lost one and back still goes there.
         recover()
         snapshot()
+        userAgentFor(target)
         webView.loadUrl(target)
         url = target
     }
@@ -547,6 +587,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * the page alone.
      */
     fun restore(pageUrl: String, history: Map<String, ByteArray>?) {
+        // After a crash, the page as it was; after a restart, its site's choice.
+        if (isHttp(pageUrl)) {
+            setDesktopUa(pageModes[pageUrl] ?: app.settings.isDesktopSite(siteOf(pageUrl)))
+            historyTarget = pageUrl
+        }
         val list = if (history.isNullOrEmpty()) null
         else runCatching { webView.restoreState(Bundle().apply { history.forEach { (k, v) -> putByteArray(k, v) } }) }.getOrNull()
         val page = list?.currentItem?.url
@@ -580,7 +625,71 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
-    fun go(dir: Int) { if (webView.canGoBackOrForward(dir)) webView.goBackOrForward(dir) }
+    fun go(dir: Int) {
+        if (!webView.canGoBackOrForward(dir)) return
+        // The page as it came the last time, desktop or phone (when it loads again, not from the
+        // back/forward cache); one this tab hasn't seen load, as its site's choice says.
+        val list = webView.copyBackForwardList()
+        list.getItemAtIndex(list.currentIndex + dir)?.url?.takeIf(::isHttp)?.let { to ->
+            setDesktopUa(pageModes[to] ?: app.settings.isDesktopSite(siteOf(to)))
+            historyTarget = to
+        }
+        webView.goBackOrForward(dir)
+    }
+
+    /**
+     * ⋮ › Desktop site, Chrome's "Request desktop site": this site asks for desktop pages, or for
+     * phone pages again, and the page loads again with it. Remembered per site (Chrome does too);
+     * pages in the history keep what they came with (go).
+     * A site that sent the phone to its phone pages (en.wikipedia.org to en.m.wikipedia.org) is
+     * asked at the address first asked for, as Chrome does, or it would keep its phone pages.
+     */
+    fun setDesktopSite(on: Boolean) {
+        val page = unloaded?.url?.takeIf { it.isNotEmpty() } ?: url
+        app.settings.setDesktopSite(siteOf(page), on)
+        if (unloaded != null) return recover() // its page comes back with the new user agent
+        userAgentFor(page)
+        // Only for a phone host (m.): a load adds a history entry, a reload doesn't, and a site
+        // that only moved the page (techspot.com to www.techspot.com) gets the same page again.
+        val first = webView.copyBackForwardList().currentItem?.originalUrl
+        if (first != null && on && isHttp(first) && sentToPhonePages(first, page)) webView.loadUrl(first) else webView.reload()
+    }
+
+    /**
+     * The user agent and client hints of [pageUrl]'s site: desktop ones (desktopUserAgent) if it
+     * is switched to ⋮ › Desktop site, else the WebView's own. Set before a page is asked for: the
+     * request goes out with what is set then. True if they changed. Web pages only: an
+     * about:blank or a data: page keeps what the tab has.
+     */
+    private fun userAgentFor(pageUrl: String): Boolean {
+        if (!isHttp(pageUrl)) return false
+        return setDesktopUa(app.settings.isDesktopSite(siteOf(pageUrl)))
+    }
+
+    /** A new window's tab starts with the user agent of [opener], the tab whose page opened it. */
+    internal fun userAgentLike(opener: Tab) { setDesktopUa(opener.desktopUa) }
+
+    private fun setDesktopUa(desktop: Boolean): Boolean {
+        if (desktop == desktopUa || destroyed) return false
+        desktopUa = desktop
+        with(webView.settings) {
+            userAgentString = if (desktop) desktopUserAgent(mobileUa) else null // null: the WebView's own
+            mobileUaMetadata?.let { m ->
+                runCatching { WebSettingsCompat.setUserAgentMetadata(this, if (desktop) desktopUserAgentMetadata(m) else m) }
+                    .onFailure { Log.w(TAG, "user agent metadata", it) }
+            }
+        }
+        return true
+    }
+
+    /**
+     * Settings › Accessibility › Text size, on top of the phone's font size (read each time: it
+     * can change while Helmi runs, and a new page picks it up).
+     */
+    private fun applyTextZoom() {
+        val zoom = TextScale.textZoom(app.settings.textScale, webView.resources.configuration.fontScale)
+        if (webView.settings.textZoom != zoom) webView.settings.textZoom = zoom
+    }
 
     /** Gets the page back that went with its renderer or was [discard]ed, with its back/forward list; WebView loads it. */
     fun recover() {
@@ -680,6 +789,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         version++
         (dead.parent as? ViewGroup)?.removeView(dead)
         dimScript = null
+        viewportHandler = null
         webView = newWebView(dead.context)
         setUp()
         waking = false
@@ -819,6 +929,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             if (scheme in setOf("http", "https", "about", "data", "blob", "javascript", "file")) {
                 // Leaving this page (a link, a script): its picture for swiping back to it.
                 if (request.isForMainFrame && !request.isRedirect) snapshot()
+                // A link to a site with the other user agent (⋮ › Desktop site): the request would
+                // go out with this one, so it is asked for again with the site's. GETs only: this
+                // isn't called for POSTs. A redirect goes on as it is, onPageStarted catches it.
+                if (request.isForMainFrame && !request.isRedirect && userAgentFor(request.url.toString())) {
+                    val to = request.url.toString()
+                    main.post { if (!destroyed && webView === view) view.loadUrl(to) }
+                    return true
+                }
                 return false
             }
             // intent:, mailto:, tel:, market: and app links go to other apps.
@@ -841,6 +959,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             url = pageUrl
             pageStarts++
             darkenFor(pageUrl)
+            applyTextZoom()
+            // A page that came with the other user agent than its site's (a redirect to another
+            // site, a window a page opened): once more, with the site's. Then it matches. Not a
+            // page from the history: that one keeps what it had (go).
+            val fromHistory = pageUrl == historyTarget
+            historyTarget = null
+            if (!fromHistory && userAgentFor(pageUrl)) main.post { if (!destroyed && webView === view && view.url == pageUrl) view.reload() }
+            if (isHttp(pageUrl)) pageModes[pageUrl] = desktopUa
             // As in Chrome, a prompt goes with the page that asked (not the one starting now).
             permissions.pageStarted(pageUrl)
             docLoading = true
@@ -853,6 +979,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             if (!documentStartSupported) {
                 view.evaluateJavascript(KEEP_PICTURES, null)
                 view.evaluateJavascript(dimPicturesScript(app.settings), null)
+                view.evaluateJavascript(viewportScript(app.settings), null)
                 view.evaluateJavascript(contentScript(view.context), null)
             }
         }
@@ -960,6 +1087,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)
         val backForwardCacheSupported: Boolean
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE)
+        val uaMetadataSupported: Boolean
+            get() = WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)
+
+        private fun isHttp(u: String) = u.startsWith("http://", ignoreCase = true) || u.startsWith("https://", ignoreCase = true)
 
         /**
          * engine/dist/autoconsent.js, then engine/src/content/serene.js, both packaged as assets.

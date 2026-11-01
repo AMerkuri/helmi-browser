@@ -58,6 +58,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import app.serene.browser.TextScale
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.webkit.WebViewCompat
 import app.serene.BuildConfig
@@ -185,6 +192,8 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                     },
                 )
             }
+
+            AccessibilitySection(app)
 
             Section("Search")
             SearchEngine.entries.forEach { e ->
@@ -396,6 +405,66 @@ private fun NpuBenchmarkRow(app: SereneApp) {
         Button(onClick = {
             ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Helmi NPU benchmark", report))
         }) { Text("Copy NPU results") }
+    }
+}
+
+/**
+ * Chrome's Settings › Accessibility: text size on pages (WebView's textZoom, on top of the phone's
+ * font size) with a preview at that size, and pinch zoom on pages that block it. Then the sites
+ * switched to ⋮ › Desktop site (as Chrome's Site settings › Desktop site lists them); X takes one
+ * back to its phone pages from its next page on.
+ */
+@Composable
+private fun AccessibilitySection(app: SereneApp) {
+    val s = app.settings
+    Section("Accessibility")
+    // The page text changes once the slider is let go; the preview follows it while it moves.
+    var scale by remember { mutableIntStateOf(s.textScale) }
+    LaunchedEffect(s.textScale) { scale = s.textScale }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Text size", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text("$scale%", style = MaterialTheme.typography.bodyLarge)
+        }
+        Slider(
+            value = scale.toFloat(),
+            onValueChange = { scale = TextScale.snap(it) },
+            onValueChangeFinished = { s.textScale = scale },
+            valueRange = TextScale.MIN.toFloat()..TextScale.MAX.toFloat(),
+            steps = (TextScale.MAX - TextScale.MIN) / TextScale.STEP - 1,
+            modifier = Modifier.semantics { contentDescription = "Text size" },
+        )
+        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Preview", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                // A page's 16 px body text at this size; sp follows the phone's font size, as pages do.
+                Text(
+                    "Move the slider until this reads comfortably. Page text is shown at this size, and the phone's font size counts too.",
+                    fontSize = (16 * scale / 100f).sp,
+                    lineHeight = (16 * scale / 100f * 1.4f).sp,
+                )
+            }
+        }
+        if (scale != TextScale.DEFAULT) {
+            TextButton(onClick = { scale = TextScale.DEFAULT; s.textScale = TextScale.DEFAULT }, modifier = Modifier.align(Alignment.End)) { Text("Reset to 100%") }
+        }
+    }
+    SwitchRow(
+        "Override sites' zoom block",
+        "Pinch to zoom on every page, also where the site asks not to be zoomed.",
+        s.forceZoom,
+    ) { s.forceZoom = it }
+    if (s.desktopSites.isEmpty()) return
+    Section("Desktop site")
+    s.desktopSites.sorted().forEach { site ->
+        ListItem(
+            headlineContent = { Text(site) },
+            supportingContent = { Text("Desktop pages") },
+            trailingContent = {
+                IconButton(onClick = { s.setDesktopSite(site, false) }) { Icon(Icons.Filled.Close, "Show phone pages of $site") }
+            },
+        )
     }
 }
 
