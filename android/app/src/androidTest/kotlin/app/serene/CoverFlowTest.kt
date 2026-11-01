@@ -272,6 +272,9 @@ class CoverFlowTest {
     private fun waitFor(what: String, timeoutMs: Long = 20_000, ok: () -> Boolean) {
         val end = SystemClock.uptimeMillis() + timeoutMs
         while (SystemClock.uptimeMillis() < end && !ok()) SystemClock.sleep(100)
+        // What the screen showed, for the e2e-output artifact's logcat: a timeout here is rare
+        // and hasn't been reproduced, so the picture is what there is to go on.
+        if (!ok()) shot("timed out: $what")
         assertTrue("timed out: $what", ok())
     }
 
