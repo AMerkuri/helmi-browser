@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.serene.bookmarks.Bookmarks
 import app.serene.browser.History
+import app.serene.browser.PrivateBrowsing
 import app.serene.browser.SitePermissions
 import app.serene.download.Downloads
 import app.serene.engine.AutoconsentRules
@@ -123,6 +124,8 @@ class SereneApp : Application() {
     lateinit var history: History private set
     /** Camera, microphone and location: what the user allowed or blocked per site. */
     lateinit var sitePermissions: SitePermissions private set
+    /** Private tabs: their profile, and what Helmi keeps for them until the last one closes. */
+    lateinit var privacy: PrivateBrowsing private set
 
     /** Shown in settings: "loading", "ready", or an error. */
     var rulesStatus by mutableStateOf("loading")
@@ -158,6 +161,7 @@ class SereneApp : Application() {
         stats = Stats(File(filesDir, "stats.json"), scope)
         engine.events = stats
         history = History(File(filesDir, "history.json"), scope)
+        privacy = PrivateBrowsing(this)
         loadRules(force = false)
         scope.launch(Dispatchers.IO) {
             // DuckDuckGo autoconsent's rule snapshot (engine/dist): a real "reject" for the consent

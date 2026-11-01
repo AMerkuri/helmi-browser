@@ -22,8 +22,9 @@ class TabManager(private val context: Context, private val app: SereneApp) {
 
     val current: Tab? get() = tabs.getOrNull(currentIndex)
 
-    fun open(url: String? = null, select: Boolean = true): Tab {
-        val tab = Tab(context, app, nextId++).also { it.manager = this }
+    /** A new tab at the end; [isPrivate] for a private one (PrivateBrowsing). */
+    fun open(url: String? = null, select: Boolean = true, isPrivate: Boolean = false): Tab {
+        val tab = Tab(context, app, nextId++, isPrivate = isPrivate && app.privacy.supported).also { it.manager = this }
         tabs += tab
         if (select) {
             leave()
@@ -36,9 +37,10 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     /**
      * A page in [from] opened a window (window.open, a target=_blank link): a new tab right after
      * it, on screen, with [from] as its opener. The page goes in from WebView (Tab.onCreateWindow).
+     * Private if [from] is: a window shares its opener's profile (and WebView needs it to).
      */
     fun openWindow(from: Tab): Tab {
-        val tab = Tab(context, app, nextId++, openedByPage = true).also { it.manager = this; it.opener = from }
+        val tab = Tab(context, app, nextId++, openedByPage = true, isPrivate = from.isPrivate).also { it.manager = this; it.opener = from }
         val at = tabs.indexOf(from).let { if (it < 0) tabs.size else it + 1 }
         leave()
         tabs.add(at, tab)
@@ -151,6 +153,23 @@ class TabManager(private val context: Context, private val app: SereneApp) {
         tab.destroy()
         for (t in tabs) if (t.opener === tab) t.opener = null
         tab.opener = null
+        if (tab.isPrivate) endPrivateIfLast()
+    }
+
+    /** Private tabs open, the closed one Undo can bring back included. */
+    val hasPrivate: Boolean get() = tabs.any { it.isPrivate } || closed?.tab?.isPrivate == true
+
+    // The last private tab is gone for good: so is everything the private tabs kept (PrivateBrowsing.end).
+    private fun endPrivateIfLast() {
+        if (!hasPrivate) app.privacy.end()
+    }
+
+    /** The activity is going: every tab goes, and the private tabs' profile with them. */
+    fun destroyAll() {
+        forget()
+        tabs.forEach { it.destroy() }
+        tabs.clear()
+        app.privacy.end()
     }
 
     /** Undo: puts the [closed] tab back where it was, and back on screen if it was. */
@@ -184,8 +203,9 @@ class TabManager(private val context: Context, private val app: SereneApp) {
     private val historyFile get() = File(context.filesDir, "tab-history.json")
 
     fun save() {
-        // A tab opened for a download would download the file again on restore.
-        val saved = tabs.filterNot { it.downloadPage }.filter { it.url.startsWith("http") }
+        // A tab opened for a download would download the file again on restore. Private tabs are
+        // never saved: they don't come back after a restart.
+        val saved = tabs.filterNot { it.downloadPage || it.isPrivate }.filter { it.url.startsWith("http") }
         app.settings.savedTabs = saved.map { it.url }
         // Where the tab on screen is among those saved (or the next one, if it isn't saved).
         app.settings.savedTabIndex = saved.count { tabs.indexOf(it) < currentIndex }
