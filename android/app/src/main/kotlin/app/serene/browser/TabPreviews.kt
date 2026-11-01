@@ -67,6 +67,8 @@ object TabPreviews {
             remove(tab)
             return done()
         }
+        // The page went with its renderer: the card keeps the picture of it.
+        if (tab.crashed != null) return done()
         val v = tab.webView
         val window = activityOf(v.context)?.window
         if (covered || window == null || !v.isShown || v.width == 0 || v.height == 0) return done()
