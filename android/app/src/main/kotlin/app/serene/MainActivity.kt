@@ -46,6 +46,7 @@ import app.serene.browser.SitePermission
 import app.serene.browser.TabManager
 import app.serene.browser.TabPreviews
 import app.serene.download.DownloadService
+import app.serene.ui.BookmarksScreen
 import app.serene.ui.BrowserScreen
 import app.serene.ui.AndroidBlockedDialog
 import app.serene.ui.ClosedTabBar
@@ -61,7 +62,7 @@ import app.serene.ui.nightUiMode
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
-enum class Screen { Browser, Tabs, Settings, Downloads, History }
+enum class Screen { Browser, Tabs, Settings, Downloads, History, Bookmarks }
 
 class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     @VisibleForTesting lateinit var tabs: TabManager
@@ -227,6 +228,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
                         Screen.Settings -> SettingsScreen(app, onBack = { screen = Screen.Browser })
                         Screen.Downloads -> DownloadsScreen(app.downloads, onBack = { screen = Screen.Browser })
                         Screen.History -> HistoryScreen(app, onBack = { screen = Screen.Browser }, onOpen = ::openPage)
+                        Screen.Bookmarks -> BookmarksScreen(app.bookmarks, onOpen = ::openPage, onBack = { screen = Screen.Browser })
                     }
                     // Over every screen, so its timer runs out (and the tab is let go) wherever you are.
                     // Just above the bottom bar (with the bar's own 12 dp), and the tab switcher's buttons.
@@ -264,7 +266,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         }
     }
 
-    /** A page from the history: in the tab in front (a new one for [newTab]), as Chrome does. */
+    /** A page from the history or the bookmarks: in the tab in front (a new one for [newTab]), as Chrome does. */
     private fun openPage(url: String, newTab: Boolean) {
         val tab = tabs.current
         if (newTab || tab == null) tabs.open(url) else tab.load(url)

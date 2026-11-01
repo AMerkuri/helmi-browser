@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.DropdownMenuItem
@@ -430,9 +431,11 @@ private fun BottomBar(
         ) {
             IconButton(onClick = { menu.targetState = true }) { Icon(Icons.Filled.MoreVert, "Menu") }
             BarMenu(menu, barTop) {
+                val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
+                BookmarkItem(app, tab, enabled = onPage, onDone = ::close)
                 DropdownMenuItem(text = { Text("History") }, onClick = { close(); onOpen(Screen.History) })
                 DropdownMenuItem(text = { Text("Downloads") }, onClick = { close(); onOpen(Screen.Downloads) })
-                val onPage = tab.hasPage && !tab.downloadPage && tab.url.isNotEmpty() && tab.url != "about:blank"
+                DropdownMenuItem(text = { Text("Bookmarks") }, onClick = { close(); onOpen(Screen.Bookmarks) })
                 DropdownMenuItem(text = { Text("Reader mode") }, enabled = onPage, onClick = { close(); onReader() })
                 DropdownMenuItem(text = { Text("Report missed popup") }, onClick = { close(); onReport() })
                 val site = tab.session?.site()
@@ -461,6 +464,27 @@ private fun BottomBar(
             }
         }
     }
+}
+
+/** Chrome's star: saves the page, or (filled) takes it out of the bookmarks again. */
+@Composable
+private fun BookmarkItem(app: SereneApp, tab: Tab, enabled: Boolean, onDone: () -> Unit) {
+    val context = LocalContext.current
+    val saved = enabled && app.bookmarks.find(tab.url) != null
+    DropdownMenuItem(
+        text = { Text(if (saved) "Bookmarked" else "Bookmark") },
+        trailingIcon = {
+            if (saved) Icon(Icons.Filled.Star, "Saved", tint = MaterialTheme.colorScheme.primary)
+            else Icon(painterResource(R.drawable.ic_star_border), null)
+        },
+        enabled = enabled,
+        onClick = {
+            onDone()
+            val b = app.bookmarks.find(tab.url)
+            if (b != null) app.bookmarks.remove(b.id) else app.bookmarks.add(tab.url, tab.title)
+            Toast.makeText(context, if (b != null) "Bookmark removed" else "Bookmarked", Toast.LENGTH_SHORT).show()
+        },
+    )
 }
 
 /**
