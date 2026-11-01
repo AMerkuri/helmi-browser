@@ -20,7 +20,8 @@ import kotlin.concurrent.thread
 /**
  * ⋮ › Desktop site: the site's pages come with a desktop user agent (in the request and in
  * navigator.userAgent) and a desktop-wide viewport, a link to another site goes out with that
- * site's (phone) user agent, and back to the desktop site gets the desktop one again. Settings ›
+ * site's (phone) user agent, and back to the desktop site gets the desktop one again. Pages in
+ * the history keep what they came with after the site is switched back. Settings ›
  * Accessibility: "Override sites' zoom block" lifts user-scalable=no, Text size sets textZoom.
  * 127.0.0.1 and localhost are two sites.
  */
@@ -133,6 +134,16 @@ class DesktopSiteTest {
             page = waitForPage(t, "/second", page.getInt("n"))
             assertMobile(page, "switched off")
             assertFalse("forgotten for the site", app.settings.isDesktopSite("127.0.0.1"))
+            scenario.onActivity { assertFalse("the menu's switch: this page", t.desktopUa) }
+
+            // The history keeps each page as it came: /first was a desktop page, /second a phone one now.
+            scenario.onActivity { t.go(-1) }
+            page = waitForPage(t, "/first", page.getInt("n"))
+            assertDesktop(page, "back to a page that came as desktop, site switched off since")
+            scenario.onActivity { assertTrue("the menu's switch: this page", t.desktopUa) }
+            scenario.onActivity { t.go(1) }
+            page = waitForPage(t, "/second", page.getInt("n"))
+            assertMobile(page, "forward to the page switched off")
         }
     }
 

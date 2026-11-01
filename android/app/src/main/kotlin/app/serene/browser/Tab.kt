@@ -173,7 +173,16 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     // desktop pages now (see userAgentFor).
     private var mobileUa = ""
     private var mobileUaMetadata: UserAgentMetadata? = null
-    private var desktopUa = false
+    /** Whether the tab asks for desktop pages now: what its page came with, once it has started. */
+    var desktopUa by mutableStateOf(false)
+        private set
+    // Desktop or phone, as each page of this tab's history came (by address): back and forward
+    // get a page as it was, as in Chrome, also after the site's choice changed. The newest 200.
+    private val pageModes = object : LinkedHashMap<String, Boolean>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>) = size > 200
+    }
+    // The page a history step (or a restore) is on its way to: it keeps its own mode (onPageStarted).
+    private var historyTarget: String? = null
 
     init {
         setUp()
@@ -518,7 +527,11 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
      * the page alone.
      */
     fun restore(pageUrl: String, history: Map<String, ByteArray>?) {
-        userAgentFor(pageUrl)
+        // After a crash, the page as it was; after a restart, its site's choice.
+        if (isHttp(pageUrl)) {
+            setDesktopUa(pageModes[pageUrl] ?: app.settings.isDesktopSite(siteOf(pageUrl)))
+            historyTarget = pageUrl
+        }
         val list = if (history.isNullOrEmpty()) null
         else runCatching { webView.restoreState(Bundle().apply { history.forEach { (k, v) -> putByteArray(k, v) } }) }.getOrNull()
         val page = list?.currentItem?.url
@@ -554,15 +567,20 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     /** One step through the history: [BACK] or [HistorySwipe.FORWARD]. */
     fun go(dir: Int) {
         if (!webView.canGoBackOrForward(dir)) return
-        // A page loaded again (not from the back/forward cache) goes out with its site's user agent.
+        // The page as it came the last time, desktop or phone (when it loads again, not from the
+        // back/forward cache); one this tab hasn't seen load, as its site's choice says.
         val list = webView.copyBackForwardList()
-        list.getItemAtIndex(list.currentIndex + dir)?.url?.let(::userAgentFor)
+        list.getItemAtIndex(list.currentIndex + dir)?.url?.takeIf(::isHttp)?.let { to ->
+            setDesktopUa(pageModes[to] ?: app.settings.isDesktopSite(siteOf(to)))
+            historyTarget = to
+        }
         webView.goBackOrForward(dir)
     }
 
     /**
      * ⋮ › Desktop site, Chrome's "Request desktop site": this site asks for desktop pages, or for
-     * phone pages again, and the page loads again with it. Remembered per site (Chrome does too).
+     * phone pages again, and the page loads again with it. Remembered per site (Chrome does too);
+     * pages in the history keep what they came with (go).
      * A site that sent the phone to other pages (en.wikipedia.org to en.m.wikipedia.org) is asked
      * at the address first asked for, as Chrome does, or it would keep its phone pages.
      */
@@ -826,8 +844,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             darkenFor(pageUrl)
             applyTextZoom()
             // A page that came with the other user agent than its site's (a redirect to another
-            // site, a window a page opened): once more, with the site's. Then it matches.
-            if (userAgentFor(pageUrl)) main.post { if (!destroyed && webView === view && view.url == pageUrl) view.reload() }
+            // site, a window a page opened): once more, with the site's. Then it matches. Not a
+            // page from the history: that one keeps what it had (go).
+            val fromHistory = pageUrl == historyTarget
+            historyTarget = null
+            if (!fromHistory && userAgentFor(pageUrl)) main.post { if (!destroyed && webView === view && view.url == pageUrl) view.reload() }
+            if (isHttp(pageUrl)) pageModes[pageUrl] = desktopUa
             // As in Chrome, a prompt goes with the page that asked (not the one starting now).
             permissions.pageStarted(pageUrl)
             docLoading = true

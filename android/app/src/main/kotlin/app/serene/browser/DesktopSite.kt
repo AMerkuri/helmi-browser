@@ -2,7 +2,7 @@ package app.serene.browser
 
 import app.serene.Settings
 import androidx.webkit.UserAgentMetadata
-import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * ⋮ › Desktop site, as Chrome sends it: the reduced user agent of Chrome on desktop Linux, with
@@ -10,9 +10,12 @@ import org.json.JSONArray
  * stop sending their phone pages (Chrome's own desktop mode sends this string too).
  * [mobile] is the WebView's own user agent; without a Chrome version in it, a recent one.
  */
+/** The platform in [desktopUserAgent]: no phone's user agent has it. */
+internal const val DESKTOP_PLATFORM = "X11; Linux x86_64"
+
 fun desktopUserAgent(mobile: String): String {
     val major = Regex("""Chrome/(\d+)""").find(mobile)?.groupValues?.get(1) ?: "141"
-    return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
+    return "Mozilla/5.0 ($DESKTOP_PLATFORM) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
 }
 
 /**
@@ -33,7 +36,8 @@ fun desktopUserAgentMetadata(mobile: UserAgentMetadata): UserAgentMetadata =
 /**
  * The page's viewport, rewritten in its <meta name=viewport> before it lays out (a document-start
  * script in the top frame, built from the settings; the tab registers it again when they change,
- * and runs it on the page that is open). Run again, it puts back what it changed and applies the
+ * and runs it on the page that is open). A page is a desktop one when it came with the desktop
+ * user agent, so the width always goes with what the site was asked with. Run again, it puts back what it changed and applies the
  * settings as they are now.
  *
  * - ⋮ › Desktop site: the page is laid out as wide as a desktop window (980 px, WebView's wide
@@ -45,13 +49,13 @@ fun desktopUserAgentMetadata(mobile: UserAgentMetadata): UserAgentMetadata =
  * The rewriting itself is [rewriteViewport]'s, in JavaScript as [VIEWPORT_JS].
  */
 fun viewportScript(s: Settings): String {
-    val sites = JSONArray(s.desktopSites.sorted())
     return """(() => {
         if (window.top !== window) return;
         const key = Symbol.for('serene.viewport');
         const st = window[key] || (window[key] = { orig: new WeakMap(), wrote: new WeakMap() });
-        const sites = $sites, host = location.hostname;
-        st.desktop = /^https?:$/.test(location.protocol) && sites.some(s => host === s || host.endsWith('.' + s));
+        // A desktop page: one that came with the desktop user agent (the tab chose it for this
+        // page, by its site or as it was in the history).
+        st.desktop = navigator.userAgent.includes(${JSONObject.quote(DESKTOP_PLATFORM)});
         st.force = ${s.forceZoom};
         $VIEWPORT_JS
         const fix = (m) => {
