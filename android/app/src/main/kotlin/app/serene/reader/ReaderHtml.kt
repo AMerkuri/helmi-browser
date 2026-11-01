@@ -19,7 +19,8 @@ data class ReaderStyle(
 /**
  * The reader view's document: the extracted article in book typography. It is loaded into a
  * WebView with JavaScript off, and the Content-Security-Policy stops scripts, frames, plugins, forms and
- * any request other than images and media, whatever the page's HTML holds.
+ * any request other than images and media, whatever the page's HTML holds. Printed, it is black on
+ * white whatever the theme (the Night theme's light grey text would come out faint on paper).
  */
 object ReaderHtml {
     const val CSP = "default-src 'none'; img-src * data: blob:; media-src *; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'"
@@ -77,6 +78,14 @@ object ReaderHtml {
             td, th { border: 1px solid ${css(t.muted)}40; padding: .3em .5em; }
             hr { border: 0; border-top: 1px solid ${css(t.muted)}40; margin: 2em 0; }
             ul, ol { padding-left: 1.4em; }
+            @media print {
+              html, body { background: #fff; color: #000; }
+              main { max-width: none; padding: 0; }
+              .meta, figcaption, blockquote { color: #555; }
+              img, video { filter: none; }
+              img, figure, pre, blockquote { break-inside: avoid; }
+              h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+            }
             </style>
             <title>${escape(page.title)}</title>
             </head>
