@@ -83,16 +83,22 @@ object PageImages {
         return bytes to type
     }
 
-    /** Follows redirects itself, so each hop gets only its own cookies (as Downloads does). */
-    private fun download(src: String, userAgent: String, referer: String?, cookies: CookieManager): Pair<ByteArray, String> {
+    /**
+     * Follows redirects itself, so each hop gets only its own cookies (as Downloads does). Also
+     * fetches a site's icons and manifest for Add to home screen (HomeShortcut).
+     */
+    internal fun download(
+        src: String, userAgent: String, referer: String?, cookies: CookieManager,
+        maxBytes: Int = MAX_BYTES, accept: String = ACCEPT, connectMs: Int = 15_000, readMs: Int = 30_000,
+    ): Pair<ByteArray, String> {
         var url = URL(src)
         repeat(MAX_REDIRECTS) {
             val c = (url.openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
-                connectTimeout = 15_000
-                readTimeout = 30_000
+                connectTimeout = connectMs
+                readTimeout = readMs
                 setRequestProperty("User-Agent", userAgent)
-                setRequestProperty("Accept", ACCEPT)
+                setRequestProperty("Accept", accept)
                 referer?.let { setRequestProperty("Referer", it) }
                 runCatching { cookies.getCookie(url.toString()) }.getOrNull()?.let { setRequestProperty("Cookie", it) }
             }
@@ -112,7 +118,7 @@ object PageImages {
                         val n = input.read(buf)
                         if (n < 0) break
                         out.write(buf, 0, n)
-                        if (out.size() > MAX_BYTES) throw IOException("picture over ${MAX_BYTES shr 20} MB")
+                        if (out.size() > maxBytes) throw IOException("over ${maxBytes shr 10} KB")
                     }
                 }
                 return out.toByteArray() to c.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()

@@ -46,6 +46,9 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.serene.browser.FilePickerHost
+import app.serene.browser.HomeShortcut
+import app.serene.browser.HomeShortcutData
+import app.serene.browser.Tab
 import app.serene.browser.TabDiscard
 import app.serene.browser.PermissionHost
 import app.serene.browser.SitePermission
@@ -352,7 +355,12 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         } ?: return
         tabs.tabs.forEach { it.exitFullscreen() }
         if (intent?.action == Intent.ACTION_VIEW) linkOpenedAt = SystemClock.elapsedRealtime()
-        tabs.open(url)
+        // A home screen shortcut (⋮ › Add to home screen): the tab already on its page, if any.
+        val onPage = if (intent?.action == Intent.ACTION_VIEW && intent.getBooleanExtra(HomeShortcut.EXTRA_SHORTCUT, false)) {
+            val on = { t: Tab -> !t.isPrivate && HomeShortcutData.samePage(url, t.url) }
+            tabs.current?.takeIf(on) ?: tabs.tabs.lastOrNull(on)
+        } else null
+        if (onPage != null) tabs.select(onPage) else tabs.open(url)
         screen = Screen.Browser
     }
 

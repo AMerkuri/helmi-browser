@@ -129,6 +129,7 @@ import app.serene.R
 import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.FindInPage
+import app.serene.browser.HomeShortcut
 import app.serene.browser.PagePrint
 import app.serene.browser.SharedText
 import app.serene.browser.Suggestions
@@ -524,6 +525,8 @@ private fun BottomBar(
     val menu = remember { MutableTransitionState(false) }
     fun close() { menu.targetState = false }
     var barTop by remember { mutableIntStateOf(0) }
+    var addToHome by remember(tab) { mutableStateOf(false) }
+    if (addToHome) AddToHomeDialog(tab, onDismiss = { addToHome = false })
     HorizontalDivider()
     Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { if (tab.canGoBack) tab.goBack() else tabs.closeWindow(tab) }, enabled = tab.canGoBack || tabs.openerOf(tab) != null, modifier = Modifier.weight(1f)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -560,6 +563,11 @@ private fun BottomBar(
                 // Chrome's ⋮ › Desktop site: this site's desktop pages, remembered for the site. The
                 // switch shows this page (one from the history keeps what it came with).
                 val web = onPage && (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
+                // Chrome's place for it, after Find in page. Not in a private tab: the shortcut would
+                // keep the page's address on the home screen and open it outside private browsing.
+                if (!tab.isPrivate && HomeShortcut.supported(context)) {
+                    DropdownMenuItem(text = { Text("Add to home screen") }, enabled = web, onClick = { close(); addToHome = true })
+                }
                 val desktop = web && tab.desktopUa
                 DropdownMenuItem(
                     text = { Text("Desktop site") },
