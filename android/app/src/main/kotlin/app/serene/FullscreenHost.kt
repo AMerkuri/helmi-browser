@@ -2,10 +2,12 @@ package app.serene
 
 import android.content.pm.ActivityInfo
 import android.graphics.Color
+import android.graphics.Rect
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -13,6 +15,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import app.serene.browser.Fullscreen
 import app.serene.browser.fullscreenOrientation
+import app.serene.browser.letterbox
 
 /**
  * Shows a page's fullscreen element over the whole window, as Chrome does: over the bars, the
@@ -22,6 +25,7 @@ import app.serene.browser.fullscreenOrientation
  * The activity handles screen changes in place (the manifest's configChanges), so turning the
  * phone or folding the Fold keeps the video playing; the orientation is picked again for the new
  * screen.
+ * In picture-in-picture (PictureInPictureHost) the box is all the small window shows.
  */
 class FullscreenHost(private val activity: ComponentActivity) {
     private var shown: Fullscreen? = null
@@ -78,7 +82,9 @@ class FullscreenHost(private val activity: ComponentActivity) {
     /** The fullscreen video's size, once its frame says (null: no video, or not yet). */
     fun orient(size: IntSize?) {
         video = size
-        if (shown == null) return
+        val f = shown ?: return
+        // On its way to a small window, or in one: turning the screen would only shake it.
+        if (f.pictureInPicture || activity.isInPictureInPictureMode) return
         val o = fullscreenOrientation(size, activity.resources.configuration.smallestScreenWidthDp)
         activity.requestedOrientation = if (o == ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED) orientationBefore else o
     }
@@ -86,6 +92,20 @@ class FullscreenHost(private val activity: ComponentActivity) {
     /** A new screen (folded, unfolded, turned): a phone-sized screen turns to the video, a big one doesn't. */
     fun onConfigurationChanged() {
         if (shown != null) orient(video)
+    }
+
+    /**
+     * Where the video is drawn in the window: the box less the cutout's black, then as big as the
+     * video's shape fits. Null before the box is laid out.
+     */
+    fun videoBounds(size: IntSize?): Rect? {
+        val b = box ?: return null
+        if (b.width == 0 || b.height == 0) return null
+        val xy = IntArray(2)
+        b.getLocationInWindow(xy)
+        val inner = IntRect(xy[0] + b.paddingLeft, xy[1] + b.paddingTop, xy[0] + b.width - b.paddingRight, xy[1] + b.height - b.paddingBottom)
+        val r = if (size == null) inner else letterbox(inner, size)
+        return if (r.width <= 0 || r.height <= 0) null else Rect(r.left, r.top, r.right, r.bottom)
     }
 
     /** Back from another app or a system dialog: the bars it showed go again. */

@@ -86,6 +86,8 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     @VisibleForTesting val snackbar = SnackbarHostState()
     /** A page's video in fullscreen, over everything. */
     @VisibleForTesting val fullscreen = FullscreenHost(this)
+    /** That video in a small window when the user leaves, or when its page asks. */
+    private val pip = PictureInPictureHost(this, fullscreen)
     private val systemBars = SystemBars(this)
 
     // The Theme setting this activity was created with, for API < 31 (see attachBaseContext).
@@ -205,6 +207,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         // Private tabs open when the app was last killed: their profile goes now.
         app.privacy.cleanUp()
         handleIntent(intent)
+        pip.start()
 
         setContent {
             // The tab switcher and the reader asking for their own bar icons, or going.
@@ -248,10 +251,16 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
             val full = fullTab?.fullscreen
             DisposableEffect(full) {
                 full?.let(fullscreen::show)
-                onDispose { fullscreen.hide() }
+                onDispose {
+                    fullscreen.hide()
+                    pip.onFullscreenGone()
+                }
             }
-            val video = fullTab?.fullscreenVideo
+            val media = fullTab?.fullscreenMedia
+            val video = media?.size
             LaunchedEffect(full, video) { fullscreen.orient(video) }
+            val pipAsked = full?.pictureInPicture == true
+            LaunchedEffect(fullTab, full, media, pipAsked) { pip.update(fullTab, full, media) }
             // A private tab on screen, or private cards in the tab switcher: no screenshots or
             // screen recording, and a blank picture in the recent apps, as Chrome's Incognito.
             val secure = when (screen) {
@@ -324,6 +333,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        pip.onNewIntent()
         handleIntent(intent)
     }
 
@@ -355,6 +365,22 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
         // Pages follow the theme too; a WebView that isn't on screen misses the change.
         tabs.tabs.forEach { it.applyDarkening() }
         fullscreen.onConfigurationChanged()
+        pip.refresh()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        pip.onUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pip.onModeChanged(isInPictureInPictureMode)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        pip.onResume()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -398,12 +424,14 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
 
     override fun onPause() {
         super.onPause()
-        // The page as it was left, for its card after a restart.
-        if (screen == Screen.Browser) tabs.current?.let { TabPreviews.capture(it) }
+        // The page as it was left, for its card after a restart. Not on the way into
+        // picture-in-picture: the page is under the video then.
+        if (screen == Screen.Browser && !fullscreen.isShown) tabs.current?.let { TabPreviews.capture(it) }
     }
 
     override fun onStop() {
         super.onStop()
+        pip.onStop()
         batterySaver.stop(this)
         main.removeCallbacks(idleTabs)
         window.decorView.removeCallbacks(askDefaultBrowser)
@@ -417,6 +445,7 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
     override fun onDestroy() {
         // Private tabs don't outlive the activity: their profile is deleted with them.
         tabs.destroyAll()
+        pip.stop()
         super.onDestroy()
     }
 
