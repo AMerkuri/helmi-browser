@@ -1,0 +1,63 @@
+name: conventional
+
+# Pull request titles, branch names and commit messages follow Conventional Commits
+# (https://www.conventionalcommits.org, rules in CLAUDE.md). One shell step against the GitHub
+# API: no checkout and nothing to install, so a run takes seconds. It runs on every PR, whatever
+# the paths, and again when the title is edited. Merge commits (GitHub's "Update branch") are
+# skipped.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: conventional-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Title, branch and commit messages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          types='feat|fix|docs|refactor|test|chore|ci|perf|build|style|revert'
+          # type(scope)!: summary. Scope and ! are optional; at most 100 characters.
+          header="^($types)(\([a-z0-9][a-z0-9._/-]*\))?!?: [^ ](.*[^.])?$"
+          # type/short-kebab-description
+          branch="^($types)/[a-z0-9]+(-[a-z0-9]+)*$"
+          failed=0
+
+          check_header() { # $1 what, $2 text
+            if ! [[ $2 =~ $header ]] || [ ${#2} -gt 100 ]; then
+              echo "::error::$1 is not 'type(scope): summary' (types: ${types//|/, }; no trailing period; 100 characters at most): $2"
+              failed=1
+            fi
+          }
+
+          check_header "PR title" "$TITLE"
+
+          if ! [[ $BRANCH =~ $branch ]]; then
+            echo "::error::Branch is not 'type/short-kebab-description' (types: ${types//|/, }): $BRANCH. Rename it on GitHub (the PR follows) or push the commits to a new branch."
+            failed=1
+          fi
+
+          commits=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/commits" \
+            --jq '.[] | select((.parents | length) < 2) | "\(.sha[0:7]) \(.commit.message | split("\n")[0])"')
+          while read -r sha subject; do
+            if [ -n "$sha" ]; then check_header "Commit $sha" "$subject"; fi
+          done <<< "$commits"
+
+          if [ $failed = 1 ]; then
+            echo "Reword commits with an interactive rebase, or squash the branch into one conforming commit, then force-push."
+            exit 1
+          fi
+          echo "Title, branch and commit messages ($(grep -c . <<< "$commits" || true)) follow Conventional Commits."

@@ -5,7 +5,7 @@ name: claude
 # CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, bills a Claude plan) or ANTHROPIC_API_KEY.
 #
 # - A new issue from someone with write access (a "Report missed popup" filed from the app, say)
-#   is worked straight away: Claude pushes a claude/issue-N-... branch and opens a PR for it.
+#   is worked straight away: Claude pushes a fix/issue-N-... branch and opens a PR for it.
 # - Anyone else's issue waits until a maintainer adds the `claude` label, because issues are
 #   public and their text becomes Claude's instructions.
 # - "@claude ..." in an issue or PR comment, a PR review or a review comment, from someone with
@@ -43,8 +43,10 @@ env:
     android/app/src/main/kotlin/app/serene/engine/ and its tests in the same branch. Never hide
     page content that is not an overlay: a false positive is worse than a miss.
 
-    When the branch is pushed, open the PR yourself:
-    `gh pr create --base main --head <your branch> --title "<what it fixes>" --body "Fixes #<issue>. <what changed and how you tested it>"`
+    Commit messages and the PR title follow Conventional Commits, as CLAUDE.md describes
+    (`fix(engine): hide the example.com newsletter box`); the conventional check fails the PR
+    otherwise. When the branch is pushed, open the PR yourself:
+    `gh pr create --base main --head <your branch> --title "fix(<scope>): <what it fixes>" --body "Fixes #<issue>. <what changed and how you tested it>"`
     and put the PR link in your comment instead of a "Create a PR" link. The PR's CI builds a
     debug APK to try the fix on a phone.
 
@@ -117,6 +119,9 @@ jobs:
           prompt: ${{ github.event_name == 'issues' && env.ISSUE_PROMPT || '' }}
           track_progress: ${{ github.event_name == 'issues' }}
           include_comments_by_actor: ${{ github.repository_owner }},claude[bot]
+          # Branches it creates are named fix/issue-N-<timestamp>, which passes the
+          # conventional check (type/short-kebab-description).
+          branch_prefix: fix/
           additional_permissions: |
             actions: read
           claude_args: >-
