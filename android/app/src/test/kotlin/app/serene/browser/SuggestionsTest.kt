@@ -155,4 +155,42 @@ class SuggestionsTest {
         assertTrue(Suggestions.isFrontPageOf("https://www.github.com/", "github.com"))
         assertTrue(!Suggestions.isFrontPageOf("https://github.com/x", "github.com"))
     }
+
+    private fun tab(id: Long, url: String, title: String = "", shownAt: Long = 0) = OpenTab(id, url, title, shownAt)
+
+    @Test
+    fun anOpenTabMatchesByAddressOrTitleWithEveryWord() {
+        val tabs = listOf(
+            tab(1, "https://github.com/AMerkuri/helmi-browser", "helmi-browser"),
+            tab(2, "https://news.example/today", "Harbour news"),
+            tab(3, "https://weather.example/", "Tallinn weather"),
+        )
+        assertEquals(listOf(1L), Suggestions.openTabs("github", tabs).map { it.id })
+        assertEquals(listOf(1L), Suggestions.openTabs("github.com/amerkuri", tabs).map { it.id })
+        assertEquals(listOf(2L), Suggestions.openTabs("harbour", tabs).map { it.id })
+        assertEquals(listOf(3L), Suggestions.openTabs("weather tallinn", tabs).map { it.id })
+        assertTrue(Suggestions.openTabs("weather riga", tabs).isEmpty())
+        assertTrue(Suggestions.openTabs("  ", tabs).isEmpty())
+    }
+
+    @Test
+    fun aTabWhoseAddressStartsWithTheTypingComesFirstThenTheLatestShown() {
+        val tabs = listOf(
+            tab(1, "https://news.example/github-story", "All about GitHub", shownAt = 300),
+            tab(2, "https://www.github.com/AMerkuri", "AMerkuri", shownAt = 100),
+            tab(3, "https://blog.example/", "git tips", shownAt = 200),
+            tab(4, "https://other.example/", "on GitHub too", shownAt = 400),
+        )
+        assertEquals(listOf(2L, 4L, 1L), Suggestions.openTabs("git", tabs).map { it.id })
+        assertEquals(listOf(2L, 4L, 1L, 3L), Suggestions.openTabs("git", tabs, limit = 10).map { it.id })
+    }
+
+    @Test
+    fun aPageOpenInTwoTabsIsOneRowForTheLatest() {
+        val tabs = listOf(
+            tab(1, "https://a.example/page", "Page", shownAt = 100),
+            tab(2, "https://a.example/page/", "Page", shownAt = 200),
+        )
+        assertEquals(listOf(2L), Suggestions.openTabs("page", tabs).map { it.id })
+    }
 }
