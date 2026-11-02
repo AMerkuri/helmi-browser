@@ -15,3 +15,12 @@ Android browser that removes page annoyances (cookie banners, newsletter boxes, 
 - Fixtures are hand-written imitations of an overlay pattern, never copies of a real site.
 - A false positive (hiding real page content) is worse than a missed popup.
 - Build and unit-test the app before pushing an app change: `cd android && ./gradlew :app:assembleDebug :app:testDebugUnitTest` (about 8 minutes the first time in a session, 3 after). In a cloud session the environment's setup script runs `android/scripts/cloud-setup.sh`, which installs the SDK, NDK, cargo-ndk and a Maven Central mirror (Maven Central answers 429 there); if `android/local.properties` is missing, run that script first. Emulator tests (`app/src/androidTest`) need KVM, so only the `android` workflow runs them. It also builds a debug APK on every PR that touches the app (or the engine files it packages) and links it in the PR description.
+
+## Commits, branches and pull requests
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). The `conventional` workflow checks every PR's title, branch name and commit messages (merge commits are skipped) and fails when one doesn't follow these rules.
+
+- Commit messages: `type(scope): summary`, where type is one of `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `perf`, `build`, `style` or `revert`. The scope is optional, lowercase, and names the area, such as `engine`, `android`, `tabs` or `reader`. Write the summary in the imperative, with no trailing period, and keep the whole line to 100 characters at most; details go in the body. Mark a breaking change with `!` before the colon (`feat(engine)!: ...`).
+- Branch names: `type/short-kebab-description` with the same types, lowercase letters, digits and hyphens after the slash, for example `fix/swedbank-cookie-banner`. When a cloud session assigns a `claude/...` branch, create and push a `type/...` branch instead.
+- Pull request titles use the commit format too (`fix(engine): hide the seb.ee cookie modal`), because release notes are built from PR titles.
+- To fix a commit message that fails the check, amend it, reword it with a rebase, or squash the branch into one conforming commit, then force-push the branch.
