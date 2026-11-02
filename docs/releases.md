@@ -57,6 +57,8 @@ git push origin v0.2.0
 
 or open **Actions → release → Run workflow**, pick the branch and type the version (`0.2.0`); the workflow tags that branch's latest commit.
 
+Or ask Claude to make a release: the [`release` skill](../.claude/skills/release/SKILL.md) picks the next version from what merged since the last one, runs the workflow and checks the published APK and its signature.
+
 The workflow checks the secrets, builds `:app:assembleRelease` with that version, verifies the APK is signed with the release key (and not the debug key), and publishes the release `Helmi 0.2.0` with `helmi-0.2.0.apk`, its `.sha256` and notes generated from the merged PRs since the last release. It takes about 5 to 8 minutes. A version with a suffix, such as `v0.2.0-beta.1`, is published as a pre-release.
 
 Versions must go up: `versionCode` is the release workflow's run number, so every release, even one built from an older tag, counts as newer than the one before it.
