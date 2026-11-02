@@ -46,11 +46,12 @@ class Settings(context: Context) {
     /** Flag: background tabs let their page go to save memory, and load it again when shown (TabDiscard). */
     var discardTabs: Boolean get() = discardTabsPref.state; set(v) = discardTabsPref.set(v)
 
-    private val paymentRequestPref = bool("flag_payment_request", false)
+    private val paymentRequestPref = bool("flag_payment_request", true)
     /**
      * Flag: pages get the Payment Request API, which hands checkout to a payment app on the phone
-     * (Google Pay and others), as in Chrome. Off: no PaymentRequest, and sites use their own card
-     * form or payment page (docs/payments.md).
+     * (Google Pay and others), as in Chrome. On by default since Google Pay's sheet was seen to
+     * open in Helmi on the Fold. Off: no PaymentRequest, and sites use their own card form or
+     * payment page (docs/payments.md).
      */
     var paymentRequest: Boolean get() = paymentRequestPref.state; set(v) = paymentRequestPref.set(v)
 
