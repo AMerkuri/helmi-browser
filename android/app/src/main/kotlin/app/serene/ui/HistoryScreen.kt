@@ -298,6 +298,7 @@ private fun clearBrowsingData(ctx: Context, app: SereneApp, history: Boolean, co
     if (history) {
         app.history.clear()
         app.history.save()
+        app.settings.clearHiddenSuggestions()
         app.stats.forgetSites()
     }
     if (cache) SiteData.clearCache(ctx)

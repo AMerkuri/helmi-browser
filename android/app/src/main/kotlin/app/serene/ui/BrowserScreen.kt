@@ -84,6 +84,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -130,6 +131,7 @@ import app.serene.SereneApp
 import app.serene.browser.FindInPage
 import app.serene.browser.PagePrint
 import app.serene.browser.SharedText
+import app.serene.browser.Suggestions
 import app.serene.browser.Tab
 import app.serene.browser.TabManager
 import app.serene.browser.openShareSheet
@@ -171,6 +173,8 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
     DisposableEffect(Unit) { onDispose { cube.reset() } }
     val window = LocalActivity.current?.window
     val focusManager = LocalFocusManager.current
+    // The address bar's text, shared with the suggestions shown under it while it is edited.
+    val address = remember(tab.id) { AddressEdit(displayUrl(tab.url)) }
 
     // Android 13+: the download notification needs permission. Ask once, at the first download.
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -214,7 +218,7 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                         .imePadding(),
                 ) {
                     if (finding != null) FindBar(finding, covered, onClose = { find = null })
-                    else UrlBar(app, tab, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
+                    else UrlBar(app, tab, address, covered, autofocus = tab !== cube.arrived, onShield = { showSite = true })
                     if (tab.progress < 100) LinearProgressIndicator(progress = { tab.progress / 100f }, modifier = Modifier.fillMaxWidth().height(2.dp))
                     else Spacer(Modifier.height(2.dp))
                     val density = LocalDensity.current
@@ -261,6 +265,13 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                         if (swipe.active && swipe.targetOnTop) SwipeTarget(swipe)
                         PullIndicator(tab)
                         TabCubeFaces(cube, app)
+                        // Over the page while something new is typed in the address bar, as in Chrome.
+                        if (finding == null && !covered && address.editing && address.typed.isNotBlank()) {
+                            AddressSuggestions(app, address, onOpen = { target ->
+                                focusManager.clearFocus()
+                                tab.load(target)
+                            })
+                        }
                     }
                     // The buttons still take taps: a drag starts only once the finger has moved.
                     Column(
@@ -315,18 +326,26 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, autofocus: Boolean, onShield: () -> Unit) {
+private fun UrlBar(app: SereneApp, tab: Tab, address: AddressEdit, covered: Boolean, autofocus: Boolean, onShield: () -> Unit) {
+    // The field's own focus, not the tab's: it stays focused when + opens a tab mid-edit.
     var focused by remember { mutableStateOf(false) }
+    SideEffect { address.focused = focused }
     // The state-based field: dragging the cursor handle past the edge keeps scrolling the text,
     // where the TextFieldValue one stopped a character past what was on screen.
-    val state = remember(tab.id) { TextFieldState(displayUrl(tab.url)) }
+    val state = address.state
     val scroll = rememberScrollState()
     // The address the edit started from, while the field is focused.
-    var original by remember { mutableStateOf<String?>(null) }
+    var original by address::original
+    // Chrome's inline completion: a site from the history or bookmarks the typing is the start of.
+    address.complete = { typed ->
+        val pages = Suggestions.pages(typed, app.history.entries, app.bookmarks.items, System.currentTimeMillis(), limit = 50, withSearches = true)
+        val hiddenSites = app.settings.hiddenSuggestions.filter { it.startsWith("site:") }.mapTo(HashSet()) { it.removePrefix("site:") }
+        Suggestions.completion(typed, pages, hiddenSites)
+    }
     val focusManager = LocalFocusManager.current
     val focus = remember { FocusRequester() }
     val context = LocalContext.current
-    LaunchedEffect(tab.url, focused) {
+    LaunchedEffect(address, tab.url, focused) {
         if (focused) {
             // The whole address, selected, as in Samsung Internet. After the tap that focused the
             // field has placed its cursor, which would otherwise undo the selection.
@@ -345,12 +364,13 @@ private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, autofocus: Boolea
     // A new tab starts with the keyboard up, once the switcher (if any) is gone. Not one turned
     // to on the bar's cube: that is flipping through tabs, not starting one.
     LaunchedEffect(tab.id, covered) { if (!covered && autofocus && tab.url.isEmpty() && !tab.openedByPage) focus.requestFocus() }
-    // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome.
+    // Closing the keyboard (back, or its own hide key) ends the edit, as in Chrome. Not the
+    // remove dialog of a suggestion taking it away: the edit goes on after it.
     val imeVisible = WindowInsets.isImeVisible
     var imeWasVisible by remember { mutableStateOf(false) }
     LaunchedEffect(imeVisible) {
         if (imeVisible) imeWasVisible = true
-        else if (imeWasVisible) {
+        else if (imeWasVisible && address.removal == null) {
             imeWasVisible = false
             if (focused) focusManager.clearFocus()
         }
@@ -361,17 +381,19 @@ private fun UrlBar(app: SereneApp, tab: Tab, covered: Boolean, autofocus: Boolea
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.weight(1f).height(44.dp)) {
             BasicTextField(
                 state = state,
+                inputTransformation = address.inputTransformation,
                 lineLimits = TextFieldLineLimits.SingleLine,
                 scrollState = scroll,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
                 onKeyboardAction = {
-                    tab.load(state.text.toString())
+                    tab.load(address.go)
                     focusManager.clearFocus()
                 },
                 modifier = Modifier.fillMaxSize().focusRequester(focus).onFocusChanged {
                     focused = it.isFocused
+                    address.focused = it.isFocused
                 },
                 decorator = { inner ->
                     // Chrome's inline clear button: inside the field, at its end, while there is

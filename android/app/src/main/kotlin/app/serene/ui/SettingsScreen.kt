@@ -202,6 +202,11 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                     Text(e.label)
                 }
             }
+            SwitchRow(
+                "Search suggestions",
+                "As you type in the address bar, what you type goes to ${s.searchEngine.label} for suggestions. Pages from your history and bookmarks are suggested on the phone either way.",
+                s.searchSuggestions,
+            ) { s.searchSuggestions = it }
 
             Section("Flags")
             Text(
