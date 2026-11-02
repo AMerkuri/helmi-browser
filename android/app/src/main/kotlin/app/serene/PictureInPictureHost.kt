@@ -150,6 +150,7 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     }
 
     private fun setParams() {
+        Log.d(TAG, "params: fullscreen=${full != null} media=$media auto=${full != null && autoPictureInPicture(media)}")
         runCatching { activity.setPictureInPictureParams(params()) }
             .onFailure { Log.w(TAG, "picture-in-picture params refused: ${it.message}") }
     }

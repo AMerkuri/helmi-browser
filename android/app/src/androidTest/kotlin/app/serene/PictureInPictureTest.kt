@@ -79,6 +79,7 @@ class PictureInPictureTest {
 
             tap(page)
             waitFor("the video in fullscreen, playing") { main.fullscreen.isShown && page.fullscreenMedia?.playing == true }
+            settled(main)
 
             home()
             waitFor("the video in a small window") { main.isInPictureInPictureMode && main.fullscreen.isShown }
@@ -107,6 +108,7 @@ class PictureInPictureTest {
 
             tap(page)
             waitFor("the video in fullscreen, playing") { main.fullscreen.isShown && page.fullscreenMedia?.playing == true }
+            settled(main)
             scenario.onActivity { page.playFullscreenVideo(false) }
             waitFor("the video paused") { page.fullscreenMedia?.playing == false }
 
@@ -126,7 +128,7 @@ class PictureInPictureTest {
             lateinit var page: Tab
             scenario.onActivity { a -> main = a; page = a.tabs.open("http://localhost:$port/pip") }
             waitFor("the page") { page.title == "page" && page.progress == 100 }
-            waitFor("the page sees picture-in-picture") { evaluate(page, "document.pictureInPictureEnabled") == "true" }
+            waitForJs("the page sees picture-in-picture", page, "document.pictureInPictureEnabled", "true")
             SystemClock.sleep(500)
 
             tap(page)
@@ -139,6 +141,17 @@ class PictureInPictureTest {
         }
     }
 
+    /**
+     * The phone has turned to the video (landscape) and drawn it: going home while the screen is
+     * still turning is not what a person does, and Android doesn't take the video along then.
+     */
+    private fun settled(main: MainActivity) {
+        waitFor("the screen turned to the video") {
+            main.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        }
+        SystemClock.sleep(1_000)
+    }
+
     private fun home() {
         InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
     }
@@ -147,6 +160,18 @@ class PictureInPictureTest {
     private fun backToHelmi() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         ctx.startActivity(Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /** Waits, off the main thread, for [js] in the page to give [expected]. */
+    private fun waitForJs(what: String, tab: Tab, js: String, expected: String, timeoutMs: Long = 20_000) {
+        val end = SystemClock.uptimeMillis() + timeoutMs
+        var last: String? = null
+        while (SystemClock.uptimeMillis() < end) {
+            last = evaluate(tab, js)
+            if (last == expected) return
+            SystemClock.sleep(100)
+        }
+        throw AssertionError("timed out waiting for $what (last: $last)")
     }
 
     private fun evaluate(tab: Tab, js: String): String? {
