@@ -240,6 +240,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 }
             }
             launch { snapshotFlow { app.settings.textScale }.collect { applyTextZoom() } }
+            launch { snapshotFlow { app.settings.paymentRequest to app.settings.paymentMethodCheck }.collect { applyPayments() } }
             // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
             snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
         }
@@ -273,6 +274,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // The page's engine session goes with it, see onDocMessage. A flag in Settings.
             if (backForwardCacheSupported) WebSettingsCompat.setBackForwardCacheEnabled(this, backForwardCache)
         }
+        applyPayments()
         // Before any user agent of Helmi's own: the WebView's.
         mobileUa = webView.settings.userAgentString
         mobileUaMetadata = if (uaMetadataSupported) runCatching { WebSettingsCompat.getUserAgentMetadata(webView.settings) }.getOrNull() else null
@@ -683,6 +685,20 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     }
 
     /**
+     * Settings › Flags › Payment Request: whether pages get PaymentRequest, which WebView answers
+     * with the phone's Android payment apps only (Google Pay and others, by their intents in the
+     * manifest's <queries>), and whether they may ask if one has a card ready. For the pages to
+     * come: a page has the API or not from its start. docs/payments.md has what works.
+     */
+    private fun applyPayments() {
+        if (!paymentRequestSupported || destroyed) return
+        with(webView.settings) {
+            WebSettingsCompat.setPaymentRequestEnabled(this, app.settings.paymentRequest)
+            WebSettingsCompat.setHasEnrolledInstrumentEnabled(this, app.settings.paymentMethodCheck)
+        }
+    }
+
+    /**
      * Settings › Accessibility › Text size, on top of the phone's font size (read each time: it
      * can change while Helmi runs, and a new page picks it up).
      */
@@ -1089,6 +1105,9 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE)
         val uaMetadataSupported: Boolean
             get() = WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)
+        /** WebView 136 or later: Payment Request for Android payment apps (Settings › Flags). */
+        val paymentRequestSupported: Boolean
+            get() = WebViewFeature.isFeatureSupported(WebViewFeature.PAYMENT_REQUEST)
 
         private fun isHttp(u: String) = u.startsWith("http://", ignoreCase = true) || u.startsWith("https://", ignoreCase = true)
 

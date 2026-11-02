@@ -27,6 +27,20 @@
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
+    <!-- Payment Request (Settings › Flags): lets WebView find the phone's Android payment apps,
+         Google Pay among them, and open them for a site's checkout (docs/payments.md). -->
+    <queries>
+        <intent>
+            <action android:name="org.chromium.intent.action.PAY" />
+        </intent>
+        <intent>
+            <action android:name="org.chromium.intent.action.IS_READY_TO_PAY" />
+        </intent>
+        <intent>
+            <action android:name="org.chromium.intent.action.UPDATE_PAYMENT_DETAILS" />
+        </intent>
+    </queries>
+
     <!-- enableOnBackInvokedCallback: predictive back, so Android's back gesture can drive the
          history swipe (BrowserScreen). On by default from Android 16; this turns it on for 13-15. -->
     <application
