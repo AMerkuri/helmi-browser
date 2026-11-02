@@ -30,8 +30,12 @@ class AddressSuggestionsTest {
             while (!server.isClosed) runCatching {
                 server.accept().use { s ->
                     val r = s.getInputStream().bufferedReader()
+                    val path = r.readLine().orEmpty().split(' ').getOrElse(1) { "/" }
                     while (!r.readLine().isNullOrEmpty()) Unit
-                    val html = "<!doctype html><title>Harbour page</title><p>ferries".toByteArray()
+                    // Only the harbour page is titled so: the site's front page (opened by the
+                    // completion) must not be a second "Harbour page" row.
+                    val title = if (path.startsWith("/harbour")) "Harbour page" else "Front page"
+                    val html = "<!doctype html><title>$title</title><p>ferries".toByteArray()
                     s.getOutputStream().apply {
                         write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ${html.size}\r\nConnection: close\r\n\r\n".toByteArray())
                         write(html)

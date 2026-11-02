@@ -46,6 +46,19 @@ class Settings(context: Context) {
     /** Flag: background tabs let their page go to save memory, and load it again when shown (TabDiscard). */
     var discardTabs: Boolean get() = discardTabsPref.state; set(v) = discardTabsPref.set(v)
 
+    private val paymentRequestPref = bool("flag_payment_request", true)
+    /**
+     * Flag: pages get the Payment Request API, which hands checkout to a payment app on the phone
+     * (Google Pay and others), as in Chrome. On by default since Google Pay's sheet was seen to
+     * open in Helmi on the Fold. Off: no PaymentRequest, and sites use their own card form or
+     * payment page (docs/payments.md).
+     */
+    var paymentRequest: Boolean get() = paymentRequestPref.state; set(v) = paymentRequestPref.set(v)
+
+    private val paymentMethodCheckPref = bool("payment_method_check", true)
+    /** Sites may ask whether a payment app has a card ready (Chrome's "Allow sites to check if you have payment methods saved"). */
+    var paymentMethodCheck: Boolean get() = paymentMethodCheckPref.state; set(v) = paymentMethodCheckPref.set(v)
+
     private val modelNotesPref = bool("flag_model_notes", false)
     /** Flag: a note at the bottom each time the model decides about an overlay, with Undo or Hide. */
     var showModelDecisions: Boolean get() = modelNotesPref.state; set(v) = modelNotesPref.set(v)

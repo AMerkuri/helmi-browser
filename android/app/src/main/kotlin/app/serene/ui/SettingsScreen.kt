@@ -227,6 +227,20 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 s.discardTabs,
             ) { s.discardTabs = it }
             SwitchRow(
+                "Payment Request",
+                if (Tab.paymentRequestSupported) "At checkout, sites can open a payment app on the phone, such as Google Pay, as in Chrome. Off: sites use their own card form or payment page. Applies to pages loaded after the change."
+                else "Not supported by this WebView (it needs version 136 or later): sites use their own card form or payment page.",
+                s.paymentRequest && Tab.paymentRequestSupported,
+                enabled = Tab.paymentRequestSupported,
+            ) { s.paymentRequest = it }
+            if (s.paymentRequest && Tab.paymentRequestSupported) {
+                SwitchRow(
+                    "Allow sites to check if you have payment methods saved",
+                    "Sites can ask a payment app whether it has a card ready, to choose which checkout to show. The card itself isn't shared.",
+                    s.paymentMethodCheck,
+                ) { s.paymentMethodCheck = it }
+            }
+            SwitchRow(
                 "Show model decisions",
                 "A short message above the bottom bar, like the one after closing a tab, each time the on-device model decides about an overlay on this page: what it hid, with Undo, or what it left alone, with Hide.",
                 s.showModelDecisions,
@@ -236,7 +250,7 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
             val wv = WebViewCompat.getCurrentWebViewPackage(ctx)
             ListItem(
                 headlineContent = { Text("Helmi ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}, ${BuildConfig.GIT_SHA})") },
-                supportingContent = { Text("WebView ${wv?.versionName ?: "?"} · document-start scripts ${if (Tab.documentStartSupported) "supported" else "not supported (fallback)"} · passkeys ${if (Tab.webAuthnSupported) "supported" else "not supported by this WebView"}") },
+                supportingContent = { Text("WebView ${wv?.versionName ?: "?"} · document-start scripts ${if (Tab.documentStartSupported) "supported" else "not supported (fallback)"} · passkeys ${if (Tab.webAuthnSupported) "supported" else "not supported by this WebView"} · payments ${if (Tab.paymentRequestSupported) "supported" else "not supported by this WebView"}") },
             )
             Spacer(Modifier.height(32.dp))
         }
