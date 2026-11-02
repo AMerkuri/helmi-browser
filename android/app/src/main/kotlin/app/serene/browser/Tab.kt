@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.net.Uri
@@ -120,9 +121,16 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     /** The page's element in fullscreen (a video, usually): the activity shows it over everything. */
     var fullscreen by mutableStateOf<Fullscreen?>(null)
         private set
-    /** The fullscreen video's size, from the frame that plays it; null until it says, or for no video. */
-    var fullscreenVideo by mutableStateOf<IntSize?>(null)
+    /** The fullscreen video, from the frame that plays it; null until it says, or for no video. */
+    var fullscreenMedia by mutableStateOf<FullscreenMedia?>(null)
         private set
+    /** The fullscreen video's size, from the frame that plays it; null until it says, or for no video. */
+    val fullscreenVideo: IntSize? get() = fullscreenMedia?.size
+    // The frame that last said it plays a fullscreen video: the picture-in-picture window's play
+    // and pause buttons go to it. Kept after fullscreen ends, to pause what goes on playing.
+    private var mediaFrame: JavaScriptReplyProxy? = null
+    // When a page last asked for picture-in-picture (uptimeMillis): the fullscreen it asks for next is the way there.
+    private var pipAskedAt = Long.MIN_VALUE / 2
     /** Opens the windows this tab's pages ask for, as tabs; set by the tab manager. */
     internal var manager: TabManager? = null
 
@@ -311,11 +319,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // requestFullscreen(): a video's fullscreen button, YouTube's player. Without these the
             // button did nothing (WebView has no fullscreen of its own).
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                if (destroyed) callback.onCustomViewHidden() else fullscreen = Fullscreen(view, callback)
+                if (destroyed) return callback.onCustomViewHidden()
+                fullscreen = Fullscreen(view, callback).also {
+                    it.pictureInPicture = SystemClock.uptimeMillis() - pipAskedAt < PIP_ASK_MS
+                }
             }
             override fun onHideCustomView() {
                 fullscreen = null
-                fullscreenVideo = null
+                fullscreenMedia = null
             }
             // <input type=file>: GitHub's attach button, upload forms. The activity shows the picker.
             override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean =
@@ -413,7 +424,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             }
             // From any frame: a video in a YouTube embed goes fullscreen in its own frame.
             if (data.startsWith("{\"type\":\"helmi-fullscreen\"")) {
-                main.post { onFullscreenVideo(data) }
+                main.post { onFullscreenVideo(data, reply) }
+                return@addWebMessageListener
+            }
+            // video.requestPictureInPicture() (PIP_JS), from any frame, right before it asks for fullscreen.
+            if (data == PIP_ASKED) {
+                main.post { onPictureInPictureAsked() }
                 return@addWebMessageListener
             }
             val frame = object : FrameRef {
@@ -437,22 +453,43 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // After the content script, so its hello (and the session it starts) comes first.
             WebViewCompat.addDocumentStartJavaScript(webView, DOC_JS, setOf("*"))
             WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(FULLSCREEN_JS), setOf("*"))
+            // A phone without picture-in-picture (Android Go, some TVs) keeps WebView's own answer: no.
+            if (webView.context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(PIP_JS), setOf("*"))
+            }
             WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(WEB_SHARE_JS), setOf("*"))
         }
     }
 
-    private fun onFullscreenVideo(json: String) {
+    private fun onFullscreenVideo(json: String, frame: JavaScriptReplyProxy) {
         val o = runCatching { JSONObject(json) }.getOrNull() ?: return
         val w = o.optInt("w")
         val h = o.optInt("h")
-        if (w > 0 && h > 0 && !destroyed) fullscreenVideo = IntSize(w, h)
+        if (w <= 0 || h <= 0 || destroyed) return
+        fullscreenMedia = FullscreenMedia(IntSize(w, h), playing = o.optBoolean("playing"), pipAllowed = o.optBoolean("pip", true))
+        mediaFrame = frame
+    }
+
+    private fun onPictureInPictureAsked() {
+        if (destroyed) return
+        pipAskedAt = SystemClock.uptimeMillis()
+        // The video was in fullscreen already (the player's own fullscreen, then its
+        // picture-in-picture button): no new fullscreen comes, so this one goes.
+        fullscreen?.pictureInPicture = true
+    }
+
+    /** Plays or pauses the fullscreen video (the picture-in-picture window's buttons), in the frame that plays it. */
+    fun playFullscreenVideo(play: Boolean) {
+        val frame = mediaFrame ?: return
+        if (destroyed) return
+        try { frame.postMessage("{\"type\":\"helmi-media\",\"play\":$play}") } catch (e: Exception) { Log.w(TAG, "media message dropped: ${e.message}") }
     }
 
     /** Leaves fullscreen: back, a link from another app, the tab closing. */
     fun exitFullscreen() {
         val f = fullscreen ?: return
         fullscreen = null
-        fullscreenVideo = null
+        fullscreenMedia = null
         f.exit()
     }
 
@@ -1124,6 +1161,10 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             addEventListener('pageshow', e => { if (e.persisted) SereneBridge.postMessage(JSON.stringify({ type: 'serene-doc-restored', id })); });
         }"""
 
+        /** What PIP_JS says when a page asks for picture-in-picture. */
+        private const val PIP_ASKED = "{\"type\":\"helmi-pip\"}"
+        /** A fullscreen this soon after the page asked for picture-in-picture is the way there. */
+        private const val PIP_ASK_MS = 2_000L
         private const val PAUSE_MEDIA = "document.querySelectorAll('video, audio').forEach(m => m.pause())"
 
         /**
