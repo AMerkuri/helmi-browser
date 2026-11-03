@@ -55,6 +55,14 @@ class Settings(context: Context) {
      */
     var paymentRequest: Boolean get() = paymentRequestPref.state; set(v) = paymentRequestPref.set(v)
 
+    private val backgroundAudioPref = bool("flag_background_audio", false)
+    /**
+     * Flag: closing the picture-in-picture window leaves the video playing, its sound only, with
+     * a media notification and lock-screen controls (MediaPlaybackService). Off: closing the
+     * window pauses the video, as in Chrome.
+     */
+    var backgroundAudio: Boolean get() = backgroundAudioPref.state; set(v) = backgroundAudioPref.set(v)
+
     private val youtubeBackgroundPref = bool("flag_youtube_background", false)
     /**
      * Flag: YouTube's phone site plays every video as if with YouTube Premium's background play,

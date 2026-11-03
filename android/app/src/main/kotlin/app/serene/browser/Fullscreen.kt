@@ -59,6 +59,13 @@ data class FullscreenMedia(val size: IntSize, val playing: Boolean, val pipAllow
 fun autoPictureInPicture(media: FullscreenMedia?): Boolean = media != null && media.playing && media.pipAllowed
 
 /**
+ * Whether closing the picture-in-picture window leaves [media] playing (its sound, out of
+ * fullscreen): with Settings › Flags › Keep playing after closing picture-in-picture, a video that
+ * plays. Otherwise it pauses, as in Chrome.
+ */
+fun playsOnAfterWindow(flag: Boolean, media: FullscreenMedia?): Boolean = flag && media?.playing == true
+
+/**
  * The picture-in-picture window's shape for a video, as width to height. Android takes nothing
  * wider than 2.39:1 or taller than 1:2.39 (it throws), so a video beyond that is cut to the
  * limit; a video of unknown size gets 16:9.
@@ -99,7 +106,9 @@ fun letterbox(box: IntRect, video: IntSize): IntRect {
  * nothing; the frame inside it does.
  * The app answers that frame with {type: 'helmi-media', play} from the picture-in-picture
  * window's play and pause buttons, and to pause the video when the window closes (by then it
- * may have left fullscreen: the last fullscreen video is the one).
+ * may have left fullscreen: the last fullscreen video is the one). Out of fullscreen, that video
+ * says when it plays or pauses ({type: 'helmi-playing', playing}), for the media notification of
+ * sound that plays on after the window closed (MediaPlaybackService).
  */
 internal const val FULLSCREEN_JS = """(() => {
     const bridge = window.SereneBridge;
@@ -123,9 +132,14 @@ internal const val FULLSCREEN_JS = """(() => {
         const el = fullscreenElement();
         return el && videoIn(el);
     };
-    const say = () => {
+    const say = e => {
         const v = fullscreenVideo();
-        if (!v) return;
+        if (!v) {
+            // Out of fullscreen, the last fullscreen video may play on (its sound, after the
+            // window closed): the app's media notification follows it.
+            if (last && e && e.target === last && (e.type === 'play' || e.type === 'pause' || e.type === 'ended')) post(JSON.stringify({ type: 'helmi-playing', playing: !last.paused && !last.ended }));
+            return;
+        }
         last = v;
         if (!watched.has(v)) {
             watched.add(v);

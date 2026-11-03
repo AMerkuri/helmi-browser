@@ -248,6 +248,11 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 enabled = Tab.documentStartSupported,
             ) { s.youtubeBackground = it }
             SwitchRow(
+                "Keep playing after closing picture-in-picture",
+                "Closing the picture-in-picture window leaves the video's sound playing, with play, pause and close in a notification and on the lock screen. A site may still pause itself once Helmi is out of sight (on YouTube, turn on YouTube picture-in-picture too). Off: closing the window pauses the video, as in Chrome.",
+                s.backgroundAudio,
+            ) { s.backgroundAudio = it }
+            SwitchRow(
                 "Show model decisions",
                 "A short message above the bottom bar, like the one after closing a tab, each time the on-device model decides about an overlay on this page: what it hid, with Undo, or what it left alone, with Hide.",
                 s.showModelDecisions,
