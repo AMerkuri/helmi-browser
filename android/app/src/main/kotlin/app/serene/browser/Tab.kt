@@ -203,6 +203,8 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
     private var dimScript: ScriptHandler? = null
     // ⋮ › Desktop site's width and "Override sites' zoom block", for the documents to come.
     private var viewportHandler: ScriptHandler? = null
+    // YouTube background play (a flag), on m.youtube.com only: YouTubeBackground.kt.
+    private var youtubeScript: ScriptHandler? = null
 
     // ⋮ › Desktop site: the WebView's own user agent and client hints, and whether it asks for
     // desktop pages now (see userAgentFor).
@@ -249,6 +251,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
                 }
             }
             launch { snapshotFlow { app.settings.textScale }.collect { applyTextZoom() } }
+            launch { snapshotFlow { app.settings.youtubeBackground }.collect { applyYouTubeBackground() } }
             launch { snapshotFlow { app.settings.paymentRequest to app.settings.paymentMethodCheck }.collect { applyPayments() } }
             // The setting, or this site's own choice from ⋮ › Dark theme, as it changes.
             snapshotFlow { app.settings.darkSite(siteOf(url)) }.collect { setDarkening(it) }
@@ -297,6 +300,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         if (documentStartSupported) viewportHandler = WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(viewportScript(app.settings)), setOf("*"))
         applyDarkening()
         if (documentStartSupported) WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(KEEP_PICTURES), setOf("*"))
+        applyYouTubeBackground()
         installEngine()
         webView.webViewClient = Client()
         webView.webChromeClient = object : WebChromeClient() {
@@ -751,6 +755,14 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         if (webView.settings.textZoom != zoom) webView.settings.textZoom = zoom
     }
 
+    /** Settings › Flags › YouTube picture-in-picture: the script in or out, for pages loaded after. */
+    private fun applyYouTubeBackground() {
+        youtubeScript?.remove()
+        youtubeScript = if (documentStartSupported && app.settings.youtubeBackground) {
+            WebViewCompat.addDocumentStartJavaScript(webView, outsideBotChecks(YOUTUBE_BACKGROUND_JS), YOUTUBE_BACKGROUND_ORIGINS)
+        } else null
+    }
+
     /** Gets the page back that went with its renderer or was [discard]ed, with its back/forward list; WebView loads it. */
     fun recover() {
         val c = unloaded ?: return
@@ -850,6 +862,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
         (dead.parent as? ViewGroup)?.removeView(dead)
         dimScript = null
         viewportHandler = null
+        youtubeScript = null
         webView = newWebView(dead.context)
         setUp()
         waking = false

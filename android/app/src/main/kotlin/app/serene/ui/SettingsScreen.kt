@@ -241,8 +241,15 @@ fun SettingsScreen(app: SereneApp, onBack: () -> Unit) {
                 ) { s.paymentMethodCheck = it }
             }
             SwitchRow(
+                "YouTube picture-in-picture",
+                if (Tab.documentStartSupported) "On YouTube's phone site, a fullscreen video goes picture-in-picture when you leave Helmi, and videos keep playing in the background. YouTube gives this only with Premium: Helmi marks each video as Premium would, which goes against YouTube's terms, and YouTube can break it with any update. Applies to pages loaded after the change."
+                else "Not supported by this WebView (it can't run scripts before the page's own).",
+                s.youtubeBackground && Tab.documentStartSupported,
+                enabled = Tab.documentStartSupported,
+            ) { s.youtubeBackground = it }
+            SwitchRow(
                 "Keep playing after closing picture-in-picture",
-                "Closing the picture-in-picture window leaves the video's sound playing, with play, pause and close in a notification and on the lock screen. A site may still pause itself once Helmi is out of sight. Off: closing the window pauses the video, as in Chrome.",
+                "Closing the picture-in-picture window leaves the video's sound playing, with play, pause and close in a notification and on the lock screen. A site may still pause itself once Helmi is out of sight (on YouTube, turn on YouTube picture-in-picture too). Off: closing the window pauses the video, as in Chrome.",
                 s.backgroundAudio,
             ) { s.backgroundAudio = it }
             SwitchRow(
