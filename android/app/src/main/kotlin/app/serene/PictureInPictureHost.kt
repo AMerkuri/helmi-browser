@@ -52,6 +52,8 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     private var inWindow = false
     /** Out of the window, and not yet told whether it was opened out (the activity resumes) or closed (it stops). */
     private var leftWindow = false
+    /** Asked for the window (enter), and not yet told it opened. */
+    private var entering = false
     /** A link from another app is opening the window out: the fullscreen it ends is no reason to close it. */
     private var openingOut = false
 
@@ -98,21 +100,28 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     fun onModeChanged(inPictureInPicture: Boolean) {
         if (inPictureInPicture) {
             inWindow = true
+            entering = false
             // Now, while Helmi is on screen: a media service can't start once it isn't.
             val t = tab
             if (t != null && settings.backgroundAudio) MediaPlaybackService.start(activity, t, media?.playing == true)
             return
         }
-        if (!inWindow) return
-        // Opened out, the activity resumes next; closed (the window's X, or dragged away), it
-        // stops, or has already.
+        if (!inWindow && !entering) return
+        // Opened out, the activity resumes next (or, when the window was opened out while it
+        // was still opening, has already); closed (the window's X, or dragged away), it stops,
+        // or has already.
         leftWindow = true
-        if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) closed()
+        val state = activity.lifecycle.currentState
+        Log.d(TAG, "out of the window, activity $state")
+        if (state.isAtLeast(Lifecycle.State.RESUMED)) openedOut()
+        else if (!state.isAtLeast(Lifecycle.State.STARTED)) closed()
     }
 
     fun onResume() {
         openingOut = false
-        if (leftWindow) openedOut()
+        // A window opened out while it was still opening may say so after this, or not at all:
+        // resumed and not in it is out of it.
+        if (leftWindow || ((inWindow || entering) && !activity.isInPictureInPictureMode)) openedOut()
     }
 
     /** Stopped: if the window went with it, it was closed (with the screen off it stays). */
@@ -137,6 +146,7 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     private fun openedOut() {
         inWindow = false
         leftWindow = false
+        entering = false
         MediaPlaybackService.stop(activity)
         // Asked for by the page: back to the page, the video in it, as Chrome's "back to tab".
         // Otherwise the video stays in fullscreen, as it was before leaving.
@@ -147,6 +157,7 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     private fun closed() {
         inWindow = false
         leftWindow = false
+        entering = false
         val t = tab
         if (t == null) {
             MediaPlaybackService.stop(activity)
@@ -167,7 +178,7 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
             .onFailure { Log.w(TAG, "picture-in-picture refused: ${it.message}") }
             .getOrDefault(false)
         // Turned off for Helmi in Android's settings: the video stays in fullscreen.
-        if (!ok) Log.i(TAG, "no picture-in-picture window")
+        if (!ok) Log.i(TAG, "no picture-in-picture window") else entering = true
     }
 
     private fun setParams() {
