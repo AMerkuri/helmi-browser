@@ -45,6 +45,7 @@ import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import app.serene.media.MediaPlaybackService
 import app.serene.SereneApp
 import app.serene.download.Download
 import app.serene.engine.EngineJson
@@ -427,6 +428,12 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
             // From any frame: a video in a YouTube embed goes fullscreen in its own frame.
             if (data.startsWith("{\"type\":\"helmi-fullscreen\"")) {
                 main.post { onFullscreenVideo(data, reply) }
+                return@addWebMessageListener
+            }
+            // The last fullscreen video played or paused after fullscreen (FULLSCREEN_JS): the media notification follows.
+            if (data.startsWith("{\"type\":\"helmi-playing\"")) {
+                val playing = runCatching { JSONObject(data).optBoolean("playing") }.getOrNull()
+                if (playing != null) main.post { if (!destroyed) MediaPlaybackService.update(webView.context, this@Tab, playing) }
                 return@addWebMessageListener
             }
             // video.requestPictureInPicture() (PIP_JS), from any frame, right before it asks for fullscreen.
@@ -856,6 +863,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     /** Closed, but Undo may still bring it back: what plays stops, and what can wait does. */
     fun pause() {
+        MediaPlaybackService.forget(webView.context, this)
         exitFullscreen()
         webView.evaluateJavascript(PAUSE_MEDIA, null)
         webView.onPause()
@@ -866,6 +874,7 @@ class Tab(context: Context, private val app: SereneApp, val id: Long, val opened
 
     fun destroy() {
         if (destroyed) return
+        MediaPlaybackService.forget(webView.context, this)
         exitFullscreen()
         destroyed = true
         main.removeCallbacksAndMessages(null)

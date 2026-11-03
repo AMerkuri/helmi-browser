@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import app.serene.media.MediaPlaybackService
 import app.serene.browser.FilePickerHost
 import app.serene.browser.HomeShortcut
 import app.serene.browser.HomeShortcutData
@@ -398,6 +399,8 @@ class MainActivity : ComponentActivity(), FilePickerHost, PermissionHost {
 
     override fun onStart() {
         super.onStart()
+        // On screen again: what plays on, plays in the page (not with the screen just back on in picture-in-picture).
+        if (!isInPictureInPictureMode) MediaPlaybackService.stop(this)
         batterySaver.start(this)
         idleTabs.run()
         val s = (application as SereneApp).settings

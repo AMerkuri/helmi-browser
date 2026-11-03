@@ -20,6 +20,8 @@ import app.serene.browser.FullscreenMedia
 import app.serene.browser.Tab
 import app.serene.browser.autoPictureInPicture
 import app.serene.browser.pipAspect
+import app.serene.browser.playsOnAfterWindow
+import app.serene.media.MediaPlaybackService
 
 /**
  * Picture-in-picture for a page's video, as Chrome has it: a video playing in fullscreen goes
@@ -27,8 +29,11 @@ import app.serene.browser.pipAspect
  * buttons; back in Helmi it is in fullscreen again. Back still leaves fullscreen, as in Chrome.
  * A page can ask for the window itself (video.requestPictureInPicture(), see PIP_JS): the video
  * goes through fullscreen into the window at once, and back in Helmi it plays in the page again.
- * Closing the window pauses the video and leaves fullscreen. The page leaving fullscreen while
- * in the window closes it, as there would be nothing left to show but a small browser.
+ * Closing the window pauses the video and leaves fullscreen; with Settings › Flags › Keep playing
+ * after closing picture-in-picture, a playing video plays on out of fullscreen, its sound only,
+ * under a media notification (MediaPlaybackService, started as the window opens). The page
+ * leaving fullscreen while in the window closes it, as there would be nothing left to show but a
+ * small browser.
  *
  * The window shows what the fullscreen box shows (FullscreenHost), which covers everything else.
  * The activity handles screen changes in place (configChanges), so the video plays on through
@@ -36,6 +41,8 @@ import app.serene.browser.pipAspect
  */
 class PictureInPictureHost(private val activity: ComponentActivity, private val fullscreen: FullscreenHost) {
     /** Android Go phones and some TVs have none, and the activity can't ask for it there. */
+    private val settings get() = (activity.application as SereneApp).settings
+
     private val supported by lazy { activity.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) }
 
     private var tab: Tab? = null
@@ -91,6 +98,9 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     fun onModeChanged(inPictureInPicture: Boolean) {
         if (inPictureInPicture) {
             inWindow = true
+            // Now, while Helmi is on screen: a media service can't start once it isn't.
+            val t = tab
+            if (t != null && settings.backgroundAudio) MediaPlaybackService.start(activity, t, media?.playing == true)
             return
         }
         if (!inWindow) return
@@ -127,6 +137,7 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     private fun openedOut() {
         inWindow = false
         leftWindow = false
+        MediaPlaybackService.stop(activity)
         // Asked for by the page: back to the page, the video in it, as Chrome's "back to tab".
         // Otherwise the video stays in fullscreen, as it was before leaving.
         val t = tab
@@ -136,7 +147,17 @@ class PictureInPictureHost(private val activity: ComponentActivity, private val 
     private fun closed() {
         inWindow = false
         leftWindow = false
-        val t = tab ?: return
+        val t = tab
+        if (t == null) {
+            MediaPlaybackService.stop(activity)
+            return
+        }
+        if (playsOnAfterWindow(settings.backgroundAudio, media)) {
+            // Its sound goes on, under the media notification.
+            t.exitFullscreen()
+            return
+        }
+        MediaPlaybackService.stop(activity)
         t.playFullscreenVideo(false)
         t.exitFullscreen()
     }

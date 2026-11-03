@@ -71,4 +71,13 @@ class FullscreenTest {
         // Unknown size: the whole box.
         assertEquals(IntRect(0, 0, 10, 10), letterbox(IntRect(0, 0, 10, 10), IntSize(0, 0)))
     }
+
+    @Test
+    fun closingTheWindowLeavesAPlayingVideoPlayingOnlyWithTheFlag() {
+        val playing = FullscreenMedia(IntSize(1920, 1080), playing = true, pipAllowed = true)
+        assertTrue(playsOnAfterWindow(true, playing))
+        assertFalse(playsOnAfterWindow(false, playing))
+        assertFalse(playsOnAfterWindow(true, playing.copy(playing = false)))
+        assertFalse(playsOnAfterWindow(true, null))
+    }
 }
