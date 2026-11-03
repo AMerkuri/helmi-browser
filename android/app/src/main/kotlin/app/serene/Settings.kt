@@ -55,6 +55,15 @@ class Settings(context: Context) {
      */
     var paymentRequest: Boolean get() = paymentRequestPref.state; set(v) = paymentRequestPref.set(v)
 
+    private val youtubeBackgroundPref = bool("flag_youtube_background", false)
+    /**
+     * Flag: YouTube's phone site plays every video as if with YouTube Premium's background play,
+     * so a fullscreen video goes picture-in-picture when you leave Helmi and keeps playing
+     * (YouTubeBackground.kt). Off by default: it goes against YouTube's terms, and YouTube can
+     * break it with any update.
+     */
+    var youtubeBackground: Boolean get() = youtubeBackgroundPref.state; set(v) = youtubeBackgroundPref.set(v)
+
     private val paymentMethodCheckPref = bool("payment_method_check", true)
     /** Sites may ask whether a payment app has a card ready (Chrome's "Allow sites to check if you have payment methods saved"). */
     var paymentMethodCheck: Boolean get() = paymentMethodCheckPref.state; set(v) = paymentMethodCheckPref.set(v)
