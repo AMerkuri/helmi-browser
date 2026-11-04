@@ -142,8 +142,11 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
         val supported: Boolean
             get() = Build.VERSION.SDK_INT >= 31 && (Build.SOC_MANUFACTURER.equals("QTI", ignoreCase = true) || Build.SOC_MANUFACTURER.contains("qualcomm", ignoreCase = true))
 
-        /** Name of the model compiled ahead of time for the NPU (android/npu-model), in the report. */
-        const val COMPILED_NAME = "Qwen3-0.6B a16w8, compiled for SM8750"
+        /** The phone's chip (Build.SOC_MODEL), such as SM8750; blank before Android 12. */
+        private val soc: String get() = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.orEmpty() else ""
+
+        /** Name of the model compiled ahead of time for this phone's NPU (android/npu-model), in the report. */
+        val compiledName: String get() = "Qwen3-0.6B a16w8, compiled for ${soc.ifBlank { "this chip" }}"
 
         /**
          * Qwen3's chat format for the compiled model. The template litert-torch's export carries is
@@ -158,15 +161,20 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
                 "{% endfor %}" + // no "-": that would trim the newline before it
                 "{%- if add_generation_prompt -%}<|im_start|>assistant\n<think>\n\n</think>\n\n{% endif %}"
 
-        /** The model compiled ahead of time for the NPU, once imported ([importCompiled]). */
-        fun compiledModel(context: Context) = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/npu/Qwen3-0.6B.sm8750.litertlm")
+        /**
+         * The model compiled ahead of time for this phone's NPU, once imported ([importCompiled]),
+         * named like build.py's output for the chip (on an SM8750 the file earlier builds imported).
+         */
+        fun compiledModel(context: Context) =
+            File(context.getExternalFilesDir(null) ?: context.filesDir, "models/npu/Qwen3-0.6B.${soc.lowercase().ifBlank { "npu" }}.litertlm")
 
         /** Size and import time of the compiled model, so a report says which build it ran. */
         fun describe(file: File) = "${file.length() / 1_000_000} MB, imported ${SimpleDateFormat("d MMM HH:mm", Locale.ROOT).format(Date(file.lastModified()))}"
 
         /**
          * Copies a compiled model into the app: the .litertlm itself, or the .zip GitHub Actions
-         * makes of the npu-model workflow's artifact (its first .litertlm entry). Returns its size.
+         * makes of the npu-model workflow's artifact, which has one build per chip (the entry for
+         * this phone's chip, [isNpuModelFor]). Returns its size.
          */
         suspend fun importCompiled(context: Context, uri: Uri): Long = withContext(Dispatchers.IO) {
             val out = compiledModel(context)
@@ -180,7 +188,9 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
                 part.outputStream().use { sink ->
                     if (!zip) return@use raw.copyTo(sink)
                     val z = ZipInputStream(raw)
-                    generateSequence { z.nextEntry }.firstOrNull { it.name.endsWith(".litertlm") } ?: error("no .litertlm in the zip")
+                    val seen = mutableListOf<String>()
+                    generateSequence { z.nextEntry }.onEach { seen += it.name }.firstOrNull { isNpuModelFor(it.name, soc) }
+                        ?: error("no .litertlm for ${soc.ifBlank { "this chip" }} in the zip (it has: ${seen.joinToString().ifEmpty { "nothing" }})")
                     z.copyTo(sink)
                 }
             }
@@ -277,6 +287,20 @@ class NpuBenchmark(private val context: Context, private val model: File, privat
             tmp.renameTo(reportFile(context))
         }
     }
+}
+
+private val CHIP_IN_NAME = Regex("""\b(sm\d{4})\b""", RegexOption.IGNORE_CASE)
+
+/**
+ * Whether [entry], a file in an npu-model artifact, is the build for [soc]: a .litertlm named for
+ * that chip (build.py writes Qwen3-0.6B.<soc>.litertlm), or one named for no chip at all. A build
+ * for another chip doesn't run on this one's NPU.
+ */
+internal fun isNpuModelFor(entry: String, soc: String): Boolean {
+    val name = entry.substringAfterLast('/')
+    if (!name.endsWith(".litertlm", ignoreCase = true)) return false
+    val chip = CHIP_IN_NAME.find(name)?.groupValues?.get(1) ?: return true
+    return chip.equals(soc, ignoreCase = true)
 }
 
 /** Runs [NpuBenchmark] in the ":npu" process, then ends that process. */

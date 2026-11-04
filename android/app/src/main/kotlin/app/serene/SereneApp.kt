@@ -320,7 +320,7 @@ class SereneApp : Application() {
         if (npuBenchmarkProgress != null || benchmarkProgress != null) return
         val imported = NpuBenchmark.compiledModel(this).takeIf { it.exists() }
         val file = imported ?: models.readyFile()?.takeIf { models.spec.npu } ?: return
-        val name = if (imported != null) "${NpuBenchmark.COMPILED_NAME}, imported (${NpuBenchmark.describe(imported)})" else "${models.spec.name}, ${models.spec.file}"
+        val name = if (imported != null) "${NpuBenchmark.compiledName}, imported (${NpuBenchmark.describe(imported)})" else "${models.spec.name}, ${models.spec.file}"
         npuBenchmarkProgress = "starting"
         scope.launch {
             // One model in memory at a time: the NPU process loads its own copy.
