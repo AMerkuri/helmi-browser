@@ -1,4 +1,5 @@
-"""Builds Qwen3-0.6B for the Snapdragon 8 Elite's NPU (SM8750, Hexagon V79), ahead of time.
+"""Builds Qwen3-0.6B for Snapdragon NPUs ahead of time: the 8 Elite (SM8750, Hexagon V79) and the
+8 Gen 2 (SM8550, Hexagon V73).
 
 LiteRT-LM can run a plain .litertlm on the NPU by compiling it on the phone, but that keeps most
 of the graph on the CPU and took 7.9 s a call on a Galaxy Z Fold 7 (the GPU takes 0.8 s). A model
@@ -9,14 +10,22 @@ config, in four stages:
   1. export:    Hugging Face weights -> .litertlm (int8 weights, float activations)
   2. calibrate: activation ranges, from Serene's own prompts (calibration.jsonl)
   3. quantize:  static ranges, 16-bit activations and 8-bit weights (a16w8)
-  4. compile:   Qualcomm AOT compile for the SM8750 (needs QAIRT, which the
+  4. compile:   Qualcomm AOT compile for each chip in --soc (needs QAIRT, which the
                 ai-edge-litert-sdk-qualcomm package downloads when it is installed)
+
+Only the compile depends on the chip: the config's soc_model reaches the Qualcomm compiler plugin
+alone (litert_lm_npu_compiler), so the one quantized model is compiled once per chip, into
+Qwen3-0.6B.<soc>.litertlm, and the artifact carries them all. The app imports the file for its own
+chip from the artifact's zip (NpuBenchmark.importCompiled). litert-torch has a Qwen3-0.6B config
+for the SM8750 only; other chips take it with their own soc_model, which has to be one of LiteRT's
+Qualcomm targets (ai_edge_litert/aot/vendors/qualcomm/target.py).
 
 The KV cache is 512 tokens instead of the config's 1024: Serene's prompts are about 240 tokens
 and a reply stops after the label, and a smaller cache keeps the attention mask under the size
 where Qualcomm NPUs drop the prefill chunks after the first (LiteRT-LM issue 3508).
 
-Run by .github/workflows/npu-model.yml; locally: python build.py --work /tmp/npu (Linux x86_64).
+Run by .github/workflows/npu-model.yml; locally: python build.py --work /tmp/npu (Linux x86_64);
+--soc SM8550 compiles for one chip only.
 --model builds a fine-tuned checkpoint (engine/train/finetune.py) instead of Qwen/Qwen3-0.6B.
 """
 
@@ -32,6 +41,11 @@ from litert_torch.generative.export_hf.experimental.npu_export.config_manager im
 
 HERE = pathlib.Path(__file__).parent
 
+# The chips to compile for, with their Hexagon generation: android/app/build.gradle.kts keeps that
+# generation's Stub and Skel in the APK. A chip gets a ModelCatalog entry once its build passes the
+# NPU benchmark on a phone.
+SOCS = {"SM8750": "V79", "SM8550": "V73"}
+
 
 def main() -> None:
   ap = argparse.ArgumentParser()
@@ -39,10 +53,15 @@ def main() -> None:
   ap.add_argument("--cache-length", type=int, default=512)
   ap.add_argument("--stages", default="export,calibrate,quantize,compile")
   ap.add_argument("--model", default=None, help="Hugging Face id or checkpoint directory (default: the config's Qwen/Qwen3-0.6B)")
+  ap.add_argument("--soc", default=",".join(SOCS), help="chips to compile for, comma-separated (default: all in SOCS)")
   args = ap.parse_args()
   work = pathlib.Path(args.work)
   work.mkdir(parents=True, exist_ok=True)
   todo = set(args.stages.split(","))
+  socs = [s.strip().upper() for s in args.soc.split(",") if s.strip()]
+  unknown = [s for s in socs if s not in SOCS]
+  if unknown or not socs:
+    ap.error(f"--soc: {unknown or 'none given'}; known chips: {', '.join(SOCS)}")
 
   config = pathlib.Path(npu_export.__file__).parent / "configs" / "qwen3_0.6b_qualcomm_sm8750.json"
   cfg = NpuPipelineConfig.load_json(str(config))
@@ -55,7 +74,7 @@ def main() -> None:
   calib_data = work / "calib_data"
   calib_out = work / "calib_bounds"
   quantized = work / "quantized" / "model.litertlm"
-  compiled = work / "npu" / "Qwen3-0.6B.sm8750.litertlm"
+  compiled_dir = work / "npu"
 
   if "export" in todo:
     stages.npu_export(cfg=cfg, output_dir=str(exported.parent))
@@ -75,17 +94,22 @@ def main() -> None:
     quantized.parent.mkdir(parents=True, exist_ok=True)
     stages.npu_quantize(cfg=cfg, input_litertlm=str(exported), output_litertlm=str(quantized), calibration_dir=str(calib_out))
   if "compile" in todo:
-    compiled.parent.mkdir(parents=True, exist_ok=True)
+    compiled_dir.mkdir(parents=True, exist_ok=True)
     log_partitions()
-    try:
-      stages.npu_compile(cfg=cfg, input_litertlm=str(quantized), output_litertlm=str(compiled))
-    except ValueError as e:
-      # apply_plugin keeps the Qualcomm compiler's output in a file and names it in the message.
-      for log in re.findall(r"\S+\.error", str(e)):
-        if os.path.exists(log):
-          print(f"--- {log} ---\n" + pathlib.Path(log).read_text(errors="replace")[-20000:])
-      raise
-    print(f"NPU model: {compiled} ({os.path.getsize(compiled) / 1e6:.0f} MB)")
+    for soc in socs:
+      compiled = compiled_dir / f"Qwen3-0.6B.{soc.lower()}.litertlm"
+      soc_cfg = copy.copy(cfg)
+      soc_cfg.soc_model = soc
+      print(f"Compiling for {soc} (Hexagon {SOCS[soc]})")
+      try:
+        stages.npu_compile(cfg=soc_cfg, input_litertlm=str(quantized), output_litertlm=str(compiled))
+      except ValueError as e:
+        # apply_plugin keeps the Qualcomm compiler's output in a file and names it in the message.
+        for log in re.findall(r"\S+\.error", str(e)):
+          if os.path.exists(log):
+            print(f"--- {log} ---\n" + pathlib.Path(log).read_text(errors="replace")[-20000:])
+        raise
+      print(f"NPU model for {soc}: {compiled} ({os.path.getsize(compiled) / 1e6:.0f} MB)")
 
 
 def log_partitions() -> None:
