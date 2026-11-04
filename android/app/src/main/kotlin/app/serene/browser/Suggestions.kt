@@ -29,6 +29,14 @@ data class PageSuggestion(
 /** A search made before (a search engine's results page in the history): its [text], how often, and last when (ms). */
 data class PastSearch(val text: String, val count: Int, val lastAt: Long)
 
+/**
+ * An open tab the address bar can switch to (Chrome's "Switch to this tab"): its [id], its page and
+ * title, and when it was last on screen ([shownAt], SystemClock.elapsedRealtime), the latest first.
+ */
+data class OpenTab(val id: Long, val url: String, val title: String, val shownAt: Long) {
+    val label: String get() = title.ifBlank { url }
+}
+
 /** The field's inline completion: the [text] it shows, and the page Go opens ([url], with the scheme the page had). */
 data class Completion(val text: String, val url: String)
 
@@ -41,6 +49,26 @@ object Suggestions {
     const val MAX_PAGES = 5
     const val MAX_SEARCHES = 5
     const val MAX_PAST_SEARCHES = 3
+    const val MAX_TABS = 3
+
+    /**
+     * The open [tabs] whose page matches [query] (every word, in the title or the address), as
+     * [pages] ranks them: an address that starts with what was typed, then a word that starts
+     * with the first word, then any other match; within those, the tab on screen last. One tab
+     * per page (the latest), at most [limit]. The caller leaves out the tab on screen, and the
+     * tabs of the other kind (private or not).
+     */
+    fun openTabs(query: String, tabs: List<OpenTab>, limit: Int = MAX_TABS): List<OpenTab> {
+        val words = History.words(query)
+        if (words.isEmpty()) return emptyList()
+        val typed = typedAddress(query)
+        val first = words.first().lowercase()
+        return tabs
+            .filter { t -> t.url.isNotEmpty() && words.all { t.title.contains(it, ignoreCase = true) || t.url.contains(it, ignoreCase = true) } }
+            .sortedWith(compareByDescending<OpenTab> { match(it.url, it.title, typed, first) }.thenByDescending { it.shownAt })
+            .distinctBy { Bookmarks.key(it.url) }
+            .take(limit)
+    }
 
     /**
      * The pages that match [query] (every word, in the title or the address), best first: an address
@@ -190,14 +218,18 @@ object Suggestions {
     private fun hostPart(bare: String) = bare.substringBefore('/').substringBefore('?').substringBefore('#')
 
     private fun score(p: PageSuggestion, typed: String?, firstWord: String, now: Long): Double {
-        val bare = bare(p.url)
-        val match = when {
+        val days = (now - p.lastAt).coerceAtLeast(0) / 86_400_000.0
+        return match(p.url, p.title, typed, firstWord) + (if (p.bookmarked) 200.0 else 0.0) + 60 * ln(1.0 + p.visits) + 150 * 0.5.pow(days / 7)
+    }
+
+    /** How well a page matches: its address starts with the [typed] one (the shorter the better), a word starts with [firstWord], or any other match. */
+    private fun match(url: String, title: String, typed: String?, firstWord: String): Double {
+        val bare = bare(url)
+        return when {
             typed != null && typed.isNotEmpty() && bare.startsWith(typed) -> 1000.0 - minOf(bare.length, 100) * 2
-            startsWord(p.title.lowercase(), firstWord) || startsWord(bare, firstWord) -> 400.0
+            startsWord(title.lowercase(), firstWord) || startsWord(bare, firstWord) -> 400.0
             else -> 100.0
         }
-        val days = (now - p.lastAt).coerceAtLeast(0) / 86_400_000.0
-        return match + (if (p.bookmarked) 200.0 else 0.0) + 60 * ln(1.0 + p.visits) + 150 * 0.5.pow(days / 7)
     }
 
     private fun startsWord(text: String, word: String): Boolean {

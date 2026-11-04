@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import app.serene.R
 import app.serene.SereneApp
 import app.serene.browser.Completion
+import app.serene.browser.OpenTab
 import app.serene.bookmarks.Bookmarks
 import app.serene.browser.Suggestions
 import app.serene.browser.resolveInput
@@ -133,7 +134,9 @@ class AddressEdit(initial: String) {
 }
 
 /**
- * Chrome's suggestions under the address bar while you type: first what Go does (the completed
+ * Chrome's suggestions under the address bar while you type: first the open [tabs] whose page
+ * matches, as "Switch to tab" rows (a tap shows that tab, [onSwitch], instead of loading the page
+ * again), then what Go does (the completed
  * site, the address typed, or a search for it), then pages from the history and bookmarks, then
  * searches made before and the search engine's suggestions. A tap opens one; its arrow puts it in
  * the field to edit; a long press offers to remove it, as Chrome's "Remove suggestion from
@@ -141,7 +144,10 @@ class AddressEdit(initial: String) {
  * its front page leaves the history), a search engine's suggestion isn't shown again.
  */
 @Composable
-fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
+fun AddressSuggestions(
+    app: SereneApp, edit: AddressEdit, onOpen: (String) -> Unit, modifier: Modifier = Modifier,
+    tabs: List<OpenTab> = emptyList(), onSwitch: (OpenTab) -> Unit = {},
+) {
     val typed = edit.typed
     val query = typed.trim()
     val engine = app.settings.searchEngine
@@ -149,6 +155,7 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
     val bookmarks = app.bookmarks.items
     val now = remember(query) { System.currentTimeMillis() }
     val pages = remember(query, history, bookmarks) { Suggestions.pages(query, history, bookmarks, now) }
+    val openTabs = remember(query, tabs) { Suggestions.openTabs(query, tabs) }
     val completion = edit.completion
     val hidden = app.settings.hiddenSuggestions
     val hiddenSearches = remember(hidden) { hidden.filter { it.startsWith("q:") }.map { it.removePrefix("q:") }.toSet() }
@@ -172,11 +179,27 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
     val goesTo = completion?.url ?: resolveInput(query, engine.template)
     val first = completion?.text ?: query
     val firstIsPage = completion != null || !goesTo.startsWith(engine.template.substringBefore("%s"))
-    val shownPages = pages.filter { p -> !firstIsPage || Suggestions.bare(p.url).trimEnd('/') != Suggestions.bare(goesTo).trimEnd('/') }
+    // A page open in a tab is its "Switch to tab" row: a second row would load it again.
+    val tabKeys = openTabs.mapTo(HashSet()) { Bookmarks.key(it.url) }
+    val shownPages = pages.filter { p ->
+        (!firstIsPage || Suggestions.bare(p.url).trimEnd('/') != Suggestions.bare(goesTo).trimEnd('/')) && Bookmarks.key(p.url) !in tabKeys
+    }
     val pastKeys = past.mapTo(HashSet()) { it.text.lowercase() }
     val shownSearches = searches.filter { s -> s.lowercase().let { it != query.lowercase() && it !in pastKeys && it !in hiddenSearches } }
 
     LazyColumn(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
+        // One item for them all, always there (empty without matches): rows put in front of the
+        // first one would scroll it down out of sight, since the list keeps its first item in place.
+        item(key = "tabs") {
+            Column {
+                for (t in openTabs) {
+                    SuggestionRow(
+                        icon = painterResource(R.drawable.ic_tab), title = AnnotatedString(t.label), subtitle = "$SWITCH_TO_TAB · ${shortUrl(t.url)}",
+                        onClick = { onSwitch(t) }, onRefine = { edit.refine(t.url) },
+                    )
+                }
+            }
+        }
         item(key = "typed") {
             if (firstIsPage) {
                 SuggestionRow(
@@ -250,6 +273,9 @@ fun AddressSuggestions(app: SereneApp, edit: AddressEdit, onOpen: (String) -> Un
 }
 
 private const val FROM_HISTORY = "Remove suggestion from history?"
+
+/** The start of a tab row's second line, as Chrome's "Switch to this tab". */
+internal const val SWITCH_TO_TAB = "Switch to tab"
 
 /** A long-pressed suggestion: its [title] and [question] in the dialog, and what OK does. */
 internal class Removal(val title: String, val question: String, val remove: () -> Unit)

@@ -8,6 +8,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import app.serene.ui.SWITCH_TO_TAB
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,14 +18,15 @@ import kotlin.concurrent.thread
 /**
  * The address bar's suggestions, typed with key events: the start of a site visited twice completes
  * in the field and Go opens it (an http site stays http), and a word of a page's title lists the
- * page under the bar, where a tap opens it and a long press removes it from the history.
+ * page under the bar, where a tap opens it and a long press removes it from the history. A page
+ * open in another tab is offered as that tab.
  */
 @RunWith(AndroidJUnit4::class)
 class AddressSuggestionsTest {
     private val inst = InstrumentationRegistry.getInstrumentation()
 
-    @Test
-    fun completesAndSuggestsFromTheHistory() {
+    /** A page server: /harbour… is titled "Harbour page", the rest "Front page". */
+    private fun serve(): ServerSocket {
         val server = ServerSocket(0)
         thread(isDaemon = true) {
             while (!server.isClosed) runCatching {
@@ -44,6 +46,12 @@ class AddressSuggestionsTest {
                 }
             }
         }
+        return server
+    }
+
+    @Test
+    fun completesAndSuggestsFromTheHistory() {
+        val server = serve()
         val app = ApplicationProvider.getApplicationContext<SereneApp>()
         app.settings.savedTabs = emptyList()
         app.settings.searchSuggestions = false // the emulator has no search engine to ask
@@ -98,6 +106,50 @@ class AddressSuggestionsTest {
         }
     }
 
+    /**
+     * A page open in another tab is a "Switch to tab" row: a tap shows that tab (the page isn't
+     * loaded again), and the blank tab the address was typed in closes.
+     */
+    @Test
+    fun switchesToATabWithThePage() {
+        val server = serve()
+        val app = ApplicationProvider.getApplicationContext<SereneApp>()
+        app.settings.savedTabs = emptyList()
+        app.settings.searchSuggestions = false
+        val page = "http://127.0.0.1:${server.localPort}/harbour"
+        inst.uiAutomation.serviceInfo = inst.uiAutomation.serviceInfo.apply { flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                inst.runOnMainSync { app.history.clear() }
+                var pageTab = 0L
+                scenario.onActivity { pageTab = it.tabs.current!!.id; it.tabs.current!!.load(page) }
+                waitFor("the page loads with its title") {
+                    var title = ""
+                    scenario.onActivity { title = it.tabs.current?.title.orEmpty() }
+                    title == "Harbour page"
+                }
+                scenario.onActivity { it.tabs.open() }
+                SystemClock.sleep(2000)
+                type("harbour")
+                waitFor("the tab is suggested") { findStarting(SWITCH_TO_TAB) != null }
+                assertTrue("no clickable tab row", act(findStarting(SWITCH_TO_TAB)!!, AccessibilityNodeInfo.ACTION_CLICK))
+                waitFor("the tap shows the page's tab and closes the blank one", detail = {
+                    var ids = emptyList<Long>()
+                    scenario.onActivity { a -> ids = a.tabs.tabs.map { it.id } }
+                    "tabs: $ids"
+                }) {
+                    var on = false
+                    scenario.onActivity { on = it.tabs.current?.id == pageTab && it.tabs.tabs.size == 1 }
+                    on
+                }
+                assertTrue("the tab's page should stay", url(scenario) == page)
+            }
+        } finally {
+            app.settings.searchSuggestions = true
+            server.close()
+        }
+    }
+
     /** [action] on the clickable node that holds [n] (a row's text is a child of the row). */
     private fun act(n: AccessibilityNodeInfo, action: Int): Boolean {
         var node: AccessibilityNodeInfo? = n
@@ -131,6 +183,17 @@ class AddressSuggestionsTest {
         fun walk(n: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
             if (n == null || depth > 40) return null
             if (n.text?.toString() == text && n.isVisibleToUser) return n
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)?.let { return it }
+            return null
+        }
+        return roots().firstNotNullOfOrNull { walk(it, 0) }
+    }
+
+    /** The node on screen whose text starts with [prefix]. */
+    private fun findStarting(prefix: String): AccessibilityNodeInfo? {
+        fun walk(n: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
+            if (n == null || depth > 40) return null
+            if (n.text?.toString()?.startsWith(prefix) == true && n.isVisibleToUser) return n
             for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)?.let { return it }
             return null
         }

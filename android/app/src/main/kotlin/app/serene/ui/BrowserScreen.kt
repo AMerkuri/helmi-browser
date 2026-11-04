@@ -130,6 +130,7 @@ import app.serene.Screen
 import app.serene.SereneApp
 import app.serene.browser.FindInPage
 import app.serene.browser.HomeShortcut
+import app.serene.browser.OpenTab
 import app.serene.browser.PagePrint
 import app.serene.browser.SharedText
 import app.serene.browser.Suggestions
@@ -268,10 +269,29 @@ fun BrowserScreen(app: SereneApp, tabs: TabManager, onOpen: (Screen) -> Unit, on
                         TabCubeFaces(cube, app)
                         // Over the page while something new is typed in the address bar, as in Chrome.
                         if (finding == null && !covered && address.editing && address.typed.isNotBlank()) {
-                            AddressSuggestions(app, address, onOpen = { target ->
-                                focusManager.clearFocus()
-                                tab.load(target)
-                            })
+                            // The other open tabs of the same kind: a private tab switches only to
+                            // private tabs, and a normal tab only to normal ones, as in Chrome.
+                            val others = tabs.tabs.filter { it !== tab && it.isPrivate == tab.isPrivate && !it.downloadPage && it.url.startsWith("http") }
+                                .map { OpenTab(it.id, it.url, it.title, it.lastShown) }
+                            AddressSuggestions(
+                                app, address,
+                                onOpen = { target ->
+                                    focusManager.clearFocus()
+                                    tab.load(target)
+                                },
+                                tabs = others,
+                                onSwitch = { t ->
+                                    val to = tabs.tabs.firstOrNull { it.id == t.id }
+                                    focusManager.clearFocus()
+                                    if (to != null) {
+                                        // A new tab opened only to type the address in goes, as Chrome's
+                                        // new tab page does when it switches to a tab.
+                                        val blank = !tab.openedByPage && !tab.canGoBack && !tab.downloadPage && (tab.url.isEmpty() || tab.url == "about:blank")
+                                        tabs.select(to)
+                                        if (blank) tabs.close(tab, undo = false)
+                                    }
+                                },
+                            )
                         }
                     }
                     // The buttons still take taps: a drag starts only once the finger has moved.
